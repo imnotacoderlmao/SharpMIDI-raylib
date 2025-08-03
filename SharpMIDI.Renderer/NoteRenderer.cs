@@ -15,6 +15,7 @@ namespace SharpMIDI.Renderer
             public byte height;
             public byte noteLayer;
             public bool glowing;
+            public float occludedStart, occludedEnd; // Track which portion is occluded
         }
 
         [StructLayout(LayoutKind.Sequential, Pack = 1)]
@@ -139,18 +140,26 @@ namespace SharpMIDI.Renderer
             int capacityMinus128 = RECT_CAPACITY - 128;
             float offset = -start * scale;
 
+            // Improved culling: handle partial occlusion properly
             for (int i = startIdx; i < noteCount && count < capacityMinus128; i++)
             {
                 ref var n = ref allNotes[i];
 
+                // Early termination: if this note starts beyond our visible end, 
+                // all subsequent notes will also be beyond (assuming sorted by start time)
                 if (n.startTime > end) break;
+                
+                // Skip notes that end before our visible start (with buffer)
                 if (n.endTime < startMinusBuffer) continue;
 
                 float noteStart = n.startTime * scale + offset;
                 float noteEnd = n.endTime * scale + offset;
 
-                if (noteEnd <= 0f || noteStart >= screenWidthF) continue;
+                // Improved screen bounds culling - check if note has any visible portion
+                bool hasVisiblePortion = !(noteEnd <= 0f || noteStart >= screenWidthF);
+                if (!hasVisiblePortion) continue;
 
+                // Clamp to screen bounds
                 noteStart = MathF.Max(0f, noteStart);
                 noteEnd = MathF.Min(screenWidthF, noteEnd);
 
@@ -170,17 +179,69 @@ namespace SharpMIDI.Renderer
                 if (valid)
                 {
                     ref var existing = ref mergeNotePool[ny];
+                    
+                    // Check for layer-based occlusion
+                    bool currentNoteHigherLayer = n.noteLayer > existing.noteLayer;
+                    bool existingNoteHigherLayer = existing.noteLayer > n.noteLayer;
                     bool sameLayer = n.noteLayer == existing.noteLayer;
-                    bool sameGlow = isGlowing == existing.glowing;
-                    bool overlap = noteStart - existing.noteEnd <= 2f;
-                    if (overlap & sameGlow & sameLayer)
+                    bool notesOverlap = !(noteEnd <= existing.noteStart || noteStart >= existing.noteEnd);
+                    
+                    if (notesOverlap)
                     {
-                        if (noteEnd > existing.noteEnd) existing.noteEnd = noteEnd;
-                        continue;
+                        if (currentNoteHigherLayer)
+                        {
+                            // Current note has higher layer, update occlusion of existing note
+                            float overlapStart = MathF.Max(existing.noteStart, noteStart);
+                            float overlapEnd = MathF.Min(existing.noteEnd, noteEnd);
+                            
+                            // Check if the existing note is completely occluded
+                            if (overlapStart <= existing.noteStart && overlapEnd >= existing.noteEnd)
+                            {
+                                // Completely occluded - mark for skipping
+                                existing.occludedStart = existing.noteStart;
+                                existing.occludedEnd = existing.noteEnd;
+                            }
+                            else
+                            {
+                                // Partially occluded - track the occluded region
+                                existing.occludedStart = overlapStart;
+                                existing.occludedEnd = overlapEnd;
+                            }
+                        }
+                        else if (existingNoteHigherLayer)
+                        {
+                            // Existing note has higher layer, check if current note is completely covered
+                            float overlapStart = MathF.Max(noteStart, existing.noteStart);
+                            float overlapEnd = MathF.Min(noteEnd, existing.noteEnd);
+                            
+                            if (overlapStart <= noteStart && overlapEnd >= noteEnd)
+                            {
+                                // Current note is completely covered, skip it
+                                continue;
+                            }
+                            // If only partially covered, we'll still process it (partial visibility)
+                        }
+                        else if (sameLayer)
+                        {
+                            // Same layer - try to merge if conditions are met
+                            bool sameGlow = isGlowing == existing.glowing;
+                            bool canMerge = noteStart - existing.noteEnd <= 2f;
+                            
+                            if (canMerge & sameGlow)
+                            {
+                                // Extend existing note if this one goes further
+                                if (noteEnd > existing.noteEnd) existing.noteEnd = noteEnd;
+                                continue;
+                            }
+                        }
                     }
-                    EmitRectOptimized(in existing, ny, yBase, count++);
+                    
+                    // Emit existing note with proper occlusion handling
+                    EmitNoteWithOcclusion(in existing, ny, yBase, ref count, capacityMinus128);
+                    if (count >= capacityMinus128) break;
                 }
 
+                // Create new merge note
                 ref var newMerge = ref mergeNotePool[ny];
                 newMerge.noteStart = noteStart;
                 newMerge.noteEnd = noteEnd;
@@ -188,14 +249,17 @@ namespace SharpMIDI.Renderer
                 newMerge.height = n.height;
                 newMerge.glowing = isGlowing;
                 newMerge.noteLayer = n.noteLayer;
+                newMerge.occludedStart = float.MaxValue; // No occlusion initially
+                newMerge.occludedEnd = float.MinValue;
                 valid = true;
             }
 
+            // Emit remaining notes in the pool with occlusion handling
             for (int ny = 0; ny < 128 && count < RECT_CAPACITY; ny++)
             {
                 if (validPool[ny])
                 {
-                    EmitRectOptimized(in mergeNotePool[ny], ny, yBase, count++);
+                    EmitNoteWithOcclusion(in mergeNotePool[ny], ny, yBase, ref count, RECT_CAPACITY);
                 }
             }
 
@@ -231,6 +295,44 @@ namespace SharpMIDI.Renderer
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private static void EmitNoteWithOcclusion(in MergeNote note, int ny, float yBase, ref int count, int maxCount)
+        {
+            // Check if note has any visible portions
+            bool hasOcclusion = note.occludedStart < note.occludedEnd;
+            
+            if (!hasOcclusion)
+            {
+                // No occlusion, emit the full note
+                EmitRectOptimized(in note, ny, yBase, count++);
+                return;
+            }
+            
+            // Check if completely occluded
+            if (note.occludedStart <= note.noteStart && note.occludedEnd >= note.noteEnd)
+            {
+                // Completely occluded, don't emit anything
+                return;
+            }
+            
+            // Partially occluded - emit visible portions
+            if (note.noteStart < note.occludedStart && count < maxCount)
+            {
+                // Left portion is visible
+                var leftPortion = note;
+                leftPortion.noteEnd = note.occludedStart;
+                EmitRectOptimized(in leftPortion, ny, yBase, count++);
+            }
+            
+            if (note.occludedEnd < note.noteEnd && count < maxCount)
+            {
+                // Right portion is visible
+                var rightPortion = note;
+                rightPortion.noteStart = note.occludedEnd;
+                EmitRectOptimized(in rightPortion, ny, yBase, count++);
+            }
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private static void EmitRectOptimized(in MergeNote r, int ny, float yBase, int index)
         {
             float noteY = yBase - (ny + 0.5f) * cachedYScale;
@@ -250,31 +352,39 @@ namespace SharpMIDI.Renderer
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private static void EmitRectBatch(PackedRect* batch, int length)
         {
-            for (int i = 0; i < length; i++)
+            // Optimized batch rendering using pointer arithmetic
+            PackedRect* end = batch + length;
+            for (PackedRect* current = batch; current < end; current++)
             {
-                Raylib.DrawRectangleRec(batch[i].rect, batch[i].color);
+                Raylib.DrawRectangleRec(current->rect, current->color);
             }
-
         }
 
         [MethodImpl(MethodImplOptions.AggressiveOptimization)]
         public static void DrawRectangles(int count)
         {
             if (count == 0) return;
-            const int BATCH_SIZE = 1024;
-            int fullBatches = count / BATCH_SIZE;
-            int remainder = count % BATCH_SIZE;
-
+            
+            // Larger batch size for better performance
+            const int BATCH_SIZE = 2048;
+            
             fixed (PackedRect* rectPtr = packedRects)
             {
-                for (int b = 0; b < fullBatches; b++)
+                PackedRect* currentPtr = rectPtr;
+                int remaining = count;
+                
+                // Process full batches
+                while (remaining >= BATCH_SIZE)
                 {
-                    EmitRectBatch(rectPtr + b * BATCH_SIZE, BATCH_SIZE);
+                    EmitRectBatch(currentPtr, BATCH_SIZE);
+                    currentPtr += BATCH_SIZE;
+                    remaining -= BATCH_SIZE;
                 }
-
-                if (remainder > 0)
+                
+                // Process remainder
+                if (remaining > 0)
                 {
-                    EmitRectBatch(rectPtr + fullBatches * BATCH_SIZE, remainder);
+                    EmitRectBatch(currentPtr, remaining);
                 }
             }
         }
@@ -283,7 +393,6 @@ namespace SharpMIDI.Renderer
         {
             packedRects = null;
             glowColorCache.Clear();
-
         }
     }
 }

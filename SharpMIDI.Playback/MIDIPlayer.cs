@@ -15,7 +15,7 @@
         public static bool paused = false;
         public static double bpm = 120;
         private static double clock = 0;
-        private static double timeSinceLastPrint = tick();
+        //private static double timeSinceLastPrint = tick();
         private static int totalFrames = 0;
         private static double totalDelay = 0;
         public static void ClearEntries()
@@ -86,7 +86,6 @@
                 //Starter.form.label17.Update();
                 Starter.form.label3.Text = "Played events: " + Sound.totalEvents + " / " + eventCount;
                 //Starter.form.label3.Update();
-                timeSinceLastPrint = tick();
                 totalFrames = 0;
                 totalDelay = 0;
                 Thread.Sleep(10);
@@ -113,7 +112,7 @@
                 {
                     while (true)
                     {
-                        //UpdateUI(); disabled for now since its either choppy playback or no ui due to running synchronously
+                        //UpdateUI(); moved ui updates to form1, no more choppy playback (steamhappy emote here)
                         clock = MIDIClock.GetTick();
                         long watchtime = watch.ElapsedTicks;
                         watch.Stop();
@@ -179,10 +178,6 @@
                         if (evs == 0 || stopping)
                         {
                             if (stopping)
-                                //SharpMIDI.Renderer.Renderer.ShouldCloseWindow = true;
-                                //SharpMIDI.Renderer.Renderer.windowOpen = false;
-                                //Sound.Reload();
-                                //Renderer.HighPerformanceRenderer.ResetGlow();
                             Console.WriteLine("Playback finished...");
                             break;
                         }
