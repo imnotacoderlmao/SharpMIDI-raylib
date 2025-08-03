@@ -15,7 +15,6 @@ namespace SharpMIDI.Renderer
             public byte height;
             public byte noteLayer;
             public bool glowing;
-            public bool isVisible; // Track if this note is visible or occluded
         }
 
         [StructLayout(LayoutKind.Sequential, Pack = 1)]
@@ -30,6 +29,7 @@ namespace SharpMIDI.Renderer
 
         private static readonly MergeNote[] mergeNotePool = new MergeNote[128];
         private static readonly bool[] validPool = new bool[128];
+        private static readonly byte[] layerAtNote = new byte[128]; // Track which layer owns each note slot
 
         private static float cachedYScale = 0f;
         private static float cachedWindow = 0f;
@@ -116,7 +116,6 @@ namespace SharpMIDI.Renderer
             float windowBuffer = Window * 0.05f;
             int startIdx = FindStartIndex(start, windowBuffer);
 
-            // Clear merge pools
             unsafe
             {
                 fixed (MergeNote* poolPtr = mergeNotePool)
@@ -126,6 +125,10 @@ namespace SharpMIDI.Renderer
                 fixed (bool* validPtr = validPool)
                 {
                     Unsafe.InitBlockUnaligned(validPtr, 0, 128);
+                }
+                fixed (byte* layerPtr = layerAtNote)
+                {
+                    Unsafe.InitBlockUnaligned(layerPtr, 0, 128);
                 }
             }
 
@@ -141,7 +144,7 @@ namespace SharpMIDI.Renderer
             int capacityMinus128 = RECT_CAPACITY - 128;
             float offset = -start * scale;
 
-            // Process notes with layer-aware occlusion culling
+            // Process notes - handle note-level occlusion instead of layer replacement
             for (int i = startIdx; i < noteCount && count < capacityMinus128; i++)
             {
                 ref var n = ref allNotes[i];
@@ -175,91 +178,152 @@ namespace SharpMIDI.Renderer
                 }
                 
                 int ny = n.noteNumber;
+                byte currentLayer = n.noteLayer;
 
                 ref var valid = ref validPool[ny];
                 if (valid)
                 {
                     ref var existing = ref mergeNotePool[ny];
+                    byte existingLayer = layerAtNote[ny];
                     
-                    // Layer-aware occlusion and merging logic
-                    bool currentNoteHigherLayer = n.noteLayer > existing.noteLayer;
-                    bool existingNoteHigherLayer = existing.noteLayer > n.noteLayer;
-                    bool sameLayer = n.noteLayer == existing.noteLayer;
+                    // Check if notes overlap in time
                     bool notesOverlap = !(noteEnd <= existing.noteStart || noteStart >= existing.noteEnd);
                     
-                    if (notesOverlap && currentNoteHigherLayer)
+                    if (notesOverlap)
                     {
-                        // Current note has higher layer and overlaps - check for complete occlusion
-                        if (noteStart <= existing.noteStart && noteEnd >= existing.noteEnd)
+                        if (currentLayer > existingLayer)
                         {
-                            // Current note completely covers existing note - mark existing as invisible
-                            existing.isVisible = false;
+                            // Higher layer note overlaps - check if existing note extends beyond overlap
+                            float overlapStart = MathF.Max(existing.noteStart, noteStart);
+                            float overlapEnd = MathF.Min(existing.noteEnd, noteEnd);
+                            
+                            // Emit visible portions of existing note (before overlap)
+                            if (existing.noteStart < overlapStart)
+                            {
+                                var beforePortion = existing;
+                                beforePortion.noteEnd = overlapStart;
+                                EmitRectOptimized(in beforePortion, ny, yBase, count++);
+                                if (count >= capacityMinus128) break;
+                            }
+                            
+                            // Emit visible portion after overlap
+                            if (existing.noteEnd > overlapEnd)
+                            {
+                                var afterPortion = existing;
+                                afterPortion.noteStart = overlapEnd;
+                                EmitRectOptimized(in afterPortion, ny, yBase, count++);
+                                if (count >= capacityMinus128) break;
+                            }
+                            
+                            // Replace with current higher layer note
+                            existing.noteStart = noteStart;
+                            existing.noteEnd = noteEnd;
+                            existing.color = finalColor;
+                            existing.height = n.height;
+                            existing.glowing = isGlowing;
+                            existing.noteLayer = currentLayer;
+                            layerAtNote[ny] = currentLayer;
                         }
-                        // Even if not completely covered, higher layer note takes precedence
-                        // Emit the existing note (if visible) and replace with current
-                        if (existing.isVisible)
+                        else if (currentLayer == existingLayer)
                         {
-                            EmitRectOptimized(in existing, ny, yBase, count++);
-                            if (count >= capacityMinus128) break;
-                        }
-                    }
-                    else if (notesOverlap && existingNoteHigherLayer)
-                    {
-                        // Existing note has higher layer - check if current note should be culled
-                        if (existing.noteStart <= noteStart && existing.noteEnd >= noteEnd)
-                        {
-                            continue;
-                        }
-                    }
-                    else if (sameLayer)
-                    {
-                        // Same layer - try to merge if conditions are met
-                        bool sameGlow = isGlowing == existing.glowing;
-                        bool canMerge = noteStart - existing.noteEnd <= 2f;
-                        
-                        if (canMerge & sameGlow)
-                        {
-                            // Extend existing note if this one goes further
-                            if (noteEnd > existing.noteEnd) existing.noteEnd = noteEnd;
-                            continue;
+                            // Same layer - try to merge if conditions are met
+                            bool sameGlow = isGlowing == existing.glowing;
+                            bool canMerge = noteStart - existing.noteEnd <= 2f;
+                            
+                            if (canMerge & sameGlow)
+                            {
+                                // Extend existing note if this one goes further
+                                if (noteEnd > existing.noteEnd) existing.noteEnd = noteEnd;
+                                continue;
+                            }
+                            else
+                            {
+                                // Can't merge - emit existing and replace
+                                EmitRectOptimized(in existing, ny, yBase, count++);
+                                if (count >= capacityMinus128) break;
+                                
+                                existing.noteStart = noteStart;
+                                existing.noteEnd = noteEnd;
+                                existing.color = finalColor;
+                                existing.height = n.height;
+                                existing.glowing = isGlowing;
+                            }
                         }
                         else
                         {
-                            // Can't merge - emit existing note and start new one
-                            if (existing.isVisible)
+                            // Lower layer note overlaps with higher layer - check if current note extends beyond
+                            float overlapStart = MathF.Max(noteStart, existing.noteStart);
+                            float overlapEnd = MathF.Min(noteEnd, existing.noteEnd);
+                            
+                            // Only emit non-overlapping portions of current note
+                            if (noteStart < overlapStart)
                             {
-                                EmitRectOptimized(in existing, ny, yBase, count++);
+                                // Emit portion before overlap
+                                var beforeNote = new MergeNote
+                                {
+                                    noteStart = noteStart,
+                                    noteEnd = overlapStart,
+                                    color = finalColor,
+                                    height = n.height,
+                                    glowing = isGlowing,
+                                    noteLayer = currentLayer
+                                };
+                                EmitRectOptimized(in beforeNote, ny, yBase, count++);
                                 if (count >= capacityMinus128) break;
                             }
+                            
+                            if (noteEnd > overlapEnd)
+                            {
+                                // Emit portion after overlap
+                                var afterNote = new MergeNote
+                                {
+                                    noteStart = overlapEnd,
+                                    noteEnd = noteEnd,
+                                    color = finalColor,
+                                    height = n.height,
+                                    glowing = isGlowing,
+                                    noteLayer = currentLayer
+                                };
+                                EmitRectOptimized(in afterNote, ny, yBase, count++);
+                                if (count >= capacityMinus128) break;
+                            }
+                            // Don't replace existing note since it has higher priority
                         }
                     }
                     else
                     {
-                        // Different layers, no overlap - emit existing and continue
-                        if (existing.isVisible)
-                        {
-                            EmitRectOptimized(in existing, ny, yBase, count++);
-                            if (count >= capacityMinus128) break;
-                        }
+                        // No overlap - emit existing and replace with current
+                        EmitRectOptimized(in existing, ny, yBase, count++);
+                        if (count >= capacityMinus128) break;
+                        
+                        existing.noteStart = noteStart;
+                        existing.noteEnd = noteEnd;
+                        existing.color = finalColor;
+                        existing.height = n.height;
+                        existing.glowing = isGlowing;
+                        existing.noteLayer = currentLayer;
+                        layerAtNote[ny] = currentLayer;
                     }
                 }
-
-                // Create/replace merge note
-                ref var newMerge = ref mergeNotePool[ny];
-                newMerge.noteStart = noteStart;
-                newMerge.noteEnd = noteEnd;
-                newMerge.color = finalColor;
-                newMerge.height = n.height;
-                newMerge.glowing = isGlowing;
-                newMerge.noteLayer = n.noteLayer;
-                newMerge.isVisible = true; // New notes start as visible
-                valid = true;
+                else
+                {
+                    // Create new merge note
+                    ref var newMerge = ref mergeNotePool[ny];
+                    newMerge.noteStart = noteStart;
+                    newMerge.noteEnd = noteEnd;
+                    newMerge.color = finalColor;
+                    newMerge.height = n.height;
+                    newMerge.glowing = isGlowing;
+                    newMerge.noteLayer = currentLayer;
+                    layerAtNote[ny] = currentLayer;
+                    valid = true;
+                }
             }
 
-            // Emit remaining notes in the pool (only if visible)
+            // Emit remaining notes in the pool
             for (int ny = 0; ny < 128 && count < RECT_CAPACITY; ny++)
             {
-                if (validPool[ny] && mergeNotePool[ny].isVisible)
+                if (validPool[ny])
                 {
                     EmitRectOptimized(in mergeNotePool[ny], ny, yBase, count++);
                 }
