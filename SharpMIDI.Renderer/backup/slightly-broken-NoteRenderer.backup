@@ -15,6 +15,7 @@ namespace SharpMIDI.Renderer
             public byte height;
             public byte noteLayer;
             public bool glowing;
+            public float occludedStart, occludedEnd; // Track which portion is occluded
         }
 
         [StructLayout(LayoutKind.Sequential, Pack = 1)]
@@ -115,7 +116,6 @@ namespace SharpMIDI.Renderer
             float windowBuffer = Window * 0.05f;
             int startIdx = FindStartIndex(start, windowBuffer);
 
-            // Clear merge pools
             unsafe
             {
                 fixed (MergeNote* poolPtr = mergeNotePool)
@@ -140,9 +140,7 @@ namespace SharpMIDI.Renderer
             int capacityMinus128 = RECT_CAPACITY - 128;
             float offset = -start * scale;
 
-            // Process notes with proper layer-aware merging
-            // Since notes are already sorted by startTime then layer, we can process them in order
-            // and rely on the natural ordering for proper layering
+            // Improved culling: handle partial occlusion properly
             for (int i = startIdx; i < noteCount && count < capacityMinus128; i++)
             {
                 ref var n = ref allNotes[i];
@@ -182,27 +180,68 @@ namespace SharpMIDI.Renderer
                 {
                     ref var existing = ref mergeNotePool[ny];
                     
-                    // Check if we can merge with existing note
+                    // Check for layer-based occlusion
+                    bool currentNoteHigherLayer = n.noteLayer > existing.noteLayer;
+                    bool existingNoteHigherLayer = existing.noteLayer > n.noteLayer;
                     bool sameLayer = n.noteLayer == existing.noteLayer;
-                    bool sameGlow = isGlowing == existing.glowing;
-                    bool canMerge = sameLayer & sameGlow & (noteStart - existing.noteEnd <= 2f);
+                    bool notesOverlap = !(noteEnd <= existing.noteStart || noteStart >= existing.noteEnd);
                     
-                    if (canMerge)
+                    if (notesOverlap)
                     {
-                        // Extend existing note if this one goes further
-                        if (noteEnd > existing.noteEnd) existing.noteEnd = noteEnd;
-                        continue;
+                        if (currentNoteHigherLayer)
+                        {
+                            // Current note has higher layer, update occlusion of existing note
+                            float overlapStart = MathF.Max(existing.noteStart, noteStart);
+                            float overlapEnd = MathF.Min(existing.noteEnd, noteEnd);
+                            
+                            // Check if the existing note is completely occluded
+                            if (overlapStart <= existing.noteStart && overlapEnd >= existing.noteEnd)
+                            {
+                                // Completely occluded - mark for skipping
+                                existing.occludedStart = existing.noteStart;
+                                existing.occludedEnd = existing.noteEnd;
+                            }
+                            else
+                            {
+                                // Partially occluded - track the occluded region
+                                existing.occludedStart = overlapStart;
+                                existing.occludedEnd = overlapEnd;
+                            }
+                        }
+                        else if (existingNoteHigherLayer)
+                        {
+                            // Existing note has higher layer, check if current note is completely covered
+                            float overlapStart = MathF.Max(noteStart, existing.noteStart);
+                            float overlapEnd = MathF.Min(noteEnd, existing.noteEnd);
+                            
+                            if (overlapStart <= noteStart && overlapEnd >= noteEnd)
+                            {
+                                // Current note is completely covered, skip it
+                                continue;
+                            }
+                            // If only partially covered, we'll still process it (partial visibility)
+                        }
+                        else if (sameLayer)
+                        {
+                            // Same layer - try to merge if conditions are met
+                            bool sameGlow = isGlowing == existing.glowing;
+                            bool canMerge = noteStart - existing.noteEnd <= 2f;
+                            
+                            if (canMerge & sameGlow)
+                            {
+                                // Extend existing note if this one goes further
+                                if (noteEnd > existing.noteEnd) existing.noteEnd = noteEnd;
+                                continue;
+                            }
+                        }
                     }
-                    else
-                    {
-                        // Can't merge - emit existing note and start new one
-                        // The existing note is from an earlier time or lower layer, so emit it first
-                        EmitRectOptimized(in existing, ny, yBase, count++);
-                        if (count >= capacityMinus128) break;
-                    }
+                    
+                    // Emit existing note with proper occlusion handling
+                    EmitNoteWithOcclusion(in existing, ny, yBase, ref count, capacityMinus128);
+                    if (count >= capacityMinus128) break;
                 }
 
-                // Create/replace merge note
+                // Create new merge note
                 ref var newMerge = ref mergeNotePool[ny];
                 newMerge.noteStart = noteStart;
                 newMerge.noteEnd = noteEnd;
@@ -210,15 +249,17 @@ namespace SharpMIDI.Renderer
                 newMerge.height = n.height;
                 newMerge.glowing = isGlowing;
                 newMerge.noteLayer = n.noteLayer;
+                newMerge.occludedStart = float.MaxValue; // No occlusion initially
+                newMerge.occludedEnd = float.MinValue;
                 valid = true;
             }
 
-            // Emit remaining notes in the pool
+            // Emit remaining notes in the pool with occlusion handling
             for (int ny = 0; ny < 128 && count < RECT_CAPACITY; ny++)
             {
                 if (validPool[ny])
                 {
-                    EmitRectOptimized(in mergeNotePool[ny], ny, yBase, count++);
+                    EmitNoteWithOcclusion(in mergeNotePool[ny], ny, yBase, ref count, RECT_CAPACITY);
                 }
             }
 
@@ -251,6 +292,44 @@ namespace SharpMIDI.Renderer
             b = (b > 255u) ? 255u : b;
 
             return 0xFF000000u | (r << 16) | (g << 8) | b;
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private static void EmitNoteWithOcclusion(in MergeNote note, int ny, float yBase, ref int count, int maxCount)
+        {
+            // Check if note has any visible portions
+            bool hasOcclusion = note.occludedStart < note.occludedEnd;
+            
+            if (!hasOcclusion)
+            {
+                // No occlusion, emit the full note
+                EmitRectOptimized(in note, ny, yBase, count++);
+                return;
+            }
+            
+            // Check if completely occluded
+            if (note.occludedStart <= note.noteStart && note.occludedEnd >= note.noteEnd)
+            {
+                // Completely occluded, don't emit anything
+                return;
+            }
+            
+            // Partially occluded - emit visible portions
+            if (note.noteStart < note.occludedStart && count < maxCount)
+            {
+                // Left portion is visible
+                var leftPortion = note;
+                leftPortion.noteEnd = note.occludedStart;
+                EmitRectOptimized(in leftPortion, ny, yBase, count++);
+            }
+            
+            if (note.occludedEnd < note.noteEnd && count < maxCount)
+            {
+                // Right portion is visible
+                var rightPortion = note;
+                rightPortion.noteStart = note.occludedEnd;
+                EmitRectOptimized(in rightPortion, ny, yBase, count++);
+            }
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
