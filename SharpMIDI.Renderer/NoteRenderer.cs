@@ -1,7 +1,6 @@
 using Raylib_cs;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
-using System.Numerics;
 using SharpMIDI;
 
 namespace SharpMIDI.Renderer
@@ -11,7 +10,7 @@ namespace SharpMIDI.Renderer
         [StructLayout(LayoutKind.Sequential, Pack = 1)]
         private struct MergeNote
         {
-            public float x1, x2;
+            public float noteStart, noteEnd;
             public uint color;
             public byte height;
             public byte noteLayer;
@@ -55,7 +54,6 @@ namespace SharpMIDI.Renderer
         public static int FindStartIndex(float visibleStart, float windowBuffer)
         {
             if (NoteProcessor.allNotes.Length == 0) return 0;
-
             int lo = 0, hi = NoteProcessor.allNotes.Length - 1, result = 0;
 
             while (lo <= hi)
@@ -63,8 +61,7 @@ namespace SharpMIDI.Renderer
                 int m = lo + ((hi - lo) >> 1);
                 ref var note = ref NoteProcessor.allNotes[m];
 
-                // Use a more conservative buffer for the binary search
-                if (note.endTime >= visibleStart - windowBuffer * 2f)
+                if (note.endTime >= visibleStart - windowBuffer)
                 {
                     result = m;
                     hi = m - 1;
@@ -75,11 +72,10 @@ namespace SharpMIDI.Renderer
                 }
             }
 
-            // Conservative backtrack to ensure we don't miss any visible notes
             while (result > 0)
             {
                 ref var prevNote = ref NoteProcessor.allNotes[result - 1];
-                if (prevNote.endTime < visibleStart - windowBuffer * 2f) break;
+                if (prevNote.endTime < visibleStart) break;
                 result--;
             }
 
@@ -89,143 +85,122 @@ namespace SharpMIDI.Renderer
         [MethodImpl(MethodImplOptions.AggressiveOptimization)]
         public static int BuildVisibleRectangles(float tick, int screenWidth, int screenHeight, int padding)
         {
-            // Cache dimension updates - avoid repeated calculations
-            if ((screenWidth != (int)cachedScreenWidth) | (screenHeight != (int)cachedScreenHeight) | (padding != cachedPadding))
+            bool dimensionsChanged = cachedScreenWidth != screenWidth ||
+                                     cachedScreenHeight != screenHeight ||
+                                     cachedPadding != padding;
+
+            if (dimensionsChanged)
             {
                 cachedScreenWidth = screenWidth;
                 cachedScreenHeight = screenHeight;
                 cachedPadding = padding;
-                cachedYScale = (screenHeight - (padding << 1)) * 0.0078125f; // 1/128 as constant
+                cachedYScale = (screenHeight - (padding << 1)) * (1f / 128f);
             }
 
-            // Early exit without lock if possible
-            var allNotes = NoteProcessor.AllNotes;
-            if (allNotes.Length == 0) return 0;
+            lock (NoteProcessor.ReadyLock)
+            {
+                if (!NoteProcessor.IsReady || NoteProcessor.AllNotes.Length == 0) return 0;
+            }
 
-            // Pre-calculate all constants once
             float windowHalf = Window * 0.5f;
             float start = tick - windowHalf;
             float end = tick + windowHalf;
             float scale = screenWidth / Window;
-            float offset = -start * scale;
-            float startMinusBuffer = start - Window * 0.05f;
-            float screenWidthF = screenWidth;
-            float yBase = screenHeight - padding;
-            bool enableGlow = EnableGlow;
-            int noteCount = allNotes.Length;
-            int capacityLimit = RECT_CAPACITY - 128;
 
-            // Simplified clearing - only what we actually use
+            if (MathF.Abs(cachedWindow - Window) > 1f)
+            {
+                cachedWindow = Window;
+            }
+
+            float windowBuffer = Window * 0.05f;
+            int startIdx = FindStartIndex(start, windowBuffer);
+
             unsafe
             {
+                fixed (MergeNote* poolPtr = mergeNotePool)
+                {
+                    Unsafe.InitBlockUnaligned(poolPtr, 0, (uint)(sizeof(MergeNote) << 7));
+                }
                 fixed (bool* validPtr = validPool)
                 {
-                    // Clear in 64-byte chunks for better cache efficiency
-                    ulong* validUlong = (ulong*)validPtr;
-                    for (int i = 0; i < 16; i++) validUlong[i] = 0;      // 128 bools = 16 ulongs
+                    Unsafe.InitBlockUnaligned(validPtr, 0, 128);
                 }
             }
 
-            int startIdx = FindStartIndex(start, Window * 0.05f);
             int count = 0;
+            float yBase = screenHeight - padding;
+            float screenWidthF = screenWidth;
 
-            // Main loop with aggressive inlining and minimal branching
-            for (int i = startIdx; i < noteCount && count < capacityLimit; i++)
+            var allNotes = NoteProcessor.AllNotes;
+            int noteCount = allNotes.Length;
+
+            bool enableGlow = EnableGlow;
+            float startMinusBuffer = start - windowBuffer;
+            int capacityMinus128 = RECT_CAPACITY - 128;
+            float offset = -start * scale;
+
+            for (int i = startIdx; i < noteCount && count < capacityMinus128; i++)
             {
                 ref var n = ref allNotes[i];
+
                 if (n.startTime > end) break;
                 if (n.endTime < startMinusBuffer) continue;
-            
-                float x1 = n.startTime * scale + offset;
-                float x2 = n.endTime * scale + offset;
-            
-                if (x2 <= 0f || x1 >= screenWidthF) continue;
-            
-                x1 = MathF.Max(0f, x1);
-                x2 = MathF.Min(screenWidthF, x2);
-                float width = x2 - x1;
-            
-                int ny = n.noteNumber;
-                byte layer = n.noteLayer;
-            
+
+                float noteStart = n.startTime * scale + offset;
+                float noteEnd = n.endTime * scale + offset;
+
+                if (noteEnd <= 0f || noteStart >= screenWidthF) continue;
+
+                noteStart = MathF.Max(0f, noteStart);
+                noteEnd = MathF.Min(screenWidthF, noteEnd);
+
                 uint baseColor = n.color;
-                bool glowing = enableGlow && (tick >= n.startTime && tick <= n.endTime);
-                if (glowing) baseColor = GetGlowColorCached(baseColor);
-            
-                ref var slot = ref mergeNotePool[ny];
-            
-                if (!validPool[ny])
+                bool isGlowing = false;
+                uint finalColor = baseColor;
+
+                if (enableGlow)
                 {
-                    slot = new MergeNote { x1 = x1, x2 = x2, color = baseColor, height = n.height, glowing = glowing, noteLayer = layer };
-                    validPool[ny] = true;
-                    continue;
+                    isGlowing = (tick >= n.startTime) & (tick <= n.endTime);
+                    finalColor = isGlowing ? GetGlowColorCached(baseColor) : baseColor;
                 }
-            
-                // Compare once
-                bool sameLayer = (layer == slot.noteLayer);
-                bool sameGlow = (glowing == slot.glowing);
-                bool closeEnough = (x1 - slot.x2 <= 2f);
-            
-                if (sameLayer & sameGlow & closeEnough)
+                
+                int ny = n.noteNumber;
+
+                ref var valid = ref validPool[ny];
+                if (valid)
                 {
-                    if (x2 > slot.x2) slot.x2 = x2;
-                    continue;
-                }
-            
-                // Compute overlap
-                float ovStart = MathF.Max(x1, slot.x1);
-                float ovEnd = MathF.Min(x2, slot.x2);
-                bool hasOverlap = ovStart < ovEnd;
-            
-                if (hasOverlap)
-                {
-                    bool currentCovers = x1 <= slot.x1 && x2 >= slot.x2;
-                    bool existingCovers = slot.x1 <= x1 && slot.x2 >= x2;
-            
-                    if (slot.noteLayer > layer && existingCovers)
-                        continue;
-            
-                    if (layer > slot.noteLayer && currentCovers)
+                    ref var existing = ref mergeNotePool[ny];
+                    bool sameLayer = n.noteLayer == existing.noteLayer;
+                    bool sameGlow = isGlowing == existing.glowing;
+                    bool overlap = noteStart - existing.noteEnd <= 2f;
+                    if (overlap & sameGlow & sameLayer)
                     {
-                        slot = new MergeNote { x1 = x1, x2 = x2, color = baseColor, height = n.height, glowing = glowing, noteLayer = layer };
+                        if (noteEnd > existing.noteEnd) existing.noteEnd = noteEnd;
                         continue;
                     }
+                    EmitRectOptimized(in existing, ny, yBase, count++);
                 }
-            
-                EmitRect(slot, ny, yBase, count++);
-                slot = new MergeNote { x1 = x1, x2 = x2, color = baseColor, height = n.height, glowing = glowing, noteLayer = layer };
+
+                ref var newMerge = ref mergeNotePool[ny];
+                newMerge.noteStart = noteStart;
+                newMerge.noteEnd = noteEnd;
+                newMerge.color = finalColor;
+                newMerge.height = n.height;
+                newMerge.glowing = isGlowing;
+                newMerge.noteLayer = n.noteLayer;
+                valid = true;
             }
 
-            // Final emission with unrolled loop for better cache usage
-            for (int ny = 0; (ny < 128) & (count < RECT_CAPACITY); ny++)
+            for (int ny = 0; ny < 128 && count < RECT_CAPACITY; ny++)
             {
                 if (validPool[ny])
                 {
-                    ref var r = ref mergeNotePool[ny];
-                    EmitRect(r, ny, yBase, count);
-                    count++;
+                    EmitRectOptimized(in mergeNotePool[ny], ny, yBase, count++);
                 }
             }
 
             LastFrameRectCount = count;
             return count;
-        }
-
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private static void EmitRect(in MergeNote r, int ny, float yBase, int index)
-        {
-            float noteY = yBase - (ny + 0.5f) * cachedYScale;
-            float rectY = noteY - r.height * 0.5f;
-            float width = r.x2 - r.x1;
-
-            packedRects[index].rect = new Raylib_cs.Rectangle(r.x1, rectY, width, r.height);
-            uint c = r.color;
-            packedRects[index].color = new Raylib_cs.Color(
-                (byte)(c >> 16),
-                (byte)(c >> 8),
-                (byte)c,
-                (byte)255
-            );
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -235,10 +210,9 @@ namespace SharpMIDI.Renderer
                 return cached;
 
             uint glowColor = CalculateGlowColorFast(baseColor);
-
             if (glowColorCache.Count < 512)
                 glowColorCache[baseColor] = glowColor;
-
+            
             return glowColor;
         }
 
@@ -256,11 +230,37 @@ namespace SharpMIDI.Renderer
             return 0xFF000000u | (r << 16) | (g << 8) | b;
         }
 
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private static void EmitRectOptimized(in MergeNote r, int ny, float yBase, int index)
+        {
+            float noteY = yBase - (ny + 0.5f) * cachedYScale;
+            float rectY = noteY - r.height * 0.5f;
+            float width = r.noteEnd - r.noteStart;
+
+            packedRects[index].rect = new Raylib_cs.Rectangle(r.noteStart, rectY, width, r.height);
+            uint c = r.color;
+            packedRects[index].color = new Raylib_cs.Color(
+                (byte)(c >> 16),
+                (byte)(c >> 8),
+                (byte)c,
+                (byte)255
+            );
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private static void EmitRectBatch(PackedRect* batch, int length)
+        {
+            for (int i = 0; i < length; i++)
+            {
+                Raylib.DrawRectangleRec(batch[i].rect, batch[i].color);
+            }
+
+        }
+
         [MethodImpl(MethodImplOptions.AggressiveOptimization)]
         public static void DrawRectangles(int count)
         {
             if (count == 0) return;
-
             const int BATCH_SIZE = 1024;
             int fullBatches = count / BATCH_SIZE;
             int remainder = count % BATCH_SIZE;
@@ -279,24 +279,11 @@ namespace SharpMIDI.Renderer
             }
         }
 
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private static void EmitRectBatch(PackedRect* batch, int length)
-        {
-            for (int i = 0; i < length; i++)
-            {
-                Raylib.DrawRectangleRec(batch[i].rect, batch[i].color);
-            }
-        }
-
-        public static void ClearGlowCache()
-        {
-            glowColorCache.Clear();
-        }
-
         public static void Shutdown()
         {
             packedRects = null;
             glowColorCache.Clear();
+
         }
     }
 }
