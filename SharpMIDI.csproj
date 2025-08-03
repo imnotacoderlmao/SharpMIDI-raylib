@@ -1,16 +1,21 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
     <PropertyGroup>
         <OutputType>WinExe</OutputType>
-        <TargetFramework>net6.0-windows</TargetFramework>
+        <TargetFramework>net8.0-windows</TargetFramework>
         <Nullable>enable</Nullable>
         <UseWindowsForms>true</UseWindowsForms>
         <ImplicitUsings>enable</ImplicitUsings>
         <Optimize>true</Optimize>
         <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
         <PublishSingleFile>true</PublishSingleFile>
+        <EnableWindowsTargeting>true</EnableWindowsTargeting>
         <PublishReadyToRun>true</PublishReadyToRun>
     </PropertyGroup>
     <ItemGroup>
+    </ItemGroup>
+    <ItemGroup>
+        <PackageReference Include="raylib" Version="5.5.0" />
+        <PackageReference Include="raylib-cs" Version="7.0.1" />
         <PackageReference Include="SharpCompress" Version="0.32.2" />
     </ItemGroup>
 </Project>

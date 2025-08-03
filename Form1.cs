@@ -31,7 +31,7 @@ namespace SharpMIDI
             {
                 comboBox1.Items.Add(i);
             }
-            Task.Run(() => UpdateMemory());
+            Task.Run(() => MIDIPlayer.UpdateUI());
         }
 
         void ToggleSynthSettings(bool t)
@@ -43,6 +43,7 @@ namespace SharpMIDI
             button3.Enabled = t;
         }
 
+        
         private async Task UpdateMemory()
         {
             while(true)
@@ -65,7 +66,8 @@ namespace SharpMIDI
                 {
                     Starter.SubmitMIDIPath(openFileDialog.FileName);
                     button2.Enabled = true;
-                } else
+                }
+                else
                 {
                     button1.Enabled = true;
                 }
@@ -76,12 +78,13 @@ namespace SharpMIDI
         {
             int soundEngine = 1;
             string winMMdev = (string)comboBox1.SelectedItem;
-            if(radioButton2.Checked){soundEngine = 2; }else if(radioButton3.Checked){ soundEngine = 3; }
+            if (radioButton2.Checked) { soundEngine = 2; } else if (radioButton3.Checked) { soundEngine = 3; }
             Console.WriteLine("Loading sound engine ID " + soundEngine);
             ToggleSynthSettings(false);
-            button1.Enabled = Sound.Init(soundEngine,winMMdev) && !Starter.midiLoaded;
+            button1.Enabled = Sound.Init(soundEngine, winMMdev) && !Starter.midiLoaded;
             label13.Visible = !button1.Enabled && !Starter.midiLoaded;
             ToggleSynthSettings(true);
+            //Renderer.StreamlinedRenderer.StartRenderer();
         }
 
         private async Task PlayMIDI()
@@ -92,13 +95,16 @@ namespace SharpMIDI
 
         private async void button4_Click(object sender, EventArgs e)
         {
-            button2.Enabled = false;
-            button4.Enabled = false;
-            button4.Update();
-            button6.Enabled = true;
-            button5.Enabled = true;
-            button5.Update();
-            Task.Run(() => PlayMIDI());
+            if (Renderer.StreamlinedRenderer.ready)
+            {
+                button2.Enabled = false;
+                button4.Enabled = false;
+                button4.Update();
+                button6.Enabled = true;
+                button5.Enabled = true;
+                button5.Update();
+                Task.Run(() => PlayMIDI());
+            }
         }
 
         private void button7_Click(object sender, EventArgs e)
@@ -149,6 +155,8 @@ namespace SharpMIDI
         {
             if (Starter.midiLoaded)
             {
+                Renderer.StreamlinedRenderer.Cleanup();
+                //Sound.Reload();
                 label1.Text = "Selected MIDI: (none)";
                 label2.Text = "Status: Not Loaded";
                 label5.Text = "Notes: ??? / ???";

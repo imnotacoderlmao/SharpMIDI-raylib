@@ -4,15 +4,16 @@ namespace SharpMIDI
     {
         public static Form1 form = new Form1();
         public static bool midiLoaded = false;
+        public static string filename;
 
         [STAThread]
         static void Main()
         {
             Form.CheckForIllegalCrossThreadCalls = false;
             ApplicationConfiguration.Initialize();
+            Renderer.StreamlinedRenderer.StartRenderer();
             Application.Run(form);
         }
-
         public static void SubmitMIDIPath(string str)
         {
             Console.WriteLine("Loading MIDI file: " + str);
@@ -21,7 +22,8 @@ namespace SharpMIDI
             form.label2.Text = "Status: Loading";
             form.label1.Update();
             form.label2.Update();
-            MIDILoader.LoadPath(str,(int)form.numericUpDown1.Value,(int)form.numericUpDown3.Value);
+            filename = Path.GetFileName(str);
+            MIDILoader.LoadPath(str, (int)form.numericUpDown1.Value, (int)form.numericUpDown3.Value);
             return;
         }
     }

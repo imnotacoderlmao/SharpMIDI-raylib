@@ -4,7 +4,7 @@ namespace SharpMIDI
 {
     class MIDIClock
     {
-        static double time = 0f;
+        public static double time = 0f;
         static double bpm = 120d;
         public static double ppq = 0;
         public static double ticklen;
@@ -26,7 +26,7 @@ namespace SharpMIDI
             test.Reset();
         }
 
-        static double GetElapsed()
+        public static double GetElapsed()
         {
             double temp = ((double)test.ElapsedTicks / TimeSpan.TicksPerSecond);
             if (throttle)

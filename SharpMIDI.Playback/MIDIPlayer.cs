@@ -8,11 +8,16 @@
             tracks = new MIDITrack[count];
         }
         static double totalNotes = 0;
-        static double loadedNotes = 0;
+        public static double loadedNotes = 0;
         static double eventCount = 0;
-        static double maxTick = 0;
+        public static double maxTick = 0;
         public static uint ppq = 0;
         public static bool paused = false;
+        public static double bpm = 120;
+        private static double clock = 0;
+        private static double timeSinceLastPrint = tick();
+        private static int totalFrames = 0;
+        private static double totalDelay = 0;
         public static void ClearEntries()
         {
             ppq = 0;
@@ -20,7 +25,7 @@
             loadedNotes = 0;
             eventCount = 0;
             maxTick = 0;
-            foreach(MIDITrack i in tracks)
+            foreach (MIDITrack i in tracks)
             {
                 i.synthEvents.Clear();
                 i.tempos.Clear();
@@ -29,6 +34,15 @@
             tracks = new MIDITrack[0];
             GC.Collect();
         }
+
+        public static float GetMaxTick()
+        {
+            float max = 0f;
+            foreach (var track in tracks)
+                max = Math.Max(max, track.maxTick);
+            return max;
+        }
+
         public static void SubmitTrackForPlayback(int index, MIDITrack track)
         {
             if (tracks.Length <= index)
@@ -40,7 +54,7 @@
             loadedNotes += track.loadedNotes;
             eventCount += track.eventAmount;
             totalNotes += track.totalNotes;
-            if(track.maxTick > maxTick)
+            if (track.maxTick > maxTick)
             {
                 maxTick = track.maxTick;
             }
@@ -48,26 +62,48 @@
             Starter.form.label5.Update();
             tracks[index] = track;
         }
-        static double tick()
+        public static double tick()
         {
             TimeSpan t = DateTime.UtcNow - new DateTime(1970, 1, 1);
             double secondsSinceEpoch = t.TotalSeconds;
             return secondsSinceEpoch;
         }
         public static bool stopping = false;
+
+        public static async Task UpdateUI()
+        {
+            while (true)
+            {
+                Starter.form.label12.Text = "FPS \u2248 " + Math.Round(1 / ((double)(totalDelay / TimeSpan.TicksPerSecond) / (double)totalFrames), 5);
+                //Starter.form.label12.Update();
+                Starter.form.label7.Text = "Memory Usage: " + Form1.toMemoryText(GC.GetTotalMemory(false)) + " (May be inaccurate)";
+                //Starter.form.label7.Update();
+                Starter.form.label14.Text = "Tick: " + Math.Round(clock, 0) + " / " + maxTick;
+                //Starter.form.label14.Update();
+                Starter.form.label16.Text = "TPS: " + Math.Round(1 / MIDIClock.ticklen, 5);
+                //Starter.form.label16.Update();
+                Starter.form.label17.Text = "BPM: " + Math.Round(bpm, 5);
+                //Starter.form.label17.Update();
+                Starter.form.label3.Text = "Played events: " + Sound.totalEvents + " / " + eventCount;
+                //Starter.form.label3.Update();
+                timeSinceLastPrint = tick();
+                totalFrames = 0;
+                totalDelay = 0;
+                Thread.Sleep(10);
+            }
+        }
+
         public static unsafe async Task StartPlayback()
         {
+            if (!Renderer.StreamlinedRenderer.run){Renderer.StreamlinedRenderer.StartRenderer();};
+            //Sound.Reload();
             stopping = false;
-            double bpm = 120;
-            double clock = 0;
-            double timeSinceLastPrint = tick();
-            int totalFrames = 0;
-            double totalDelay = 0;
             double recentDelay = 0;
             float[] trackPositions = new float[tracks.Length];
             int[] eventProgress = new int[tracks.Length];
             int[] tempoProgress = new int[tracks.Length];
             System.Diagnostics.Stopwatch? watch = System.Diagnostics.Stopwatch.StartNew();
+
             MIDIClock.Reset();
             Sound.totalEvents = 0;
             MIDIClock.Start();
@@ -77,23 +113,8 @@
                 {
                     while (true)
                     {
+                        //UpdateUI(); disabled for now since its either choppy playback or no ui due to running synchronously
                         clock = MIDIClock.GetTick();
-                        if (tick() - timeSinceLastPrint >= 0.01d)
-                        {
-                            Starter.form.label12.Text = "FPS \u2248 " + Math.Round(1/((double)(totalDelay / TimeSpan.TicksPerSecond) / (double)totalFrames), 5);
-                            //Starter.form.label12.Update();
-                            Starter.form.label14.Text = "Tick: " + Math.Round(clock,0) + " / " + maxTick;
-                            //Starter.form.label14.Update();
-                            Starter.form.label16.Text = "TPS: " + Math.Round(1/MIDIClock.ticklen,5);
-                            //Starter.form.label16.Update();
-                            Starter.form.label17.Text = "BPM: " + Math.Round(bpm, 5);
-                            //Starter.form.label17.Update();
-                            Starter.form.label3.Text = "Played events: " + Sound.totalEvents + " / " + eventCount;
-                            //Starter.form.label3.Update();
-                            timeSinceLastPrint = tick();
-                            totalFrames = 0;
-                            totalDelay = 0;
-                        }
                         long watchtime = watch.ElapsedTicks;
                         watch.Stop();
                         watch = System.Diagnostics.Stopwatch.StartNew();
@@ -153,11 +174,15 @@
                                 }
                             }
                         }
+
                         totalFrames++;
                         if (evs == 0 || stopping)
                         {
                             if (stopping)
-                                Sound.Reload();
+                                //SharpMIDI.Renderer.Renderer.ShouldCloseWindow = true;
+                                //SharpMIDI.Renderer.Renderer.windowOpen = false;
+                                //Sound.Reload();
+                                //Renderer.HighPerformanceRenderer.ResetGlow();
                             Console.WriteLine("Playback finished...");
                             break;
                         }
