@@ -14,10 +14,9 @@ namespace SharpMIDI.Renderer
             public uint color;
 
             // New layout:
-            // Bits 0-6:   noteNumber (7 bits)
-            // Bits 7-10:  height     (4 bits)
-            // Bits 11-24: noteLayer  (14 bits)
-            // Bits 25-31: UNUSED     (7 bits available)
+            // Bits 0-6: noteNumber (7 bits)
+            // Bits 7-20: noteLayer  (14 bits)
+            // Bits 21-31: UNUSED   (11 bits available)
 
             public int NoteNumber
             {
@@ -25,14 +24,6 @@ namespace SharpMIDI.Renderer
                 get => (int)(packed1 & 0x7F);
                 [MethodImpl(MethodImplOptions.AggressiveInlining)]
                 set => packed1 = (packed1 & ~0x7Fu) | ((uint)value & 0x7F);
-            }
-
-            public byte Height
-            {
-                [MethodImpl(MethodImplOptions.AggressiveInlining)]
-                get => (byte)((packed1 >> 7) & 0xF);
-                [MethodImpl(MethodImplOptions.AggressiveInlining)]
-                set => packed1 = (packed1 & ~(0xFu << 7)) | (((uint)value & 0xF) << 7);
             }
 
             public ushort NoteLayer
@@ -44,13 +35,12 @@ namespace SharpMIDI.Renderer
             }
 
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
-            public OptimizedEnhancedNote(float start, float end, int note, byte h, uint col, ushort layer)
+            public OptimizedEnhancedNote(float start, float end, int note, uint col, ushort layer)
             {
                 startTime = start;
                 endTime = end;
                 color = col;
                 packed1 = ((uint)note & 0x7F) |
-                          (((uint)h & 0xF) << 7) |
                           (((uint)layer & 0x3FFF) << 11);
             }
         }
@@ -184,7 +174,6 @@ namespace SharpMIDI.Renderer
                                     start: info.Item1,
                                     end: t,
                                     note: note,
-                                    h: noteHeights[note],
                                     col: color,
                                     layer: noteLayer
                                 ));
@@ -205,7 +194,6 @@ namespace SharpMIDI.Renderer
                                 start: info.Item1,
                                 end: endTime,
                                 note: note,
-                                h: noteHeights[note],
                                 col: color,
                                 layer: noteLayer
                             ));
