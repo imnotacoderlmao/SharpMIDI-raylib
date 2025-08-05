@@ -10,38 +10,52 @@ namespace SharpMIDI.Renderer
         public struct OptimizedEnhancedNote
         {
             public float startTime, endTime;
-            private uint packed1;
-            public uint color;
+            private uint extradata;
 
-            // New layout:
-            // Bits 0-6: noteNumber (7 bits)
-            // Bits 7-20: noteLayer  (14 bits)
-            // Bits 21-31: UNUSED   (11 bits available)
+            // New extradata layout:
+            // Bits 0-6:   noteNumber (7 bits)
+            // Bits 7-22:  noteLayer  (14 bits)
+            // Bits 23-30: colorIndex (8 bits)
+            // Bits 30-31: unused     (1 bits)
 
             public int NoteNumber
             {
                 [MethodImpl(MethodImplOptions.AggressiveInlining)]
-                get => (int)(packed1 & 0x7F);
+                get => (int)(extradata & 0x7F);
                 [MethodImpl(MethodImplOptions.AggressiveInlining)]
-                set => packed1 = (packed1 & ~0x7Fu) | ((uint)value & 0x7F);
+                set => extradata = (extradata & ~0x7Fu) | ((uint)value & 0x7F);
             }
 
             public ushort NoteLayer
             {
                 [MethodImpl(MethodImplOptions.AggressiveInlining)]
-                get => (ushort)((packed1 >> 11) & 0x3FFF);
+                get => (ushort)((extradata >> 7) & 0xFFFF);
                 [MethodImpl(MethodImplOptions.AggressiveInlining)]
-                set => packed1 = (packed1 & ~(0x3FFFu << 11)) | (((uint)value & 0x3FFF) << 11);
+                set => extradata = (extradata & ~(0xFFFFu << 7)) | (((uint)value & 0xFFFF) << 7);
+            }
+
+            public byte ColorIndex
+            {
+                [MethodImpl(MethodImplOptions.AggressiveInlining)]
+                get => (byte)((extradata >> 23) & 0xFF);
+                [MethodImpl(MethodImplOptions.AggressiveInlining)]
+                set => extradata = (extradata & ~(0xFFu << 23)) | (((uint)value & 0xFF) << 23);
+            }
+
+            public uint Color
+            {
+                [MethodImpl(MethodImplOptions.AggressiveInlining)]
+                get => trackColors[ColorIndex];
             }
 
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
-            public OptimizedEnhancedNote(float start, float end, int note, uint col, ushort layer)
+            public OptimizedEnhancedNote(float start, float end, int note, byte colorIndex, ushort layer)
             {
                 startTime = start;
                 endTime = end;
-                color = col;
-                packed1 = ((uint)note & 0x7F) |
-                          (((uint)layer & 0x3FFF) << 11);
+                extradata = ((uint)note & 0x7F) |
+                           (((uint)layer & 0xFFFF) << 7) |
+                           (((uint)colorIndex & 0xFF) << 23);
             }
         }
 
@@ -50,7 +64,7 @@ namespace SharpMIDI.Renderer
         private static readonly object readyLock = new();
         
         // Pre-computed lookup tables - cache-friendly
-        private static readonly byte[] noteHeights = new byte[128];
+        public static readonly byte[] noteHeights = new byte[128];
         private static readonly uint[] trackColors = new uint[256];
         private static readonly bool[] isBlackKey = new bool[128];
         
@@ -139,7 +153,7 @@ namespace SharpMIDI.Renderer
 
                     activeNotes.Clear();
                     float t = 0f;
-                    uint color = trackColors[ti & 0xFF]; // Explicit 8-bit mask
+                    byte colorIndex = (byte)(ti & 0xFF); // Store color index instead of full color
                     byte noteLayer = (byte)(ti & 0x3FFF); // Support up to 16383 layers now
                     
                     var events = track.synthEvents;
@@ -169,12 +183,12 @@ namespace SharpMIDI.Renderer
                         {
                             if (activeNotes.TryGetValue(key, out var info))
                             {
-                                // Use optimized constructor (removed trackIndex)
+                                // Use optimized constructor with colorIndex
                                 noteList.Add(new OptimizedEnhancedNote(
                                     start: info.Item1,
                                     end: t,
                                     note: note,
-                                    col: color,
+                                    colorIndex: colorIndex,
                                     layer: noteLayer
                                 ));
                                 activeNotes.Remove(key);
@@ -194,7 +208,7 @@ namespace SharpMIDI.Renderer
                                 start: info.Item1,
                                 end: endTime,
                                 note: note,
-                                col: color,
+                                colorIndex: colorIndex,
                                 layer: noteLayer
                             ));
                         }

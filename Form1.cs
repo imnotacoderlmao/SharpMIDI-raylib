@@ -155,7 +155,8 @@ namespace SharpMIDI
         {
             if (Starter.midiLoaded)
             {
-                Renderer.StreamlinedRenderer.Cleanup();
+                Renderer.NoteProcessor.Cleanup();
+                Renderer.NoteRenderer.Cleanup();
                 //Sound.Reload();
                 label1.Text = "Selected MIDI: (none)";
                 label2.Text = "Status: Not Loaded";

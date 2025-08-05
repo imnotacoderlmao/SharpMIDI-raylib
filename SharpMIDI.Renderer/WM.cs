@@ -1,3 +1,4 @@
+using System.Drawing.Printing;
 using Raylib_cs;
 using SharpMIDI;
 
@@ -5,7 +6,7 @@ namespace SharpMIDI.Renderer
 {
     public static class WindowManager
     {
-        private const int PAD = 25;
+        public const int PAD = 22;
 
         // Dynamic window dimensions
         private static int currentWidth = 1280;
@@ -102,8 +103,8 @@ namespace SharpMIDI.Renderer
                 MIDIClock.time += Math.Round(1 / MIDIClock.ticklen, 5);
 
             // Toggle controls
-            if (Raylib.IsKeyPressed(KeyboardKey.G))
-                NoteRenderer.EnableGlow = !NoteRenderer.EnableGlow;
+            /*if (Raylib.IsKeyPressed(KeyboardKey.G))
+                NoteRenderer.EnableGlow = !NoteRenderer.EnableGlow;*/
             if (Raylib.IsKeyPressed(KeyboardKey.D))
                 Debug = !Debug;
             if (Raylib.IsKeyPressed(KeyboardKey.V))
@@ -128,7 +129,8 @@ namespace SharpMIDI.Renderer
                 tickStr.Append("Tick: ").Append((int)tick)
                        .Append(" | Tempo: ").Append(MIDIPlayer.bpm.ToString("F1"))
                        .Append(" | Zoom: ").Append((int)NoteRenderer.Window)
-                       .Append(" | Glow: ").Append(NoteRenderer.EnableGlow ? "ON" : "OFF")
+                       /*.Append(" | Glow: ").Append(NoteRenderer.EnableGlow ? "ON" : "OFF")*/
+                       .Append(" | Glow: ").Append("broken")
                        .Append(" | FPS: ").Append(Raylib.GetFPS());
 
                 Raylib.DrawText(tickStr.ToString(), 10, 5, 16, Raylib_cs.Color.Green);
@@ -136,7 +138,7 @@ namespace SharpMIDI.Renderer
                 if (Debug)
                 {
                     debugStr.Clear();
-                    debugStr.Append("Columns Rendered: ").Append(NoteRenderer.RenderedColumns)
+                    debugStr.Append("Drawcalls?: ").Append(NoteRenderer.RenderedColumns)
                             .Append(" | Memory: ").Append(Form1.toMemoryText(GC.GetTotalMemory(false)));
                     Raylib.DrawText(debugStr.ToString(), 10, 25, 16, Raylib_cs.Color.SkyBlue);
                 }

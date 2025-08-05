@@ -1,196 +1,124 @@
 using Raylib_cs;
+using System.Numerics;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
-using System.Numerics;
 using SharpMIDI;
 
 namespace SharpMIDI.Renderer
 {
-    /// <summary>
-    /// True GPU-accelerated renderer using streaming texture approach
-    /// Renders notes to a scrolling texture buffer for maximum performance
-    /// </summary>
     public static unsafe class NoteRenderer
     {
-        // Piano key layout constants
         private const int WHITE_KEY_HEIGHT = 8;
-        private const int BLACK_KEY_HEIGHT = 5;
-        private const int TOTAL_TEXTURE_HEIGHT = 128 * WHITE_KEY_HEIGHT; // 1024 pixels for full piano range
-        
-        // Streaming texture dimensions
-        private static int textureWidth = 4096;  // Will be set to window width
+        private const int TOTAL_TEXTURE_HEIGHT = 128 * WHITE_KEY_HEIGHT;
+
+        private static int textureWidth = 4096;
         private static int textureHeight = TOTAL_TEXTURE_HEIGHT;
-        
-        // GPU resources
-        private static RenderTexture2D streamingTexture;
-        private static RenderTexture2D tempTexture;
+
+        private static RenderTexture2D streamingTexture, tempTexture;
         private static Texture2D whitePixel;
-        private static bool initialized = false;
-        
-        // Scrolling state
-        private static float currentPosition = 0f;
-        private static float pixelsPerTick = 1f;
-        private static int lastRenderedColumn = 0;
-        
-        // Pre-allocated pixel data for direct texture updates
         private static byte[] pixelBuffer;
         private static GCHandle bufferHandle;
         private static IntPtr bufferPtr;
-        
-        // Note lookup arrays for fast rendering
+
         private static readonly int[] noteToPixelY = new int[128];
         private static readonly int[] noteHeights = new int[128];
-        private static readonly bool[] isBlackKey = new bool[128];
-        
-        // Raylib_cs.Color cache
         private static readonly Dictionary<uint, Raylib_cs.Color> colorCache = new(256);
-        
-        public static float Window { get; set; } = 2000f;
-        public static bool EnableGlow { get; set; } = true;
+
+        private static float pixelsPerTick = 1f;
+        private static int lastRenderedColumn = 0;
+
+        private static bool initialized = false;
+        private static bool forceFullRedraw = true;
+
+        public static float Window { get; private set; } = 2000f;
+        public static bool EnableGlow { get; set; } = false;
         public static int RenderedColumns { get; private set; } = 0;
 
         static NoteRenderer()
         {
-            InitializePianoLayout();
-        }
-
-        private static void InitializePianoLayout()
-        {
-            const uint BK = 0x54A; // Black key pattern
-            int totalWhiteKeys = 0;
-
-            // First count number of white keys (so we can scale them to textureHeight)
             for (int i = 0; i < 128; i++)
             {
-                int noteInOctave = i % 12;
-                bool isBlack = ((BK >> noteInOctave) & 1) != 0;
-                if (!isBlack) totalWhiteKeys++;
-            }
-            for (int note = 0; note < 128; note++)
-            {
-                float yStart = textureHeight * ((127 - note) / 128f); // Flip so note 0 is at bottom
-                float yEnd = textureHeight * ((128 - note) / 128f);
-                noteToPixelY[note] = (int)yStart;
-                noteHeights[note] = Math.Max(1, (int)(yEnd - yStart)); // Always at least 1 pixel tall
+                float yStart = TOTAL_TEXTURE_HEIGHT * ((127 - i) / 128f);
+                float yEnd = TOTAL_TEXTURE_HEIGHT * ((128 - i) / 128f);
+                noteToPixelY[i] = (int)yStart;
+                noteHeights[i] = Math.Max(1, (int)(yEnd - yStart));
             }
         }
-
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static void Initialize(int windowWidth, int windowHeight)
+        public static void Initialize(int width, int height)
         {
-            if (initialized && textureWidth == windowWidth) return;
-            
-            if (initialized) Cleanup();
-            
-            textureWidth = windowWidth;
-            pixelsPerTick = textureWidth / Window;
-            
-            InitializeGPUResources();
-            initialized = true;
-        }
+            if (initialized && width == textureWidth) return;
 
-        private static void InitializeGPUResources()
-        {
-            // Create streaming render texture
+            if (initialized) Cleanup();
+
+            textureWidth = width;
+            pixelsPerTick = textureWidth / Window;
+
             streamingTexture = Raylib.LoadRenderTexture(textureWidth, textureHeight);
             tempTexture = Raylib.LoadRenderTexture(textureWidth, textureHeight);
-            
-            // Create 1x1 white pixel for drawing
+
             Raylib_cs.Image whiteImage = Raylib.GenImageColor(1, 1, Raylib_cs.Color.White);
             whitePixel = Raylib.LoadTextureFromImage(whiteImage);
             Raylib.UnloadImage(whiteImage);
-            
-            // Initialize pixel buffer for direct texture manipulation
-            int bufferSize = textureWidth * textureHeight * 4; // RGBA
+
+            int bufferSize = textureWidth * textureHeight * 4;
             pixelBuffer = new byte[bufferSize];
             bufferHandle = GCHandle.Alloc(pixelBuffer, GCHandleType.Pinned);
             bufferPtr = bufferHandle.AddrOfPinnedObject();
-            
-            // Clear the streaming texture
+
             Raylib.BeginTextureMode(streamingTexture);
             Raylib.ClearBackground(Raylib_cs.Color.Black);
             Raylib.EndTextureMode();
-            // Clear temp texture too
-            Raylib.BeginTextureMode(tempTexture);
-            Raylib.ClearBackground(Raylib_cs.Color.Black);
-            Raylib.EndTextureMode();
 
-            currentPosition = 0f;
             lastRenderedColumn = 0;
+            forceFullRedraw = true;
+            initialized = true;
         }
 
         [MethodImpl(MethodImplOptions.AggressiveOptimization)]
         public static void UpdateStreaming(float tick)
         {
             if (!initialized || !NoteProcessor.IsReady) return;
-            
-            float targetPosition = tick * pixelsPerTick;
-            int targetColumn = (int)targetPosition % textureWidth;
-            
-            if (currentPosition == 0f && tick == 0f)
-            {
-                RenderFullTexture(0f);
-                currentPosition = 0.01f;  // fake small advance to prevent skipping next frame
-                return;
-            }
 
-            // Calculate how many columns we need to render
-            int columnsToRender = CalculateColumnsToRender(targetPosition, targetColumn);
-            if (columnsToRender <= 0) return;
-            
-            // Scroll the texture if needed
-            if (columnsToRender >= textureWidth)
+            int newColumn = (int)(tick * pixelsPerTick) % textureWidth;
+            int delta = (newColumn - lastRenderedColumn + textureWidth) % textureWidth;
+
+            if (forceFullRedraw || delta >= textureWidth)
             {
-                // Full refresh needed
                 RenderFullTexture(tick);
+                RenderedColumns = textureWidth;
+                forceFullRedraw = false;
+            }
+            else if (delta > 0)
+            {
+                ScrollAndRenderColumns(tick, delta);
+                RenderedColumns = delta;
             }
             else
             {
-                // Incremental update
-                ScrollAndRenderColumns(tick, columnsToRender, targetColumn);
+                RenderedColumns = 0;
             }
-            
-            currentPosition = targetPosition;
-            lastRenderedColumn = targetColumn;
-            RenderedColumns = columnsToRender;
-        }
 
-        private static int CalculateColumnsToRender(float targetPosition, int targetColumn)
-        {
-            float deltaPosition = targetPosition - currentPosition;
-            if (Math.Abs(deltaPosition) < 0.5f) return 0;
-            
-            // If we've moved too far, do a full refresh
-            if (Math.Abs(deltaPosition) >= textureWidth) return textureWidth;
-            
-            return Math.Max(1, (int)Math.Abs(deltaPosition));
+            lastRenderedColumn = newColumn;
         }
 
         [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-        private static void ScrollAndRenderColumns(float tick, int columnsToRender, int targetColumn)
+        private static void ScrollAndRenderColumns(float tick, int delta)
         {
-            // Copy current texture to temp
             Raylib.BeginTextureMode(tempTexture);
             Raylib.ClearBackground(Raylib_cs.Color.Black);
-            
-            // Draw shifted texture
-            Raylib_cs.Rectangle sourceRect = new(columnsToRender, 0, textureWidth - columnsToRender, -textureHeight);
-            Raylib_cs.Rectangle destRect = new(0, 0, textureWidth - columnsToRender, textureHeight);
-            Texture2D tex = streamingTexture.Texture;
-            Raylib.DrawTexturePro(tex, sourceRect, destRect, Vector2.Zero, 0f, Raylib_cs.Color.White);
-            
+
+            Raylib_cs.Rectangle src = new(delta, 0, textureWidth - delta, -textureHeight);
+            Raylib_cs.Rectangle dst = new(0, 0, textureWidth - delta, textureHeight);
+            Raylib.DrawTexturePro(streamingTexture.Texture, src, dst, Vector2.Zero, 0f, Raylib_cs.Color.White);
             Raylib.EndTextureMode();
-            
-            // Swap textures
+
             (streamingTexture, tempTexture) = (tempTexture, streamingTexture);
-            
-            // Render new columns
+
             Raylib.BeginTextureMode(streamingTexture);
-            
-            float startTick = tick + (Window * 0.5f) - (columnsToRender / pixelsPerTick);
-            RenderColumns(textureWidth - columnsToRender, columnsToRender, startTick);
-            
+            float startTick = tick - (Window * 0.5f) + ((float)(textureWidth - delta) / textureWidth) * Window;
+            RenderColumns(textureWidth - delta, delta, startTick);
             Raylib.EndTextureMode();
         }
 
@@ -199,71 +127,52 @@ namespace SharpMIDI.Renderer
         {
             Raylib.BeginTextureMode(streamingTexture);
             Raylib.ClearBackground(Raylib_cs.Color.Black);
-            
             float startTick = tick - (Window * 0.5f);
             RenderColumns(0, textureWidth, startTick);
-            
             Raylib.EndTextureMode();
         }
 
         [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-        private static void RenderColumns(int startX, int columnCount, float startTick)
+        private static void RenderColumns(int startX, int width, float startTick)
         {
-            if (!NoteProcessor.IsReady) return;
-            
             var notes = NoteProcessor.AllNotes;
+            if (notes.Length == 0) return;
+
             float ticksPerPixel = Window / textureWidth;
-            float endTick = startTick + (columnCount * ticksPerPixel);
-            
-            // Find relevant notes using binary search
-            int startIdx = FindNotesInRange(notes, startTick - 100f, endTick + 100f);
-            
-            // Render notes as rectangles directly to the texture
-            for (int i = startIdx; i < notes.Length; i++)
+            float endTick = startTick + (width * ticksPerPixel);
+            int startIndex = FindNotesInRange(notes, startTick - 200f);
+
+            for (int i = startIndex; i < notes.Length; i++)
             {
-                var note = notes[i];
+                ref var note = ref notes[i];
                 if (note.startTime > endTick) break;
                 if (note.endTime < startTick) continue;
-                
-                // Calculate pixel coordinates
-                float noteStartPixel = (note.startTime - startTick) / ticksPerPixel;
-                float noteEndPixel = (note.endTime - startTick) / ticksPerPixel;
-                
-                int x1 = Math.Max(0, (int)noteStartPixel);
-                int x2 = Math.Min(columnCount, (int)Math.Ceiling(noteEndPixel));
-                
+
+                float startPx = (note.startTime - startTick) / ticksPerPixel;
+                float endPx = (note.endTime - startTick) / ticksPerPixel;
+
+                int x1 = Math.Max(0, (int)startPx);
+                int x2 = Math.Min(width, (int)endPx + 1);
+
                 if (x2 <= x1) continue;
-                
-                // Get note color
-                bool isGlowing = EnableGlow;
-                Raylib_cs.Color noteColor = GetNoteColor(note.color, isGlowing);
-                
-                // Draw the note rectangle
-                int noteY = noteToPixelY[note.NoteNumber];
-                int noteHeight = noteHeights[note.NoteNumber];
-                
-                Raylib.DrawRectangle(
-                    startX + x1, 
-                    noteY, 
-                    x2 - x1, 
-                    noteHeight, 
-                    noteColor
-                );
+
+                int y = noteToPixelY[note.NoteNumber];
+                int h = noteHeights[note.NoteNumber];
+
+                Raylib_cs.Color col = GetNoteColor(note.Color, EnableGlow);
+                Raylib.DrawRectangle(startX + x1, y, x2 - x1, h, col);
             }
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private static int FindNotesInRange(NoteProcessor.OptimizedEnhancedNote[] notes, float startTick, float endTick)
+        private static int FindNotesInRange(NoteProcessor.OptimizedEnhancedNote[] notes, float startTick)
         {
-            if (notes.Length == 0) return 0;
-            
-            int left = 0, right = notes.Length - 1, result = 0;
-            
-            // Binary search for first note that might be visible
+            int left = 0, right = notes.Length - 1, result = notes.Length;
+
             while (left <= right)
             {
-                int mid = left + (right - left) / 2;
-                if (notes[mid].endTime >= startTick)
+                int mid = (left + right) >> 1;
+                if (notes[mid].startTime >= startTick)
                 {
                     result = mid;
                     right = mid - 1;
@@ -273,78 +182,62 @@ namespace SharpMIDI.Renderer
                     left = mid + 1;
                 }
             }
-            
-            return result;
+
+            return Math.Max(0, result - 1);
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private static Raylib_cs.Color GetNoteColor(uint baseColor, bool isGlowing)
+        private static Raylib_cs.Color GetNoteColor(uint raw, bool glow)
         {
-            uint cacheKey = baseColor | (isGlowing ? 0x80000000u : 0u);
-            
-            if (colorCache.TryGetValue(cacheKey, out Raylib_cs.Color cached))
+            uint key = glow ? (raw | 0x80000000u) : raw;
+
+            if (colorCache.TryGetValue(key, out Raylib_cs.Color cached))
                 return cached;
-            
-            byte r = (byte)((baseColor >> 16) & 0xFF);
-            byte g = (byte)((baseColor >> 8) & 0xFF);
-            byte b = (byte)(baseColor & 0xFF);
-            
-            if (isGlowing)
+
+            byte r = (byte)((raw >> 16) & 0xFF);
+            byte g = (byte)((raw >> 8) & 0xFF);
+            byte b = (byte)(raw & 0xFF);
+
+            if (glow)
             {
-                r = (byte)Math.Min(255, (int)(r * 1.8f));
-                g = (byte)Math.Min(255, (int)(g * 1.8f));
-                b = (byte)Math.Min(255, (int)(b * 1.8f));
+                r = (byte)Math.Min(255, r * 1.8f);
+                g = (byte)Math.Min(255, g * 1.8f);
+                b = (byte)Math.Min(255, b * 1.8f);
             }
-            
-            Raylib_cs.Color result = new(r, g, b, (byte)255);
-            
+
+            Raylib_cs.Color color = new(r, g, b, (byte)255);
             if (colorCache.Count < 256)
-                colorCache[cacheKey] = result;
-            
-            return result;
+                colorCache[key] = color;
+            return color;
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static void Render(int screenWidth, int screenHeight, int padding)
+        public static void Render(int screenWidth, int screenHeight, int pad)
         {
             if (!initialized) return;
 
-            Raylib_cs.Rectangle sourceRect = new(0, 0, textureWidth, -textureHeight);
-            Raylib_cs.Rectangle destRect = new(0, padding, screenWidth, screenHeight - (padding * 2));
-
-            Raylib.DrawTexturePro(
-                streamingTexture.Texture,
-                sourceRect,
-                destRect,
-                Vector2.Zero,
-                0f,
-                Raylib_cs.Color.White
-            );
+            Raylib_cs.Rectangle src = new(0, 0, textureWidth, -textureHeight);
+            Raylib_cs.Rectangle dst = new(0, pad, screenWidth, screenHeight - (pad << 1));
+            Raylib.DrawTexturePro(streamingTexture.Texture, src, dst, Vector2.Zero, 0f, Raylib_cs.Color.White);
         }
 
         public static void SetWindow(float newWindow)
         {
-            if (Math.Abs(Window - newWindow) > 0.1f)
+            if (MathF.Abs(Window - newWindow) > 0.1f)
             {
                 Window = newWindow;
                 pixelsPerTick = textureWidth / Window;
-                
-                // Force full refresh on next update
-                currentPosition = float.MinValue;
+                forceFullRedraw = true;
             }
         }
 
-        private static void Cleanup()
+        public static void Cleanup()
         {
             if (!initialized) return;
-            
             Raylib.UnloadRenderTexture(streamingTexture);
             Raylib.UnloadRenderTexture(tempTexture);
             Raylib.UnloadTexture(whitePixel);
-            
-            if (bufferHandle.IsAllocated)
-                bufferHandle.Free();
-            
+            if (bufferHandle.IsAllocated) bufferHandle.Free();
             colorCache.Clear();
         }
 
