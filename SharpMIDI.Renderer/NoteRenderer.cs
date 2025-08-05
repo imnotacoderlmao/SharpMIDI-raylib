@@ -140,25 +140,32 @@ namespace SharpMIDI.Renderer
 
             float ticksPerPixel = Window / textureWidth;
             float endTick = startTick + (width * ticksPerPixel);
-            //int startIndex = FindNotesInRange(notes, startTick);
-            int startIndex = FindNotesInRange(notes, startTick - Window); // hopefully dosent impact performance much
+            int startIndex = FindNotesInRange(notes, startTick);
+            int currentNote = -1;
+            int y = 0, h = 0;
 
             for (int i = startIndex; i < notes.Length; i++)
             {
                 ref var note = ref notes[i];
-                if (note.startTime > endTick) break;
-                if (note.endTime < startTick) continue;
+                if (note.StartTick > endTick) break;
+                if (note.EndTick < startTick) continue;
 
-                float startPx = (note.startTime - startTick) / ticksPerPixel;
-                float endPx = (note.endTime - startTick) / ticksPerPixel;
+                float startPx = (note.StartTick - startTick) / ticksPerPixel;
+                float endPx = (note.EndTick - startTick) / ticksPerPixel;
 
-                int x1 = Math.Max(0, (int)startPx);
-                int x2 = Math.Min(width, (int)endPx + 1);
+                int x1 = (int)startPx;
+                int x2 = (int)endPx + 1;
 
-                if (x2 <= x1) continue;
+                if (x2 <= 0 || x1 >= width) continue; // completely offscreen
+                x1 = x1 < 0 ? 0 : x1;
+                x2 = x2 > width ? width : x2;
 
-                int y = noteToPixelY[note.NoteNumber];
-                int h = noteHeights[note.NoteNumber];
+                if (note.NoteNumber != currentNote)
+                {
+                    currentNote = note.NoteNumber;
+                    y = noteToPixelY[currentNote];
+                    h = noteHeights[currentNote];
+                }
 
                 Raylib_cs.Color col = GetNoteColor(note.Color, EnableGlow);
                 Raylib.DrawRectangle(startX + x1, y, x2 - x1, h, col);
@@ -168,12 +175,18 @@ namespace SharpMIDI.Renderer
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private static int FindNotesInRange(NoteProcessor.OptimizedEnhancedNote[] notes, float startTick)
         {
+            if (notes.Length == 0) return 0;
+
+            const float overlapRange = 8192f;
+            float searchStart = startTick - overlapRange;
+
             int left = 0, right = notes.Length - 1, result = notes.Length;
 
+            // Binary search to find the first note that starts after (startTick - overlap)
             while (left <= right)
             {
                 int mid = (left + right) >> 1;
-                if (notes[mid].startTime >= startTick)
+                if (notes[mid].StartTick >= searchStart)
                 {
                     result = mid;
                     right = mid - 1;
@@ -184,7 +197,7 @@ namespace SharpMIDI.Renderer
                 }
             }
 
-            return Math.Max(0, result - 1);
+            return result;
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
