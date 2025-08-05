@@ -140,7 +140,8 @@ namespace SharpMIDI.Renderer
 
             float ticksPerPixel = Window / textureWidth;
             float endTick = startTick + (width * ticksPerPixel);
-            int startIndex = FindNotesInRange(notes, startTick - 200f);
+            //int startIndex = FindNotesInRange(notes, startTick);
+            int startIndex = FindNotesInRange(notes, startTick - Window); // hopefully dosent impact performance much
 
             for (int i = startIndex; i < notes.Length; i++)
             {
