@@ -9,56 +9,21 @@ namespace SharpMIDI.Renderer
         [StructLayout(LayoutKind.Sequential, Pack = 1)]
         public struct OptimizedEnhancedNote
         {
-            private ulong packed;
+            private readonly ulong packed;
 
+            public int StartTick => (int)(packed & 0x3FFFFFFF);
+            public int Duration => (int)((packed >> 30) & 0xFFFF);
+            public int EndTick => StartTick + Duration;
+            public byte NoteNumber => (byte)((packed >> 46) & 0x7F);
+            public byte NoteLayer => (byte)((packed >> 53) & 0x0F);
+            public uint Color => (uint)((packed >> 60) & 0x0F);
+            
             // Layout:
             // Bits 0–29:   startTick (30 bits)
             // Bits 30–45:  duration  (16 bits)
             // Bits 46–52:  noteNumber (7 bits)
-            // Bits 53–56:  noteLayer (4 bits)
-            // Bits 57–63:  colorIndex (7 bits)
-
-            public int StartTick
-            {
-                [MethodImpl(MethodImplOptions.AggressiveInlining)]
-                get => (int)(packed & 0x3FFFFFFF);
-            }
-
-            public int EndTick
-            {
-                [MethodImpl(MethodImplOptions.AggressiveInlining)]
-                get => StartTick + Duration;
-            }
-
-            public int Duration
-            {
-                [MethodImpl(MethodImplOptions.AggressiveInlining)]
-                get => (int)((packed >> 30) & 0xFFFF);
-            }
-
-            public byte NoteNumber
-            {
-                [MethodImpl(MethodImplOptions.AggressiveInlining)]
-                get => (byte)((packed >> 46) & 0x7F);
-            }
-
-            public byte NoteLayer
-            {
-                [MethodImpl(MethodImplOptions.AggressiveInlining)]
-                get => (byte)((packed >> 53) & 0xF);
-            }
-
-            public byte ColorIndex
-            {
-                [MethodImpl(MethodImplOptions.AggressiveInlining)]
-                get => (byte)((packed >> 57) & 0x7F);
-            }
-
-            public uint Color
-            {
-                [MethodImpl(MethodImplOptions.AggressiveInlining)]
-                get => trackColors[ColorIndex];
-            }
+            // Bits 53–59:  noteLayer (7 bits) - 128 layers
+            // Bits 60–63:  colorIndex (4 bits) - 16 colors
 
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
             public OptimizedEnhancedNote(int startTick, int duration, byte noteNumber, byte colorIndex, byte noteLayer)
@@ -66,19 +31,23 @@ namespace SharpMIDI.Renderer
                 packed = ((ulong)(startTick & 0x3FFFFFFF)) |
                          ((ulong)(duration & 0xFFFF) << 30) |
                          ((ulong)(noteNumber & 0x7F) << 46) |
-                         ((ulong)(noteLayer & 0xF) << 53) |
-                         ((ulong)(colorIndex & 0x7F) << 57);
+                         ((ulong)(noteLayer & 0x7F) << 53) |
+                         ((ulong)(colorIndex & 0x0F) << 60);
             }
+        }
+        public static uint GetTrackColor(int index)
+        {
+            return trackColors[index & 0x0F]; // safe mask
         }
 
         private const uint BK = 0x54A;
         public static OptimizedEnhancedNote[] allNotes = Array.Empty<OptimizedEnhancedNote>();
         private static readonly object readyLock = new();
 
-        private static readonly uint[] trackColors = new uint[256];
+        private static readonly uint[] trackColors = new uint[16]; // 16 colors matching MIDI channels
 
-        private static readonly List<OptimizedEnhancedNote> noteList = new(65536);
-        private static readonly Dictionary<int, (int, byte)> activeNotes = new(128);
+        private static List<OptimizedEnhancedNote> noteList = new(65536);
+        private static Dictionary<int, (int, byte)> activeNotes = new(128);
 
         public static bool IsReady { get; private set; } = false;
         public static OptimizedEnhancedNote[] AllNotes => allNotes;
@@ -95,7 +64,7 @@ namespace SharpMIDI.Renderer
             const float saturation = 0.72f;
             const float brightness = 0.18f;
 
-            for (int i = 0; i < 256; i++)
+            for (int i = 0; i < 16; i++) // Generate 16 colors (matching MIDI channels)
             {
                 float h = (i * G * 360f) % 360f;
                 float c = saturation;
@@ -129,10 +98,23 @@ namespace SharpMIDI.Renderer
                 IsReady = false;
                 if (MIDIPlayer.tracks == null) return;
 
+                // Clear previous data first
                 noteList.Clear();
-                if (noteList.Capacity < 65536) noteList.Capacity = 65536;
-
+                activeNotes.Clear();
+                
+                // Pre-size collections based on estimated needs
                 var tracks = MIDIPlayer.tracks;
+                int estimatedNotes = 0;
+                for (int i = 0; i < tracks.Length; i++)
+                {
+                    if (tracks[i]?.synthEvents != null)
+                        estimatedNotes += tracks[i].synthEvents.Count / 2; // Rough estimate
+                }
+                
+                // Ensure adequate capacity but don't go overboard
+                int targetCapacity = Math.Min(estimatedNotes * 2, 10_000_000); // Cap at 10M to prevent excessive allocation
+                if (noteList.Capacity < targetCapacity)
+                    noteList.Capacity = targetCapacity;
 
                 for (int ti = 0; ti < tracks.Length; ti++)
                 {
@@ -141,8 +123,8 @@ namespace SharpMIDI.Renderer
 
                     activeNotes.Clear();
                     int tick = 0;
-                    byte colorIndex = (byte)(ti & 0x7F);
-                    byte noteLayer = (byte)(ti & 0x0F); // 4-bit layer
+                    byte colorIndex = (byte)(ti & 0x0F); // 4-bit color index (16 colors)
+                    byte noteLayer = (byte)(ti & 0x7F); // 7-bit layer (128 layers)
 
                     var events = track.synthEvents;
 
@@ -176,6 +158,7 @@ namespace SharpMIDI.Renderer
                         }
                     }
 
+                    // Handle hanging notes
                     if (activeNotes.Count > 0)
                     {
                         int fallbackEnd = tick + 100;
@@ -186,17 +169,28 @@ namespace SharpMIDI.Renderer
                             int duration = Math.Clamp(fallbackEnd - info.Item1, 1, 65535);
                             noteList.Add(new OptimizedEnhancedNote(info.Item1, duration, (byte)note, colorIndex, noteLayer));
                         }
+                        activeNotes.Clear();
                     }
                 }
 
-                // Sort by startTick, then noteLayer
+                // Sort by startTick, then noteLayer for optimal rendering
                 noteList.Sort((a, b) =>
                 {
                     int d = a.StartTick - b.StartTick;
                     return d != 0 ? d : a.NoteLayer - b.NoteLayer;
                 });
 
+                // Replace old array
+                var oldNotes = allNotes;
                 allNotes = noteList.ToArray();
+                
+                // Clear old reference to help GC (in case it was large)
+                if (oldNotes.Length > 1_000_000)
+                {
+                    // Force cleanup of large arrays
+                    Array.Clear(oldNotes, 0, oldNotes.Length);
+                }
+                
                 IsReady = true;
             }
         }
@@ -207,9 +201,36 @@ namespace SharpMIDI.Renderer
             lock (readyLock)
             {
                 IsReady = false;
+                
+                // Store reference to old array for cleanup
+                var oldNotes = allNotes;
                 allNotes = Array.Empty<OptimizedEnhancedNote>();
-                noteList.Clear();
-                activeNotes.Clear();
+                
+                noteList?.Clear();
+                activeNotes?.Clear();
+                
+                // Force cleanup of large arrays
+                if (oldNotes.Length > 1_000_000)
+                {
+                    Array.Clear(oldNotes, 0, oldNotes.Length);
+                }
+                
+                // Trim excess capacity if collections got too large
+                if (noteList != null && noteList.Capacity > 1_000_000)
+                {
+                    noteList = new List<OptimizedEnhancedNote>(65536);
+                }
+                if (activeNotes != null && activeNotes.Count > 1000)
+                {
+                    activeNotes = new Dictionary<int, (int, byte)>(128);
+                }
+                
+                // Force garbage collection for large data sets
+                if (oldNotes.Length > 5_000_000)
+                {
+                    GC.Collect();
+                    GC.WaitForPendingFinalizers();
+                }
             }
         }
 
@@ -219,9 +240,27 @@ namespace SharpMIDI.Renderer
             lock (readyLock)
             {
                 IsReady = false;
+                
+                var oldNotes = allNotes;
                 allNotes = Array.Empty<OptimizedEnhancedNote>();
+                
                 noteList?.Clear();
                 activeNotes?.Clear();
+                
+                // More aggressive cleanup on shutdown
+                if (oldNotes.Length > 100_000)
+                {
+                    Array.Clear(oldNotes, 0, oldNotes.Length);
+                }
+                
+                // Nullify references
+                noteList = null;
+                activeNotes = null;
+                
+                // Force full GC
+                GC.Collect();
+                GC.WaitForPendingFinalizers();
+                GC.Collect();
             }
         }
     }

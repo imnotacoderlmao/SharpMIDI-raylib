@@ -12,6 +12,15 @@
         <PublishReadyToRun>true</PublishReadyToRun>
     </PropertyGroup>
     <ItemGroup>
+      <Compile Remove="Backup\**" />
+      <Compile Remove="not working\**" />
+      <EmbeddedResource Remove="Backup\**" />
+      <EmbeddedResource Remove="not working\**" />
+      <None Remove="Backup\**" />
+      <None Remove="not working\**" />
+    </ItemGroup>
+    <ItemGroup>
+      <None Remove="screenshot000.png" />
     </ItemGroup>
     <ItemGroup>
         <PackageReference Include="raylib" Version="5.5.0" />
