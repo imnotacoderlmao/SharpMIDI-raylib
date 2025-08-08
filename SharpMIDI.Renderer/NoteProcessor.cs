@@ -35,20 +35,23 @@ namespace SharpMIDI.Renderer
                          ((ulong)(colorIndex & 0x0F) << 60);
             }
         }
+        
         public static uint GetTrackColor(int index)
         {
-            return trackColors[index & 0x0F]; // safe mask
+            return trackColors[index & 0x0F]; // safe mask - loops after 16 colors
         }
 
         private const uint BK = 0x54A;
         public static OptimizedEnhancedNote[] allNotes = Array.Empty<OptimizedEnhancedNote>();
         private static readonly object readyLock = new();
 
-        private static readonly uint[] trackColors = new uint[16]; // 16 colors matching MIDI channels
+        public static readonly uint[] trackColors = new uint[16]; // 16 colors matching MIDI channels
 
         private static List<OptimizedEnhancedNote> noteList = new(65536);
         private static Dictionary<int, (int, byte)> activeNotes = new(128);
-
+        public static uint[] AllNoteColors = Array.Empty<uint>();   // full ARGB per note
+        public static int[] BucketOffsets = Array.Empty<int>();     // index into allNotes
+        public static int BucketSize = 2048;     
         public static bool IsReady { get; private set; } = false;
         public static OptimizedEnhancedNote[] AllNotes => allNotes;
         public static object ReadyLock => readyLock;
@@ -116,6 +119,39 @@ namespace SharpMIDI.Renderer
                 if (noteList.Capacity < targetCapacity)
                     noteList.Capacity = targetCapacity;
 
+                // First pass: analyze channel usage per track to determine coloring strategy
+                var channelTrackCount = new Dictionary<int, List<int>>(); // channel -> list of track indices
+                
+                for (int ti = 0; ti < tracks.Length; ti++)
+                {
+                    var track = tracks[ti];
+                    if (track?.synthEvents == null || track.synthEvents.Count == 0) continue;
+
+                    var channelsInTrack = new HashSet<int>();
+                    var events = track.synthEvents;
+
+                    for (int ei = 0; ei < events.Count; ei++)
+                    {
+                        var e = events[ei];
+                        int val = e.val;
+                        int stat = val & 0xF0;
+                        if (stat == 0x90 || stat == 0x80) // Note events only
+                        {
+                            int ch = val & 0x0F;
+                            channelsInTrack.Add(ch);
+                        }
+                    }
+
+                    // Record which tracks use which channels
+                    foreach (int ch in channelsInTrack)
+                    {
+                        if (!channelTrackCount.ContainsKey(ch))
+                            channelTrackCount[ch] = new List<int>();
+                        channelTrackCount[ch].Add(ti);
+                    }
+                }
+
+                // Second pass: process tracks with hybrid coloring
                 for (int ti = 0; ti < tracks.Length; ti++)
                 {
                     var track = tracks[ti];
@@ -123,7 +159,6 @@ namespace SharpMIDI.Renderer
 
                     activeNotes.Clear();
                     int tick = 0;
-                    byte colorIndex = (byte)(ti & 0x0F); // 4-bit color index (16 colors)
                     byte noteLayer = (byte)(ti & 0x7F); // 7-bit layer (128 layers)
 
                     var events = track.synthEvents;
@@ -135,12 +170,26 @@ namespace SharpMIDI.Renderer
 
                         int val = e.val;
                         int stat = val & 0xF0;
-                        int ch = val & 0x0F;
+                        int ch = val & 0x0F;  // MIDI channel (0-15)
                         int note = (val >> 8) & 0x7F;
                         int vel = (val >> 16) & 0x7F;
 
                         if ((uint)note > 127u) continue;
 
+                        // Hybrid coloring strategy
+                        byte colorIndex;
+                        if (channelTrackCount.ContainsKey(ch) && channelTrackCount[ch].Count > 1)
+                        {
+                            // Multiple tracks on same channel - use track index for differentiation
+                            int trackIndexInChannel = channelTrackCount[ch].IndexOf(ti);
+                            colorIndex = (byte)((ch + trackIndexInChannel * 4) & 0x0F); // Spread colors
+                        }
+                        else
+                        {
+                            // Single track per channel - use channel-based coloring
+                            colorIndex = (byte)(ch & 0x0F);
+                        }
+                        
                         int key = (ch << 7) | note;
 
                         if (stat == 0x90 && vel > 0)
@@ -158,13 +207,27 @@ namespace SharpMIDI.Renderer
                         }
                     }
 
-                    // Handle hanging notes
+                    // Handle hanging notes with same hybrid coloring logic
                     if (activeNotes.Count > 0)
                     {
                         int fallbackEnd = tick + 100;
                         foreach (var kv in activeNotes)
                         {
                             int note = kv.Key & 0x7F;
+                            int ch = (kv.Key >> 7) & 0x0F;
+                            
+                            // Apply same hybrid coloring for hanging notes
+                            byte colorIndex;
+                            if (channelTrackCount.ContainsKey(ch) && channelTrackCount[ch].Count > 1)
+                            {
+                                int trackIndexInChannel = channelTrackCount[ch].IndexOf(ti);
+                                colorIndex = (byte)((ch + trackIndexInChannel * 4) & 0x0F);
+                            }
+                            else
+                            {
+                                colorIndex = (byte)(ch & 0x0F);
+                            }
+                            
                             var info = kv.Value;
                             int duration = Math.Clamp(fallbackEnd - info.Item1, 1, 65535);
                             noteList.Add(new OptimizedEnhancedNote(info.Item1, duration, (byte)note, colorIndex, noteLayer));
@@ -184,6 +247,37 @@ namespace SharpMIDI.Renderer
                 var oldNotes = allNotes;
                 allNotes = noteList.ToArray();
                 
+                int n = allNotes.Length;
+                var colors = new uint[n];
+                for (int i = 0; i < n; i++)
+                {
+                    // note.Color returns the 4-bit index; GetTrackColor returns ARGB full uint
+                    colors[i] = GetTrackColor((int)(allNotes[i].Color & 0x0F));
+                }
+                AllNoteColors = colors;
+
+                if (n == 0)
+                {
+                    BucketOffsets = Array.Empty<int>();
+                }
+                else
+                {
+                    int maxStart = allNotes[n - 1].StartTick;
+                    int bucketCount = (maxStart / BucketSize) + 2; // +1 for final sentinel
+                    var offsets = new int[bucketCount + 1]; // make room for sentinel (offsets[bucketCount] = n)
+
+                    // Fill offsets with first index >= bucketStartTick
+                    int noteIdx = 0;
+                    for (int b = 0; b <= bucketCount; b++)
+                    {
+                        int bucketTick = b * BucketSize;
+                        while (noteIdx < n && allNotes[noteIdx].StartTick < bucketTick) noteIdx++;
+                        offsets[b] = noteIdx;
+                    }
+                    offsets[bucketCount] = n; // sentinel (safe end)
+                    BucketOffsets = offsets;
+                }
+
                 // Clear old reference to help GC (in case it was large)
                 if (oldNotes.Length > 1_000_000)
                 {

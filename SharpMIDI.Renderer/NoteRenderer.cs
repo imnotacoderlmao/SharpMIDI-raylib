@@ -1,9 +1,10 @@
 using Raylib_cs;
+using System;
 using System.Numerics;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using SharpMIDI;
-using System;
+using System.Threading.Tasks;
 
 namespace SharpMIDI.Renderer
 {
@@ -12,19 +13,18 @@ namespace SharpMIDI.Renderer
         private const int WHITE_KEY_HEIGHT = 8;
         private const int TOTAL_TEXTURE_HEIGHT = 128 * WHITE_KEY_HEIGHT;
 
+        // texture dimensions (textureWidth set in Initialize)
         private static int textureWidth = 4096;
         private static int textureHeight = TOTAL_TEXTURE_HEIGHT;
 
-        private static RenderTexture2D streamingTexture, tempTexture;
+        private static RenderTexture2D streamingTexture;
         private static byte[] pixelBuffer;
-        private static uint[] pixelBuffer32; // For faster 32-bit operations
         private static GCHandle bufferHandle;
         private static IntPtr bufferPtr;
 
+        // precomputed per-note layout
         private static readonly int[] noteToPixelY = new int[128];
         private static readonly int[] noteHeights = new int[128];
-        private static readonly uint[] colorCache = new uint[16]; // Pre-computed ARGB colors
-        private static readonly byte[][] colorCacheBytes = new byte[16][]; // Pre-computed RGBA bytes
 
         private static float pixelsPerTick = 1f;
         private static int lastRenderedColumn = 0;
@@ -32,18 +32,11 @@ namespace SharpMIDI.Renderer
         private static bool initialized = false;
         private static bool forceFullRedraw = true;
 
-        // SIMD optimization helpers
-        private static readonly Vector4[] colorVectors = new Vector4[16];
-        private static readonly byte[] tempRowBuffer = new byte[16384 * 4]; // For row-wise processing
-
         public static float Window { get; private set; } = 2000f;
-        public static bool EnableGlow { get; set; } = false;
         public static int RenderedColumns { get; private set; } = 0;
 
-        private struct NoteRect
-        {
-            public int X, Y, Width, Height;
-        }
+        // small helper struct
+        private struct NoteRect { public int X, Y, Width, Height; }
 
         static NoteRenderer()
         {
@@ -53,34 +46,6 @@ namespace SharpMIDI.Renderer
                 float yEnd = TOTAL_TEXTURE_HEIGHT * ((128 - i) / 128f);
                 noteToPixelY[i] = (int)yStart;
                 noteHeights[i] = Math.Max(1, (int)(yEnd - yStart));
-            }
-
-            InitializeColorCache();
-        }
-
-        private static void InitializeColorCache()
-        {
-            for (int i = 0; i < 16; i++)
-            {
-                uint fullColor = NoteProcessor.GetTrackColor(i);
-                colorCache[i] = fullColor;
-
-                // Pre-compute RGBA byte arrays for direct pixel manipulation
-                colorCacheBytes[i] = new byte[4]
-                {
-                    (byte)(fullColor & 0xFF),         // B
-                    (byte)((fullColor >> 8) & 0xFF),  // G  
-                    (byte)((fullColor >> 16) & 0xFF), // R
-                    255                               // A
-                };
-
-                // Pre-compute SIMD vectors
-                colorVectors[i] = new Vector4(
-                    (fullColor >> 16) & 0xFF, // R
-                    (fullColor >> 8) & 0xFF,  // G
-                    fullColor & 0xFF,         // B
-                    255                       // A
-                ) / 255f;
             }
         }
 
@@ -95,14 +60,13 @@ namespace SharpMIDI.Renderer
             pixelsPerTick = textureWidth / Window;
 
             streamingTexture = Raylib.LoadRenderTexture(textureWidth, textureHeight);
-            tempTexture = Raylib.LoadRenderTexture(textureWidth, textureHeight);
 
             int bufferSize = textureWidth * textureHeight * 4;
             pixelBuffer = new byte[bufferSize];
-            pixelBuffer32 = new uint[textureWidth * textureHeight];
             bufferHandle = GCHandle.Alloc(pixelBuffer, GCHandleType.Pinned);
             bufferPtr = bufferHandle.AddrOfPinnedObject();
 
+            // start with cleared texture
             Raylib.BeginTextureMode(streamingTexture);
             Raylib.ClearBackground(Raylib_cs.Color.Black);
             Raylib.EndTextureMode();
@@ -112,8 +76,9 @@ namespace SharpMIDI.Renderer
             initialized = true;
         }
 
+        // main per-frame update: scroll and render newly exposed columns
         [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-        public static void UpdateStreaming(float tick)
+        public static unsafe void UpdateStreaming(float tick)
         {
             if (!initialized || !NoteProcessor.IsReady) return;
 
@@ -122,13 +87,22 @@ namespace SharpMIDI.Renderer
 
             if (forceFullRedraw || delta >= textureWidth)
             {
-                RenderFullTexture(tick);
-                RenderedColumns = textureWidth;
+                // full redraw
+                RenderColumnsOptimized(0, textureWidth, tick - Window * 0.5f);
+                UpdateTexture();
                 forceFullRedraw = false;
+                RenderedColumns = textureWidth;
             }
             else if (delta > 0)
             {
-                ScrollAndRenderColumns(tick, delta);
+                // scroll buffer (move pixels left by delta)
+                ScrollPixelBuffer(delta);
+
+                float startTick = tick - (Window * 0.5f) + ((float)(textureWidth - delta) / textureWidth) * Window;
+                RenderColumnsOptimized(textureWidth - delta, delta, startTick);
+
+                // upload entire buffer to GPU in one call (stable)
+                UpdateTexture();
                 RenderedColumns = delta;
             }
             else
@@ -139,158 +113,93 @@ namespace SharpMIDI.Renderer
             lastRenderedColumn = newColumn;
         }
 
+        // scroll pixel buffer left by delta pixels (in-place memcopy per row)
         [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-        private static void ScrollAndRenderColumns(float tick, int delta)
-        {
-            // First, scroll the pixel buffer in memory
-            ScrollPixelBuffer(delta);
-
-            // Then render new columns into the scrolled buffer
-            float startTick = tick - (Window * 0.5f) + ((float)(textureWidth - delta) / textureWidth) * Window;
-            RenderColumnsOptimized(textureWidth - delta, delta, startTick);
-        }
-
-        [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-        private static void ScrollPixelBuffer(int delta)
+        private static unsafe void ScrollPixelBuffer(int delta)
         {
             if (delta <= 0 || delta >= textureWidth) return;
 
-            int shiftPixels = textureWidth - delta;
             int bytesPerRow = textureWidth * 4;
+            int shiftPixels = textureWidth - delta;
             int shiftBytes = shiftPixels * 4;
+            int clearBytes = delta * 4;
 
-            // Scroll each row left by delta pixels
-            unsafe
+            fixed (byte* basePtr = pixelBuffer)
             {
-                fixed (byte* bufferPtr = pixelBuffer)
+                for (int y = 0; y < textureHeight; y++)
                 {
-                    for (int y = 0; y < textureHeight; y++)
-                    {
-                        byte* rowStart = bufferPtr + (y * bytesPerRow);
-                        byte* srcPtr = rowStart + (delta * 4);
-                        byte* dstPtr = rowStart;
+                    byte* rowStart = basePtr + (y * bytesPerRow);
+                    byte* src = rowStart + (delta * 4);
+                    byte* dst = rowStart;
 
-                        // Move existing pixels left
-                        Buffer.MemoryCopy(srcPtr, dstPtr, shiftBytes, shiftBytes);
+                    // move the block left
+                    Buffer.MemoryCopy(src, dst, shiftBytes, shiftBytes);
 
-                        // Clear the new area on the right
-                        byte* clearStart = rowStart + shiftBytes;
-                        Unsafe.InitBlock(clearStart, 0, (uint)(delta * 4));
-                    }
+                    // clear the newly exposed right columns
+                    byte* clearStart = rowStart + shiftBytes;
+                    Unsafe.InitBlock(clearStart, 0, (uint)clearBytes);
                 }
             }
         }
 
+        // Render columns into pixelBuffer memory for the given startX..startX+width
+        // relies on NoteProcessor.AllNotes and NoteProcessor.AllNoteColors
         [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-        private static void RenderFullTexture(float tick)
-        {
-            float startTick = tick - (Window * 0.5f);
-            RenderColumnsOptimized(0, textureWidth, startTick);
-        }
-
-        [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-        private static void RenderColumnsOptimized(int startX, int width, float startTick)
+        private static unsafe void RenderColumnsOptimized(int startX, int width, float startTick)
         {
             var notes = NoteProcessor.AllNotes;
+            var noteColors = NoteProcessor.AllNoteColors; // per-note ARGB packed uint (precomputed)
             if (notes.Length == 0) return;
 
-            // Only clear the specific region we're updating (not the entire buffer)
-            if (startX == 0 && width == textureWidth)
-            {
-                // Full redraw - clear everything
-                ClearPixelBufferOptimized(startX, width);
-            }
-            else
-            {
-                // Partial update - only clear the new columns area
-                ClearPixelBufferRegion(startX, width);
-            }
+            // clear only the region we will draw (startX..startX+width)
+            ClearPixelBufferRegion(startX, width);
 
             float ticksPerPixel = Window / textureWidth;
             float endTick = startTick + (width * ticksPerPixel);
             int startIndex = FindNotesInRange(notes, startTick);
 
-            // Render notes in their original order to respect layering
-            RenderNotesRespectingLayers(notes, startIndex, startTick, endTick, startX, width, ticksPerPixel);
+            byte* bufferBytePtr = (byte*)bufferPtr;
+            uint* buf32 = (uint*)bufferPtr;
 
-            // Update texture using UpdateTexture instead of Load/Unload cycle
-            UpdateTextureOptimized(startX, width);
-        }
-
-        [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-        private static void ClearPixelBufferRegion(int startX, int width)
-        {
-            // Clear only the specific columns we're about to render
-            int bytesPerRow = textureWidth * 4;
-            int clearBytesPerRow = width * 4;
-
-            unsafe
+            // iterate notes in sorted order (NoteProcessor already sorts by start and layer)
+            for (int i = startIndex; i < notes.Length; i++)
             {
-                fixed (byte* bufferPtr = pixelBuffer)
+                ref var note = ref notes[i];
+
+                if (note.StartTick > endTick) break;                 // no more visible notes
+                if (note.EndTick < startTick) continue;             // note ends before region
+
+                // map note ticks to pixel x
+                float startPx = (note.StartTick - startTick) / ticksPerPixel;
+                float endPx = (note.EndTick - startTick) / ticksPerPixel;
+
+                int x1 = Math.Max(0, (int)startPx);
+                int x2 = Math.Min(width, (int)endPx + 1);
+                if (x2 <= x1) continue;
+
+                var r = noteToPixelY[note.NoteNumber];
+                var h = noteHeights[note.NoteNumber];
+
+                var rect = new NoteRect
                 {
-                    for (int y = 0; y < textureHeight; y++)
-                    {
-                        byte* clearStart = bufferPtr + (y * bytesPerRow) + (startX * 4);
-                        Unsafe.InitBlock(clearStart, 0, (uint)clearBytesPerRow);
-                    }
-                }
+                    X = startX + x1,
+                    Y = r,
+                    Width = x2 - x1,
+                    Height = h
+                };
+
+                // use color precomputed by NoteProcessor: per-note full ARGB uint
+                // noteColors array is indexed by note index i
+                uint packedColor = noteColors[i];
+
+                DrawNoteSIMD(buf32, rect, packedColor);
             }
         }
 
+        // Draw a filled rect quickly using SIMD for wide spans and scalar fallback for remainder
         [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-        private static void RenderNotesRespectingLayers(NoteProcessor.OptimizedEnhancedNote[] notes, int startIndex,
-            float startTick, float endTick, int startX, int width, float ticksPerPixel)
+        private static unsafe void DrawNoteSIMD(uint* baseBuf32, NoteRect note, uint colorPattern)
         {
-            // Use the pre-pinned buffer pointer
-            byte* bufferPtrLocal = (byte*)bufferPtr;
-
-            int noteIndex = startIndex;
-            const int batchSize = 2048;
-
-            while (noteIndex < notes.Length)
-            {
-                int batchEnd = Math.Min(noteIndex + batchSize, notes.Length);
-
-                for (int i = noteIndex; i < batchEnd; i++)
-                {
-                    ref var note = ref notes[i];
-                    if (note.StartTick > endTick) goto BatchComplete;
-                    if (note.EndTick < startTick) continue;
-
-                    float startPx = (note.StartTick - startTick) / ticksPerPixel;
-                    float endPx = (note.EndTick - startTick) / ticksPerPixel;
-
-                    int x1 = Math.Max(0, (int)startPx);
-                    int x2 = Math.Min(width, (int)endPx + 1);
-                    if (x2 <= x1) continue;
-
-                    // Get the color pattern for this note
-                    uint colorIndex = note.Color & 0x0F;
-                    byte* colorBytes = (byte*)Unsafe.AsPointer(ref colorCacheBytes[colorIndex][0]);
-                    uint colorPattern = *(uint*)colorBytes;
-
-                    // Create note rect and render immediately to preserve layering
-                    var noteRect = new NoteRect
-                    {
-                        X = startX + x1,
-                        Y = noteToPixelY[note.NoteNumber],
-                        Width = x2 - x1,
-                        Height = noteHeights[note.NoteNumber]
-                    };
-
-                    DrawNoteOptimizedSIMD(bufferPtrLocal, noteRect, colorPattern);
-                }
-
-                noteIndex = batchEnd;
-            }
-
-        BatchComplete:;
-        }
-
-        [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-        private static void DrawNoteOptimizedSIMD(byte* bufferPtr, NoteRect note, uint colorPattern)
-        {
-            // Bounds checking
             int maxX = Math.Min(note.X + note.Width, textureWidth);
             int maxY = Math.Min(note.Y + note.Height, textureHeight);
             int x = Math.Max(0, note.X);
@@ -299,92 +208,72 @@ namespace SharpMIDI.Renderer
             if (maxX <= x || maxY <= y) return;
 
             int actualWidth = maxX - x;
+            int rowStartIndex = y * textureWidth + x;
 
-            // Use different strategies based on width
-            if (actualWidth >= 8) // Use SIMD for wider notes
+            // SIMD fill when width large enough
+            int vecWidth = Vector<uint>.Count;
+            if (actualWidth >= vecWidth)
             {
-                Vector<uint> colorVec = new Vector<uint>(colorPattern);
-                int vectorWidth = Vector<uint>.Count;
+                Vector<uint> vecColor = new Vector<uint>(colorPattern);
 
                 for (int py = y; py < maxY; py++)
                 {
-                    uint* rowPtr = (uint*)(bufferPtr + (py * textureWidth + x) * 4);
+                    uint* rowPtr = baseBuf32 + (py * textureWidth + x);
                     int px = 0;
 
-                    // SIMD fill for bulk of the width
-                    for (; px <= actualWidth - vectorWidth; px += vectorWidth)
+                    // SIMD blocks
+                    for (; px <= actualWidth - vecWidth; px += vecWidth)
                     {
-                        Unsafe.WriteUnaligned(rowPtr + px, colorVec);
+                        Unsafe.WriteUnaligned(rowPtr + px, vecColor);
                     }
 
-                    // Handle remainder
+                    // remainder
                     for (; px < actualWidth; px++)
                     {
                         rowPtr[px] = colorPattern;
                     }
                 }
             }
-            else if (actualWidth > 1) // Use memset-style approach for medium notes
+            else // small widths: simple scalar loop
             {
                 for (int py = y; py < maxY; py++)
                 {
-                    uint* rowPtr = (uint*)(bufferPtr + (py * textureWidth + x) * 4);
+                    uint* rowPtr = baseBuf32 + (py * textureWidth + x);
                     for (int px = 0; px < actualWidth; px++)
                     {
                         rowPtr[px] = colorPattern;
                     }
                 }
             }
-            else // Single pixel - direct write
+        }
+
+        // only clear the columns we will draw (faster than wiping whole buffer)
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private static unsafe void ClearPixelBufferRegion(int startX, int width)
+        {
+            if (width <= 0) return;
+
+            int bytesPerRow = textureWidth * 4;
+            int clearBytesPerRow = width * 4;
+
+            fixed (byte* basePtr = pixelBuffer)
             {
-                for (int py = y; py < maxY; py++)
+                for (int y = 0; y < textureHeight; y++)
                 {
-                    *((uint*)(bufferPtr + (py * textureWidth + x) * 4)) = colorPattern;
+                    byte* clearStart = basePtr + (y * bytesPerRow) + (startX * 4);
+                    Unsafe.InitBlock(clearStart, 0, (uint)clearBytesPerRow);
                 }
             }
         }
 
-        [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-        private static void ClearPixelBufferOptimized(int startX, int width)
+        // upload the pinned buffer to GPU (single call)
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private static unsafe void UpdateTexture()
         {
-            if (startX == 0 && width == textureWidth)
-            {
-                // Clear entire buffer
-                Array.Clear(pixelBuffer, 0, pixelBuffer.Length);
-            }
-            else
-            {
-                // Clear only specific region using parallel processing for large regions
-                int totalPixels = width * textureHeight;
-                if (totalPixels > 100000) // Parallel for large regions
-                {
-                    Parallel.For(0, textureHeight, y =>
-                    {
-                        int rowStart = (y * textureWidth + startX) * 4;
-                        int clearBytes = width * 4;
-                        Array.Clear(pixelBuffer, rowStart, clearBytes);
-                    });
-                }
-                else
-                {
-                    for (int y = 0; y < textureHeight; y++)
-                    {
-                        int rowStart = (y * textureWidth + startX) * 4;
-                        int clearBytes = width * 4;
-                        Array.Clear(pixelBuffer, rowStart, clearBytes);
-                    }
-                }
-            }
-        }
-
-        [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-        private static void UpdateTextureOptimized(int startX, int width)
-        {
-            // Use UpdateTexture instead of LoadTextureFromImage/UnloadTexture cycle
-            // Use the pre-pinned buffer
             Raylib.UpdateTexture(streamingTexture.Texture, (void*)bufferPtr);
         }
 
+        // find notes that might overlap the visible window (binary search)
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private static int FindNotesInRange(NoteProcessor.OptimizedEnhancedNote[] notes, float startTick)
         {
@@ -403,10 +292,7 @@ namespace SharpMIDI.Renderer
                     result = mid;
                     right = mid - 1;
                 }
-                else
-                {
-                    left = mid + 1;
-                }
+                else left = mid + 1;
             }
 
             return result;
@@ -435,16 +321,12 @@ namespace SharpMIDI.Renderer
         public static void Cleanup()
         {
             if (!initialized) return;
-            Raylib.UnloadRenderTexture(streamingTexture);
-            Raylib.UnloadRenderTexture(tempTexture);
-            if (bufferHandle.IsAllocated) bufferHandle.Free();
-            Array.Clear(colorCache, 0, colorCache.Length);
+
+            Array.Clear(pixelBuffer, 0, pixelBuffer.Length);
+            lastRenderedColumn = 0;
+            forceFullRedraw = true;
         }
 
-        public static void Shutdown()
-        {
-            Cleanup();
-            initialized = false;
-        }
+        public static void Shutdown() => Cleanup();
     }
 }
