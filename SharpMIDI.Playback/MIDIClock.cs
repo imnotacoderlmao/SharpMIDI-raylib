@@ -38,8 +38,9 @@ namespace SharpMIDI
                     return temp-timeLost;
                 }
             }
-            last = temp;
-            return temp-timeLost;
+            //last = temp;
+            //return temp-timeLost;
+            return temp;
         }
 
         public static void SubmitBPM(double p, double b)
