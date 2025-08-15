@@ -2,15 +2,8 @@ using SharpMIDI;
 
 namespace SharpMIDI.Renderer
 {
-    public static class StreamlinedRenderer
+    public static class MIDIRenderer
     {
-        // Legacy compatibility properties and methods
-        public static bool debug 
-        { 
-            get => WindowManager.Debug; 
-            set => WindowManager.Debug = value; 
-        }
-        
         public static bool ready => NoteProcessor.IsReady;
         public static bool run => WindowManager.IsRunning;
 
@@ -31,27 +24,13 @@ namespace SharpMIDI.Renderer
         }
 
         /// <summary>
-        /// Stops the renderer
-        /// </summary>
-        public static void StopRenderer()
-        {
-            WindowManager.StopRenderer();
-        }
-
-        /// <summary>
         /// Cleans up note data but keeps renderer running
         /// </summary>
         public static void Cleanup()
         {
             NoteProcessor.Cleanup();
-        }
-
-        /// <summary>
-        /// Complete shutdown of all renderer components
-        /// </summary>
-        public static void Shutdown()
-        {
-            WindowManager.Shutdown();
+            NoteRenderer.Cleanup();
+            GC.Collect();
         }
     }
 }

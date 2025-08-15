@@ -149,7 +149,7 @@ namespace SharpMIDI
                 Starter.form.label10.Update();
                 midiStream.Close();
             }
-            await Task.Run(() => Renderer.StreamlinedRenderer.EnhanceTracksForRendering());
+            await Task.Run(() => Renderer.MIDIRenderer.EnhanceTracksForRendering());
             Starter.form.label2.Text = "Status: Loaded";
             Starter.form.label2.Update();
             GC.Collect();

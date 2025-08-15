@@ -1,3 +1,5 @@
+using System;
+using System.Collections.Generic;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using SharpMIDI;
@@ -6,73 +8,78 @@ namespace SharpMIDI.Renderer
 {
     public static unsafe class NoteProcessor
     {
-        [StructLayout(LayoutKind.Sequential, Pack = 1)]
-        public struct OptimizedEnhancedNote
-        {
-            private readonly ulong packed;
+        // --- PACKED NOTE FORMAT (64 bits per note) ---
+        // bits 0..31   -> startTick (32 bits)
+        // bits 32..47  -> duration  (16 bits) 
+        // bits 48..54  -> noteNumber (7 bits)
+        // bits 55..58  -> colorIndex (4 bits)
+        // bits 59..63  -> trackIndex (5 bits) - supports up to 32 tracks
 
-            public int StartTick => (int)(packed & 0x3FFFFFFF);
-            public int Duration => (int)((packed >> 30) & 0xFFFF);
-            public int EndTick => StartTick + Duration;
-            public byte NoteNumber => (byte)((packed >> 46) & 0x7F);
-            public byte NoteLayer => (byte)((packed >> 53) & 0x0F);
-            public uint Color => (uint)((packed >> 60) & 0x0F);
-            
-            // Layout:
-            // Bits 0–29:   startTick (30 bits)
-            // Bits 30–45:  duration  (16 bits)
-            // Bits 46–52:  noteNumber (7 bits)
-            // Bits 53–59:  noteLayer (7 bits) - 128 layers
-            // Bits 60–63:  colorIndex (4 bits) - 16 colors
+        public static byte[] AllPackedNotes = Array.Empty<byte>();
+        private static bool AllPackedNotesRented = false;
+        public static int[] BucketOffsets = Array.Empty<int>();
+        public static int BucketSize = 2048;
+        public static bool IsReady { get; private set; } = false;
+
+        // Active note tracking for direct conversion
+        private static readonly Dictionary<int, ActiveNote> activeNotes = new Dictionary<int, ActiveNote>(2048);
+        private static readonly List<PackedNote> tempNotes = new List<PackedNote>(65536);
+
+        public static int TotalPackedNotes => (BucketOffsets != null && BucketOffsets.Length > 0) ? BucketOffsets[^1] : 0;
+
+        // 16 channel colors - pre-calculated
+        public static readonly uint[] trackColors = new uint[16];
+
+        // Compact active note structure
+        private struct ActiveNote
+        {
+            public float StartTick;
+            public byte Velocity;
+            public byte Channel;
+            public byte Note;
+            public int TrackIndex;
+        }
+
+        // Packed note for sorting and storage
+        private struct PackedNote
+        {
+            public float StartTick;
+            public ushort Duration;
+            public byte Note;
+            public byte ColorIndex;
+            public int TrackIndex;
 
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
-            public OptimizedEnhancedNote(int startTick, int duration, byte noteNumber, byte colorIndex, byte noteLayer)
+            public PackedNote(float start, int duration, byte note, byte colorIndex, int trackIndex)
             {
-                packed = ((ulong)(startTick & 0x3FFFFFFF)) |
-                         ((ulong)(duration & 0xFFFF) << 30) |
-                         ((ulong)(noteNumber & 0x7F) << 46) |
-                         ((ulong)(noteLayer & 0x7F) << 53) |
-                         ((ulong)(colorIndex & 0x0F) << 60);
+                StartTick = start;
+                Duration = (ushort)Math.Min(duration, 65535);
+                Note = note;
+                ColorIndex = colorIndex;
+                TrackIndex = trackIndex;
             }
         }
-        
-        public static uint GetTrackColor(int index)
-        {
-            return trackColors[index & 0x0F]; // safe mask - loops after 16 colors
-        }
-
-        private const uint BK = 0x54A;
-        public static OptimizedEnhancedNote[] allNotes = Array.Empty<OptimizedEnhancedNote>();
-        private static readonly object readyLock = new();
-
-        public static readonly uint[] trackColors = new uint[16]; // 16 colors matching MIDI channels
-
-        private static List<OptimizedEnhancedNote> noteList = new(65536);
-        private static Dictionary<int, (int, byte)> activeNotes = new(128);
-        public static uint[] AllNoteColors = Array.Empty<uint>();   // full ARGB per note
-        public static int[] BucketOffsets = Array.Empty<int>();     // index into allNotes
-        public static int BucketSize = 2048;     
-        public static bool IsReady { get; private set; } = false;
-        public static OptimizedEnhancedNote[] AllNotes => allNotes;
-        public static object ReadyLock => readyLock;
 
         static NoteProcessor()
         {
             InitializeTrackColors();
         }
 
+        [MethodImpl(MethodImplOptions.AggressiveOptimization)]
         private static void InitializeTrackColors()
         {
-            const float G = 1.618034f;
+            // Generate distinct colors using golden ratio spacing
+            const float goldenRatio = 1.618034f;
             const float saturation = 0.72f;
             const float brightness = 0.18f;
+            const float inv60 = 1f / 60f;
 
-            for (int i = 0; i < 16; i++) // Generate 16 colors (matching MIDI channels)
+            for (int i = 0; i < 16; i++)
             {
-                float h = (i * G * 360f) % 360f;
+                float h = (i * goldenRatio * 360f) % 360f;
                 float c = saturation;
-                float x = c * (1f - MathF.Abs((h / 60f) % 2f - 1f));
-                int sector = (int)(h / 60f) % 6;
+                float x = c * (1f - MathF.Abs((h * inv60) % 2f - 1f));
+                int sector = (int)(h * inv60) % 6;
 
                 float r, g, b;
                 switch (sector)
@@ -85,277 +92,243 @@ namespace SharpMIDI.Renderer
                     default: r = c; g = 0; b = x; break;
                 }
 
-                uint finalR = (uint)((r + brightness) * 255);
-                uint finalG = (uint)((g + brightness) * 255);
-                uint finalB = (uint)((b + brightness) * 255);
+                uint finalR = Math.Min((uint)((r + brightness) * 255f), 255u);
+                uint finalG = Math.Min((uint)((g + brightness) * 255f), 255u);
+                uint finalB = Math.Min((uint)((b + brightness) * 255f), 255u);
 
-                trackColors[i] = 0xFF000000 | (finalR << 16) | (finalG << 8) | finalB;
+                trackColors[i] = 0xFF000000u | (finalR << 16) | (finalG << 8) | finalB;
             }
         }
 
         [MethodImpl(MethodImplOptions.AggressiveOptimization)]
         public static void EnhanceTracksForRendering()
         {
-            lock (readyLock)
+            lock (typeof(NoteProcessor))
             {
                 IsReady = false;
-                if (MIDIPlayer.tracks == null) return;
+                ClearAllData();
 
-                // Clear previous data first
-                noteList.Clear();
-                activeNotes.Clear();
-                
-                // Pre-size collections based on estimated needs
+                if (MIDIPlayer.tracks == null || MIDIPlayer.tracks.Length == 0)
+                {
+                    IsReady = true;
+                    return;
+                }
+
                 var tracks = MIDIPlayer.tracks;
-                int estimatedNotes = 0;
-                for (int i = 0; i < tracks.Length; i++)
+                int trackCount = tracks.Length;
+
+                // Process all tracks directly from SynthEvent data
+                for (int trackIndex = 0; trackIndex < trackCount; trackIndex++)
                 {
-                    if (tracks[i]?.synthEvents != null)
-                        estimatedNotes += tracks[i].synthEvents.Count / 2; // Rough estimate
+                    var track = tracks[trackIndex];
+                    if (track?.synthEvents == null || track.synthEvents.Count == 0) 
+                        continue;
+
+                    ProcessTrackSynthEvents(track, trackIndex);
                 }
-                
-                // Ensure adequate capacity but don't go overboard
-                int targetCapacity = Math.Min(estimatedNotes * 2, 10_000_000); // Cap at 10M to prevent excessive allocation
-                if (noteList.Capacity < targetCapacity)
-                    noteList.Capacity = targetCapacity;
 
-                // First pass: analyze channel usage per track to determine coloring strategy
-                var channelTrackCount = new Dictionary<int, List<int>>(); // channel -> list of track indices
-                
-                for (int ti = 0; ti < tracks.Length; ti++)
+                // Sort notes by start time for efficient rendering
+                if (tempNotes.Count > 1)
                 {
-                    var track = tracks[ti];
-                    if (track?.synthEvents == null || track.synthEvents.Count == 0) continue;
-
-                    var channelsInTrack = new HashSet<int>();
-                    var events = track.synthEvents;
-
-                    for (int ei = 0; ei < events.Count; ei++)
+                    tempNotes.Sort((a, b) => 
                     {
-                        var e = events[ei];
-                        int val = e.val;
-                        int stat = val & 0xF0;
-                        if (stat == 0x90 || stat == 0x80) // Note events only
-                        {
-                            int ch = val & 0x0F;
-                            channelsInTrack.Add(ch);
-                        }
-                    }
-
-                    // Record which tracks use which channels
-                    foreach (int ch in channelsInTrack)
-                    {
-                        if (!channelTrackCount.ContainsKey(ch))
-                            channelTrackCount[ch] = new List<int>();
-                        channelTrackCount[ch].Add(ti);
-                    }
+                        int diff = a.StartTick.CompareTo(b.StartTick);
+                        return diff != 0 ? diff : a.TrackIndex.CompareTo(b.TrackIndex);
+                    });
                 }
 
-                // Second pass: process tracks with hybrid coloring
-                for (int ti = 0; ti < tracks.Length; ti++)
-                {
-                    var track = tracks[ti];
-                    if (track?.synthEvents == null || track.synthEvents.Count == 0) continue;
-
-                    activeNotes.Clear();
-                    int tick = 0;
-                    byte noteLayer = (byte)(ti & 0x7F); // 7-bit layer (128 layers)
-
-                    var events = track.synthEvents;
-
-                    for (int ei = 0; ei < events.Count; ei++)
-                    {
-                        var e = events[ei];
-                        tick += (int)e.pos;
-
-                        int val = e.val;
-                        int stat = val & 0xF0;
-                        int ch = val & 0x0F;  // MIDI channel (0-15)
-                        int note = (val >> 8) & 0x7F;
-                        int vel = (val >> 16) & 0x7F;
-
-                        if ((uint)note > 127u) continue;
-
-                        // Hybrid coloring strategy
-                        byte colorIndex;
-                        if (channelTrackCount.ContainsKey(ch) && channelTrackCount[ch].Count > 1)
-                        {
-                            // Multiple tracks on same channel - use track index for differentiation
-                            int trackIndexInChannel = channelTrackCount[ch].IndexOf(ti);
-                            colorIndex = (byte)((ch + trackIndexInChannel * 4) & 0x0F); // Spread colors
-                        }
-                        else
-                        {
-                            // Single track per channel - use channel-based coloring
-                            colorIndex = (byte)(ch & 0x0F);
-                        }
-                        
-                        int key = (ch << 7) | note;
-
-                        if (stat == 0x90 && vel > 0)
-                        {
-                            activeNotes[key] = (tick, (byte)vel);
-                        }
-                        else if (stat == 0x80 || (stat == 0x90 && vel == 0))
-                        {
-                            if (activeNotes.TryGetValue(key, out var info))
-                            {
-                                int duration = Math.Clamp(tick - info.Item1, 1, 65535);
-                                noteList.Add(new OptimizedEnhancedNote(info.Item1, duration, (byte)note, colorIndex, noteLayer));
-                                activeNotes.Remove(key);
-                            }
-                        }
-                    }
-
-                    // Handle hanging notes with same hybrid coloring logic
-                    if (activeNotes.Count > 0)
-                    {
-                        int fallbackEnd = tick + 100;
-                        foreach (var kv in activeNotes)
-                        {
-                            int note = kv.Key & 0x7F;
-                            int ch = (kv.Key >> 7) & 0x0F;
-                            
-                            // Apply same hybrid coloring for hanging notes
-                            byte colorIndex;
-                            if (channelTrackCount.ContainsKey(ch) && channelTrackCount[ch].Count > 1)
-                            {
-                                int trackIndexInChannel = channelTrackCount[ch].IndexOf(ti);
-                                colorIndex = (byte)((ch + trackIndexInChannel * 4) & 0x0F);
-                            }
-                            else
-                            {
-                                colorIndex = (byte)(ch & 0x0F);
-                            }
-                            
-                            var info = kv.Value;
-                            int duration = Math.Clamp(fallbackEnd - info.Item1, 1, 65535);
-                            noteList.Add(new OptimizedEnhancedNote(info.Item1, duration, (byte)note, colorIndex, noteLayer));
-                        }
-                        activeNotes.Clear();
-                    }
-                }
-
-                // Sort by startTick, then noteLayer for optimal rendering
-                noteList.Sort((a, b) =>
-                {
-                    int d = a.StartTick - b.StartTick;
-                    return d != 0 ? d : a.NoteLayer - b.NoteLayer;
-                });
-
-                // Replace old array
-                var oldNotes = allNotes;
-                allNotes = noteList.ToArray();
-                
-                int n = allNotes.Length;
-                var colors = new uint[n];
-                for (int i = 0; i < n; i++)
-                {
-                    // note.Color returns the 4-bit index; GetTrackColor returns ARGB full uint
-                    colors[i] = GetTrackColor((int)(allNotes[i].Color & 0x0F));
-                }
-                AllNoteColors = colors;
-
-                if (n == 0)
-                {
-                    BucketOffsets = Array.Empty<int>();
-                }
-                else
-                {
-                    int maxStart = allNotes[n - 1].StartTick;
-                    int bucketCount = (maxStart / BucketSize) + 2; // +1 for final sentinel
-                    var offsets = new int[bucketCount + 1]; // make room for sentinel (offsets[bucketCount] = n)
-
-                    // Fill offsets with first index >= bucketStartTick
-                    int noteIdx = 0;
-                    for (int b = 0; b <= bucketCount; b++)
-                    {
-                        int bucketTick = b * BucketSize;
-                        while (noteIdx < n && allNotes[noteIdx].StartTick < bucketTick) noteIdx++;
-                        offsets[b] = noteIdx;
-                    }
-                    offsets[bucketCount] = n; // sentinel (safe end)
-                    BucketOffsets = offsets;
-                }
-
-                // Clear old reference to help GC (in case it was large)
-                if (oldNotes.Length > 1_000_000)
-                {
-                    // Force cleanup of large arrays
-                    Array.Clear(oldNotes, 0, oldNotes.Length);
-                }
-                
+                // Convert to packed format
+                ConvertToPackedFormat();
                 IsReady = true;
             }
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveOptimization)]
+        private static void ProcessTrackSynthEvents(MIDITrack track, int trackIndex)
+        {
+            activeNotes.Clear();
+            
+            var events = track.synthEvents;
+            int eventCount = events.Count;
+            float currentTick = 0;
+
+            for (int i = 0; i < eventCount; i++)
+            {
+                var synthEvent = events[i];
+                currentTick += synthEvent.pos;
+
+                int eventValue = synthEvent.val;
+                int status = eventValue & 0xF0;
+                int channel = eventValue & 0x0F;
+                int noteNumber = (eventValue >> 8) & 0x7F;
+                int velocity = (eventValue >> 16) & 0x7F;
+
+                if ((uint)noteNumber > 127u) continue;
+
+                if (status == 0x90 && velocity > 0) // Note On
+                {
+                    int key = (channel << 7) | noteNumber;
+                    activeNotes[key] = new ActiveNote
+                    {
+                        StartTick = currentTick,
+                        Velocity = (byte)velocity,
+                        Channel = (byte)channel,
+                        Note = (byte)noteNumber,
+                        TrackIndex = trackIndex
+                    };
+                }
+                else if (status == 0x80 || (status == 0x90 && velocity == 0)) // Note Off
+                {
+                    int key = (channel << 7) | noteNumber;
+                    if (activeNotes.TryGetValue(key, out var activeNote))
+                    {
+                        float duration = Math.Max(1f, currentTick - activeNote.StartTick);
+                        byte colorIndex = CalculateColorIndex(activeNote.Channel, trackIndex);
+                        
+                        tempNotes.Add(new PackedNote(
+                            activeNote.StartTick,
+                            (int)duration,
+                            activeNote.Note,
+                            colorIndex,
+                            trackIndex
+                        ));
+                        
+                        activeNotes.Remove(key);
+                    }
+                }
+            }
+
+            // Handle remaining active notes (notes that never got a note-off)
+            float fallbackEndTick = currentTick + 100f;
+            foreach (var kvp in activeNotes)
+            {
+                var activeNote = kvp.Value;
+                float duration = Math.Max(1f, fallbackEndTick - activeNote.StartTick);
+                byte colorIndex = CalculateColorIndex(activeNote.Channel, trackIndex);
+                
+                tempNotes.Add(new PackedNote(
+                    activeNote.StartTick,
+                    (int)duration,
+                    activeNote.Note,
+                    colorIndex,
+                    trackIndex
+                ));
+            }
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private static byte CalculateColorIndex(int channel, int trackIndex)
+        {
+            // Simple color calculation - can be enhanced based on your needs
+            return (byte)((channel + (trackIndex << 2)) & 0x0F);
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveOptimization)]
+        private static void ConvertToPackedFormat()
+        {
+            if (tempNotes.Count == 0)
+            {
+                ClearAllData();
+                return;
+            }
+
+            int packedBytes = tempNotes.Count * 8; // 8 bytes per note
+            var pool = System.Buffers.ArrayPool<byte>.Shared;
+            
+            if (AllPackedNotes != null && AllPackedNotes.Length > 0 && AllPackedNotesRented)
+            {
+                pool.Return(AllPackedNotes);
+                AllPackedNotes = Array.Empty<byte>();
+                AllPackedNotesRented = false;
+            }
+            
+            AllPackedNotes = pool.Rent(packedBytes);
+            AllPackedNotesRented = true;
+
+            // Find max start tick for bucket calculation
+            float maxStart = tempNotes[tempNotes.Count - 1].StartTick;
+            int bucketCount = (int)(maxStart / BucketSize) + 2;
+            var offsets = new int[bucketCount + 1];
+
+            // Pack all notes
+            for (int i = 0; i < tempNotes.Count; i++)
+            {
+                var note = tempNotes[i];
+                int bucketIndex = (int)(note.StartTick / BucketSize);
+                int bucketStartTick = bucketIndex * BucketSize;
+                int relativeStart = Math.Max(0, Math.Min((int)note.StartTick - bucketStartTick, BucketSize - 1));
+
+                PackNoteToBuffer(i, (uint)relativeStart, note.Duration, note.Note, note.ColorIndex, (ushort)note.TrackIndex);
+            }
+
+            // Build bucket offsets
+            int noteIndex = 0;
+            for (int bucketIndex = 0; bucketIndex <= bucketCount; bucketIndex++)
+            {
+                int bucketStartTick = bucketIndex * BucketSize;
+                while (noteIndex < tempNotes.Count && tempNotes[noteIndex].StartTick < bucketStartTick)
+                    noteIndex++;
+                offsets[bucketIndex] = noteIndex;
+            }
+            
+            
+            BucketOffsets = offsets;
+            tempNotes.Clear(); // Clear temporary storage
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private static void PackNoteToBuffer(int index, uint relStart11, ushort duration16, byte note7, byte color4, ushort track5)
+        {
+            ulong packedValue = 0;
+            packedValue |= (ulong)(relStart11 & 0x7FFu);           // 11 bits: relative start
+            packedValue |= ((ulong)duration16 << 11);              // 16 bits: duration  
+            packedValue |= ((ulong)(note7 & 0x7Fu) << 27);         // 7 bits: note number
+            packedValue |= ((ulong)(color4 & 0x0Fu) << 34);        // 4 bits: color index
+            packedValue |= ((ulong)(track5 & 0x1Fu) << 38);        // 5 bits: track index
+
+            int offset = index * 8;
+            fixed (byte* ptr = &AllPackedNotes[offset])
+            {
+                *(ulong*)ptr = packedValue;
+            }
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static void UnpackNoteAt(int index, out int relStart, out int duration, out int noteNumber, out int colorIndex, out int trackIndex)
+        {
+            int offset = index * 8;
+            ulong packedValue;
+            fixed (byte* ptr = &AllPackedNotes[offset])
+            {
+                packedValue = *(ulong*)ptr;
+            }
+
+            relStart = (int)(packedValue & 0x7FFu);
+            duration = (int)((packedValue >> 11) & 0xFFFFu);
+            noteNumber = (int)((packedValue >> 27) & 0x7Fu);
+            colorIndex = (int)((packedValue >> 34) & 0x0Fu);
+            trackIndex = (int)((packedValue >> 38) & 0x1Fu);
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private static void ClearAllData()
+        {
+            if (AllPackedNotes != null && AllPackedNotes.Length > 0 && AllPackedNotesRented)
+            {
+                System.Buffers.ArrayPool<byte>.Shared.Return(AllPackedNotes);
+            }
+            AllPackedNotes = Array.Empty<byte>();
+            AllPackedNotesRented = false;
+            BucketOffsets = Array.Empty<int>();
+            activeNotes.Clear();
+            tempNotes.Clear();
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static void Cleanup()
         {
-            lock (readyLock)
-            {
-                IsReady = false;
-                
-                // Store reference to old array for cleanup
-                var oldNotes = allNotes;
-                allNotes = Array.Empty<OptimizedEnhancedNote>();
-                
-                noteList?.Clear();
-                activeNotes?.Clear();
-                
-                // Force cleanup of large arrays
-                if (oldNotes.Length > 1_000_000)
-                {
-                    Array.Clear(oldNotes, 0, oldNotes.Length);
-                }
-                
-                // Trim excess capacity if collections got too large
-                if (noteList != null && noteList.Capacity > 1_000_000)
-                {
-                    noteList = new List<OptimizedEnhancedNote>(65536);
-                }
-                if (activeNotes != null && activeNotes.Count > 1000)
-                {
-                    activeNotes = new Dictionary<int, (int, byte)>(128);
-                }
-                
-                // Force garbage collection for large data sets
-                if (oldNotes.Length > 5_000_000)
-                {
-                    GC.Collect();
-                    GC.WaitForPendingFinalizers();
-                }
-            }
-        }
-
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static void Shutdown()
-        {
-            lock (readyLock)
-            {
-                IsReady = false;
-                
-                var oldNotes = allNotes;
-                allNotes = Array.Empty<OptimizedEnhancedNote>();
-                
-                noteList?.Clear();
-                activeNotes?.Clear();
-                
-                // More aggressive cleanup on shutdown
-                if (oldNotes.Length > 100_000)
-                {
-                    Array.Clear(oldNotes, 0, oldNotes.Length);
-                }
-                
-                // Nullify references
-                noteList = null;
-                activeNotes = null;
-                
-                // Force full GC
-                GC.Collect();
-                GC.WaitForPendingFinalizers();
-                GC.Collect();
-            }
+            IsReady = false;
+            ClearAllData();
         }
     }
 }

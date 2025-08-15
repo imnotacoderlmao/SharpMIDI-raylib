@@ -44,7 +44,7 @@ namespace SharpMIDI
         }
 
         
-        private async Task UpdateMemory()
+        /*private async Task UpdateMemory()
         {
             while(true)
             {
@@ -52,7 +52,7 @@ namespace SharpMIDI
                 label7.Update();
                 Thread.Sleep(100);
             }
-        }
+        }*/
 
         private void button1_Click(object sender, EventArgs e)
         {
@@ -95,7 +95,7 @@ namespace SharpMIDI
 
         private async void button4_Click(object sender, EventArgs e)
         {
-            if (Renderer.StreamlinedRenderer.ready)
+            if (Renderer.MIDIRenderer.ready)
             {
                 button2.Enabled = false;
                 button4.Enabled = false;
@@ -155,8 +155,6 @@ namespace SharpMIDI
         {
             if (Starter.midiLoaded)
             {
-                Renderer.NoteProcessor.Cleanup();
-                Renderer.NoteRenderer.Cleanup();
                 //Sound.Reload();
                 label1.Text = "Selected MIDI: (none)";
                 label2.Text = "Status: Not Loaded";
@@ -176,6 +174,7 @@ namespace SharpMIDI
                 button5.Update();
                 button6.Update();
                 button2.Update();
+                Renderer.MIDIRenderer.Cleanup();
                 MIDIPlayer.ClearEntries();
                 MIDILoader.ResetVariables();
                 Starter.midiLoaded = false;

@@ -6,8 +6,8 @@ namespace SharpMIDI.Renderer
 {
     public static class WindowManager
     {
-        public const int PAD = 22;
-
+        public const int PAD = 20;
+        private static float tick = 0f;
         // Dynamic window dimensions
         private static int currentWidth = 1280;
         private static int currentHeight = 720;
@@ -15,7 +15,6 @@ namespace SharpMIDI.Renderer
         // Pre-allocated buffers for UI strings
         private static readonly System.Text.StringBuilder tickStr = new(256);
         private static readonly System.Text.StringBuilder debugStr = new(128);
-
         // Window state
         private static bool vsync = true, controls = true;
         public static bool Debug { get; set; } = false;
@@ -43,17 +42,37 @@ namespace SharpMIDI.Renderer
             {
                 UpdateWindowDimensions();
                 HandleInput();
-                
-                float tick = (float)MIDIClock.GetTick();
 
-                // Update the streaming texture (this is where the magic happens!)
-                NoteRenderer.UpdateStreaming(tick);
-                
+                // grab tick from clock
+                tick = (float)MIDIClock.GetTick();
+
+                // Update the streaming texture using NoteProcessor data.
+                // Lock around NoteProcessor to avoid racing with EnhanceTracksForRendering().
+                // NoteProcessor.IsReady prevents spurious updates.
+                if (NoteProcessor.IsReady)
+                {
+                    try
+                    {
+                        NoteRenderer.UpdateStreaming(tick);
+                    }
+                    catch (Exception ex)
+                    {
+                        // Keep renderer alive on unexpected errors; show minimal console info.
+                        Console.WriteLine("NoteRenderer.UpdateStreaming error: " + ex.Message);
+                    }
+                }
                 Raylib.BeginDrawing();
                 Raylib.ClearBackground(Raylib_cs.Color.Black);
 
-                // Render the streaming texture to screen
-                NoteRenderer.Render(currentWidth, currentHeight, PAD);
+                // Draw the streaming texture to screen while holding the lock for consistency.
+                try
+                {
+                    NoteRenderer.Render(currentWidth, currentHeight, PAD);
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine("NoteRenderer.Render error: " + ex.Message);
+                }
 
                 // Draw center line
                 Raylib.DrawLine(currentWidth >> 1, 0, currentWidth >> 1, currentHeight, Raylib_cs.Color.Red);
@@ -92,7 +111,7 @@ namespace SharpMIDI.Renderer
             }
             if (Raylib.IsKeyPressed(KeyboardKey.Down) || Raylib.IsKeyPressedRepeat(KeyboardKey.Down))
             {
-                float newWindow = Math.Min(100000f, NoteRenderer.Window * 1.111111f);
+                float newWindow = Math.Min(100000f, NoteRenderer.Window * 1.1f);
                 NoteRenderer.SetWindow(newWindow);
             }
 
@@ -103,8 +122,6 @@ namespace SharpMIDI.Renderer
                 MIDIClock.time += Math.Round(1 / MIDIClock.ticklen, 5);
 
             // Toggle controls
-            /*if (Raylib.IsKeyPressed(KeyboardKey.G))
-                NoteRenderer.EnableGlow = !NoteRenderer.EnableGlow;*/
             if (Raylib.IsKeyPressed(KeyboardKey.D))
                 Debug = !Debug;
             if (Raylib.IsKeyPressed(KeyboardKey.V))
@@ -122,48 +139,33 @@ namespace SharpMIDI.Renderer
 
         private static void DrawUI(float tick)
         {
-            lock (NoteProcessor.ReadyLock)
+            // Main UI
+            tickStr.Clear();
+            tickStr.Append("Tick: ").Append((int)tick)
+                   .Append(" | Tempo: ").Append(MIDIPlayer.bpm.ToString("F1"))
+                   .Append(" | Zoom: ").Append((int)NoteRenderer.Window)
+                   .Append(" | Glow: ").Append("broken") // keep parity with existing code
+                   .Append(" | FPS: ").Append(Raylib.GetFPS());
+            Raylib.DrawText(tickStr.ToString(), 12, 4, 16, Raylib_cs.Color.Green);
+            if (Debug)
             {
-                // Main UI
-                tickStr.Clear();
-                tickStr.Append("Tick: ").Append((int)tick)
-                       .Append(" | Tempo: ").Append(MIDIPlayer.bpm.ToString("F1"))
-                       .Append(" | Zoom: ").Append((int)NoteRenderer.Window)
-                       /*.Append(" | Glow: ").Append(NoteRenderer.EnableGlow ? "ON" : "OFF")*/
-                       .Append(" | Glow: ").Append("broken")
-                       .Append(" | FPS: ").Append(Raylib.GetFPS());
-
-                Raylib.DrawText(tickStr.ToString(), 10, 5, 16, Raylib_cs.Color.Green);
-
-                if (Debug)
-                {
-                    debugStr.Clear();
-                    debugStr.Append("Drawcalls?: ").Append(NoteRenderer.RenderedColumns)
-                            .Append(" | Memory: ").Append(Form1.toMemoryText(GC.GetTotalMemory(false)));
-                    Raylib.DrawText(debugStr.ToString(), 10, 25, 16, Raylib_cs.Color.SkyBlue);
-                }
-
-                if (controls)
-                {
-                    Raylib.DrawText($"Up/Dn = Zoom | G = Glow | V = Vsync | Right = Seek fwd | W = skip further | C = toggle this text | F = Fullscreen | D = Debug", 10, 45, 16, Raylib_cs.Color.White);
-                    if (Raylib.GetTime() >= 4.0 && Raylib.GetTime() <= 4.5)
-                        controls = false;
-                }
-
-                if (!NoteProcessor.IsReady)
-                    Raylib.DrawText("No MIDI loaded.", 10, currentHeight - 20, 16, Raylib_cs.Color.Yellow);
-                else
-                    Raylib.DrawText($"{Starter.filename ?? "Unknown"}", 10, currentHeight - 20, 16, Raylib_cs.Color.SkyBlue);
+                debugStr.Clear();
+                debugStr.Append("Drawcalls?: ").Append(NoteRenderer.RenderedColumns)
+                        .Append(" | Memory: ").Append(Form1.toMemoryText(GC.GetTotalMemory(false)));
+                Raylib.DrawText(debugStr.ToString(), 12, 25, 16, Raylib_cs.Color.SkyBlue);
             }
+            if (controls)
+            {
+                Raylib.DrawText($"Up/Dn = Zoom | V = Vsync | Right = Seek fwd | W = skip further | C = toggle this text | F = Fullscreen | D = Debug", 12, 45, 16, Raylib_cs.Color.White);
+                if (Raylib.GetTime() >= 4.0 && Raylib.GetTime() <= 4.5)
+                    controls = false;
+            }
+            if (!NoteProcessor.IsReady)
+                Raylib.DrawText("No MIDI loaded.", 12, currentHeight - 19, 16, Raylib_cs.Color.Yellow);
+            else
+                Raylib.DrawText($"{Starter.filename ?? "Unknown"}", 12, currentHeight - 19, 16, Raylib_cs.Color.SkyBlue);
         }
 
         public static void StopRenderer() => IsRunning = false;
-
-        public static void Shutdown()
-        {
-            IsRunning = false;
-            NoteProcessor.Shutdown();
-            NoteRenderer.Shutdown();
-        }
     }
 }

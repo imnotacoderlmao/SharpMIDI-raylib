@@ -94,7 +94,7 @@
 
         public static unsafe async Task StartPlayback()
         {
-            if (!Renderer.StreamlinedRenderer.run){Renderer.StreamlinedRenderer.StartRenderer();};
+            //if (!Renderer.MIDIRenderer.run){Renderer.MIDIRenderer.StartRenderer();};
             //Sound.Reload();
             stopping = false;
             double recentDelay = 0;
@@ -136,7 +136,7 @@
                                         if (ev.pos <= clock)
                                         {
                                             MIDIClock.SubmitBPM(ev.pos, ev.tempo);
-                                            bpm = 60000000 / (double)ev.tempo;
+                                            bpm = 60000000d / ev.tempo;
                                             tempoProgress[loops]++;
                                         }
                                         else
@@ -182,8 +182,6 @@
                             break;
                         }
                     }
-                    Starter.form.label14.Text = "Tick: " + Math.Round(clock, 0) + " / " + maxTick;
-                    Starter.form.label3.Text = "Played events: " + Sound.totalEvents + " / " + eventCount;
                     MIDIClock.Reset();
                     Starter.form.button4.Enabled = true;
                     Starter.form.button4.Update();
