@@ -10,6 +10,7 @@ namespace SharpMIDI
         public static double ticklen;
         static Stopwatch test = new Stopwatch();
         static double last = 0;
+        public static double elapsed = 0;
         public static bool throttle = true;
         static double timeLost = 0;
         public static void Start()
@@ -28,26 +29,26 @@ namespace SharpMIDI
 
         public static double GetElapsed()
         {
-            double temp = ((double)test.ElapsedTicks / TimeSpan.TicksPerSecond);
+            elapsed = (double)test.ElapsedTicks / TimeSpan.TicksPerSecond;
             if (throttle)
             {
-                if (temp-last > 0.0166666d)
+                if (elapsed-last > 0.0166666d)
                 {
-                    timeLost += (temp - last) - 0.0166666d;
-                    last = temp;
-                    return temp-timeLost;
+                    timeLost += (elapsed - last) - 0.0166666d;
+                    last = elapsed;
+                    return elapsed-timeLost;
                 }
             }
             //last = temp;
             //return temp-timeLost;
-            return temp;
+            return elapsed;
         }
 
-        public static void SubmitBPM(double p, double b)
+        public static void SubmitBPM(double pos, double tempo)
         {
-            double remainder = (time - p);
-            time = p + (GetElapsed() / ticklen);
-            bpm = 60000000 / b;
+            double remainder = (time - pos);
+            time = pos + (GetElapsed() / ticklen);
+            bpm = 60000000 / tempo;
             timeLost = 0d;
             Console.WriteLine("New BPM: " + bpm);
             ticklen = (1 / (double)ppq) * (60 / bpm);
@@ -55,10 +56,7 @@ namespace SharpMIDI
             test.Restart();
         }
 
-        public static double GetTick()
-        {
-            return time + (GetElapsed() / ticklen);
-        }
+        public static double GetTick() => time + (GetElapsed() / ticklen);
 
         public static void Stop()
         {

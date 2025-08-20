@@ -11,6 +11,7 @@ namespace SharpMIDI.Renderer
         // Dynamic window dimensions
         private static int currentWidth = 1280;
         private static int currentHeight = 720;
+        //public static bool skipping = false;
 
         // Pre-allocated buffers for UI strings
         private static readonly System.Text.StringBuilder tickStr = new(256);
@@ -117,10 +118,17 @@ namespace SharpMIDI.Renderer
 
             // Seeking controls
             if (Raylib.IsKeyPressed(KeyboardKey.Right) || Raylib.IsKeyPressedRepeat(KeyboardKey.Right))
-                MIDIClock.time += MIDIClock.ppq;
-            if (Raylib.IsKeyPressed(KeyboardKey.W) || Raylib.IsKeyPressedRepeat(KeyboardKey.W))
+            {
+                //skipping = true;
                 MIDIClock.time += Math.Round(1 / MIDIClock.ticklen, 5);
-
+                //skipping = false;
+            }
+            if (Raylib.IsKeyPressed(KeyboardKey.Left) || Raylib.IsKeyPressedRepeat(KeyboardKey.Left))
+            {
+                //skipping = true;
+                MIDIClock.time -= Math.Round(1 / MIDIClock.ticklen, 5);
+                //skipping = false;
+            }
             // Toggle controls
             if (Raylib.IsKeyPressed(KeyboardKey.D))
                 Debug = !Debug;
@@ -156,7 +164,7 @@ namespace SharpMIDI.Renderer
             }
             if (controls)
             {
-                Raylib.DrawText($"Up/Dn = Zoom | V = Vsync | Right = Seek fwd | W = skip further | C = toggle this text | F = Fullscreen | D = Debug", 12, 45, 16, Raylib_cs.Color.White);
+                Raylib.DrawText($"Up/Dn = zoom | V = vsync | Right = seek fwd | Left = skip bw (broken) | C = toggle this text | F = fullscreen | D = debug", 12, 45, 16, Raylib_cs.Color.White);
                 if (Raylib.GetTime() >= 4.0 && Raylib.GetTime() <= 4.5)
                     controls = false;
             }

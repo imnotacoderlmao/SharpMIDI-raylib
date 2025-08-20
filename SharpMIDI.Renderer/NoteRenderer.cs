@@ -1,5 +1,4 @@
 using Raylib_cs;
-using System;
 using System.Numerics;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
@@ -11,62 +10,40 @@ namespace SharpMIDI.Renderer
 {
     public static unsafe class NoteRenderer
     {
-        private const int TOTAL_TEXTURE_HEIGHT = 128;  // 1 pixel per MIDI note (0..127)
+        private const int TOTAL_TEXTURE_HEIGHT = 128;  // 1 pixel per MIDI note
 
         private static int textureWidth = 2048;
         private static int textureHeight = TOTAL_TEXTURE_HEIGHT;
 
-        private static RenderTexture2D streamingTexture;
-        private static byte[] pixelBuffer;
+        // We will use a Texture2D and a pinned uint[] buffer
+        private static Texture2D streamingTexture;
+        private static uint[] pixelBuffer; // 32-bit ARGB
         private static GCHandle bufferHandle;
-        private static uint* pixelPtr32; // Direct uint pointer for SSE operations
+        private static uint* pixelPtr; // pinned pointer for intrinsics
 
-        // Pre-calculated lookup tables
+        // Note Y lookup (vertical flip)
         private static readonly byte[] noteToPixelY = new byte[128];
 
-        private static float pixelsPerTick = 1f;
-        private static int lastRenderedColumn = 0;
-        private static double lastRenderTick = 0;
-        private static double currentTick = 0;
-
-        private static bool initialized = false;
-        private static bool forceFullRedraw = true;
-
-        // Cached values to reduce property access
         private static float cachedWindow = 2000f;
         private static float cachedTicksPerPixel;
-        private static float invTicksPerPixel; // Pre-calculated inverse
+        private static float invTicksPerPixel;
+        private static float pixelsPerTick;
+
+        private static int lastRenderedColumn = -1;
+        private static float lastRenderTick = 0;
+        private static float currentTick = 0;
+        private static bool forceFullRedraw = true;
+        public static bool initialized = false;
 
         public static float Window => cachedWindow;
         public static int RenderedColumns { get; private set; } = 0;
 
-        // SSE3 constants
-        private static readonly Vector128<uint> ZeroVector128 = Vector128<uint>.Zero;
-        private static readonly Vector256<uint> ZeroVector256 = Vector256<uint>.Zero;
-
-        // Compact note structure for better cache performance
-        [StructLayout(LayoutKind.Sequential, Pack = 2)]
-        private readonly struct NoteRect
-        {
-            public readonly ushort X, Y, Width, Height;
-            
-            [MethodImpl(MethodImplOptions.AggressiveInlining)]
-            public NoteRect(int x, int y, int w, int h)
-            {
-                X = (ushort)x; 
-                Y = (ushort)y; 
-                Width = (ushort)w; 
-                Height = (ushort)h;
-            }
-        }
+        private static readonly Vector128<uint> Zero128 = Vector128<uint>.Zero;
+        private static readonly Vector256<uint> Zero256 = Vector256<uint>.Zero;
 
         static NoteRenderer()
         {
-            // Pre-calculate lookup tables - notes are vertically flipped
-            for (int i = 0; i < 128; i++)
-            {
-                noteToPixelY[i] = (byte)(127 - i);
-            }
+            for (int i = 0; i < 128; i++) noteToPixelY[i] = (byte)(127 - i);
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -79,23 +56,26 @@ namespace SharpMIDI.Renderer
 
             textureWidth = maxTextureWidth;
             textureHeight = TOTAL_TEXTURE_HEIGHT;
+
             cachedTicksPerPixel = cachedWindow / textureWidth;
             invTicksPerPixel = textureWidth / cachedWindow;
             pixelsPerTick = invTicksPerPixel;
 
-            streamingTexture = Raylib.LoadRenderTexture(textureWidth, textureHeight);
+            // Create Texture2D from blank Image
+            Raylib_cs.Image img = Raylib.GenImageColor(textureWidth, textureHeight, Raylib_cs.Color.Blank);
+            streamingTexture = Raylib.LoadTextureFromImage(img);
+            Raylib.UnloadImage(img);
 
-            int bufferSize = textureWidth * textureHeight * 4;
-            if (bufferHandle.IsAllocated) bufferHandle.Free();
-
-            pixelBuffer = new byte[bufferSize];
+            // allocate and pin pixel buffer
+            pixelBuffer = new uint[textureWidth * textureHeight];
             bufferHandle = GCHandle.Alloc(pixelBuffer, GCHandleType.Pinned);
-            pixelPtr32 = (uint*)bufferHandle.AddrOfPinnedObject();
+            pixelPtr = (uint*)bufferHandle.AddrOfPinnedObject();
 
-            // Clear texture
-            Raylib.BeginTextureMode(streamingTexture);
-            Raylib.ClearBackground(Raylib_cs.Color.Black);
-            Raylib.EndTextureMode();
+            // clear buffer
+            ClearAllBuffer();
+
+            // push initial texture data
+            Raylib.UpdateTexture(streamingTexture, pixelPtr);
 
             lastRenderedColumn = -1;
             forceFullRedraw = true;
@@ -105,7 +85,8 @@ namespace SharpMIDI.Renderer
         [MethodImpl(MethodImplOptions.AggressiveOptimization)]
         public static void UpdateStreaming(float tick)
         {
-            if (!initialized || !NoteProcessor.IsReady) return;
+            if (!NoteProcessor.IsReady || NoteProcessor.BucketOffsets.Length < 2)
+                return;
 
             if (!MIDIPlayer.stopping && tick < lastRenderTick)
             {
@@ -117,31 +98,31 @@ namespace SharpMIDI.Renderer
                 currentTick = tick;
             }
             lastRenderTick = currentTick;
-            
-            float tickPosition = (float)currentTick * pixelsPerTick;
+
+            float tickPosition = currentTick * pixelsPerTick;
             int newColumn = (int)tickPosition % textureWidth;
-            
-            int delta = newColumn >= lastRenderedColumn 
+            if (newColumn < 0) newColumn += textureWidth;
+
+            int delta = newColumn >= lastRenderedColumn
                 ? newColumn - lastRenderedColumn
                 : (textureWidth - lastRenderedColumn) + newColumn;
 
-            if (delta < 0) delta = 0;
-            if (delta > textureWidth) delta = textureWidth;
+            if (lastRenderedColumn == -1) delta = textureWidth;
 
             if (forceFullRedraw || delta >= textureWidth)
             {
-                float startTick = tick - cachedWindow * 0.5f;
-                RenderColumnsSSE(0, textureWidth, startTick);
+                float startTick = currentTick - (cachedWindow * 0.5f);
+                RenderColumns(0, textureWidth, startTick);
                 UpdateTexture();
                 forceFullRedraw = false;
                 RenderedColumns = textureWidth;
             }
             else if (delta > 0)
             {
-                ScrollPixelBufferSSE(delta);
-                
-                float startTick = tick - (cachedWindow * 0.5f) + (cachedWindow * (textureWidth - delta) / textureWidth);
-                RenderColumnsSSE(textureWidth - delta, delta, startTick);
+                // scroll left by delta columns and render the newly-exposed right region
+                ScrollBuffer(delta);
+                float startTick = currentTick - (cachedWindow * 0.5f) + (cachedWindow * (textureWidth - delta) / textureWidth);
+                RenderColumns(textureWidth - delta, delta, startTick);
                 UpdateTexture();
                 RenderedColumns = delta;
             }
@@ -154,253 +135,223 @@ namespace SharpMIDI.Renderer
         }
 
         [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-        private static void ScrollPixelBufferSSE(int delta)
+        private static void ScrollBuffer(int delta)
         {
             if (delta <= 0 || delta >= textureWidth) return;
 
+            int rows = textureHeight;
             int pixelsPerRow = textureWidth;
-            int shiftPixels = textureWidth - delta;
-            int clearPixels = delta;
+            int shift = delta;
+            int keepPixels = (textureWidth - shift);
 
-            // Process rows in batches for better cache utilization
+            // For each row, memmove left by delta and clear right area
+            for (int y = 0; y < rows; y++)
+            {
+                uint* row = pixelPtr + (y * pixelsPerRow);
+                // use intrinsics to copy chunks
+                int pos = 0;
+                int count = keepPixels;
+                if (Avx2.IsSupported && count >= 8)
+                {
+                    int chunks = count / 8;
+                    for (int c = 0; c < chunks; c++)
+                    {
+                        var v = Avx2.LoadVector256(row + shift + pos);
+                        Avx2.Store(row + pos, v);
+                        pos += 8;
+                    }
+                }
+                else if (Sse2.IsSupported && count >= 4)
+                {
+                    int chunks = count / 4;
+                    for (int c = 0; c < chunks; c++)
+                    {
+                        var v = Sse2.LoadVector128(row + shift + pos);
+                        Sse2.Store(row + pos, v);
+                        pos += 4;
+                    }
+                }
+                // scalar remainder
+                for (int i = pos; i < count; i++) row[i] = row[shift + i];
+
+                // clear rightmost 'shift' pixels
+                ClearPixels(row + keepPixels, shift);
+            }
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private static void ClearAllBuffer()
+        {
+            int total = textureWidth * textureHeight;
+            if (Avx2.IsSupported)
+            {
+                int pos = 0;
+                var z = Vector256<uint>.Zero;
+                int chunks = total / 8;
+                for (int i = 0; i < chunks; i++)
+                {
+                    Avx2.Store(pixelPtr + pos, z);
+                    pos += 8;
+                }
+                for (int i = pos; i < total; i++) pixelPtr[i] = 0;
+            }
+            else if (Sse2.IsSupported)
+            {
+                int pos = 0;
+                var z = Vector128<uint>.Zero;
+                int chunks = total / 4;
+                for (int i = 0; i < chunks; i++)
+                {
+                    Sse2.Store(pixelPtr + pos, z);
+                    pos += 4;
+                }
+                for (int i = pos; i < total; i++) pixelPtr[i] = 0;
+            }
+            else
+            {
+                for (int i = 0; i < total; i++) pixelPtr[i] = 0;
+            }
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private static void ClearPixels(uint* ptr, int count)
+        {
+            if (count <= 0) return;
+            if (Avx2.IsSupported && count >= 8)
+            {
+                var z = Vector256<uint>.Zero;
+                int chunks = count / 8;
+                for (int i = 0; i < chunks; i++) Avx2.Store(ptr + (i * 8), z);
+                int pos = chunks * 8;
+                for (int i = pos; i < count; i++) ptr[i] = 0;
+            }
+            else if (Sse2.IsSupported && count >= 4)
+            {
+                var z = Vector128<uint>.Zero;
+                int chunks = count / 4;
+                for (int i = 0; i < chunks; i++) Sse2.Store(ptr + (i * 4), z);
+                int pos = chunks * 4;
+                for (int i = pos; i < count; i++) ptr[i] = 0;
+            }
+            else
+            {
+                for (int i = 0; i < count; i++) ptr[i] = 0;
+            }
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveOptimization)]
+        private static void RenderColumns(int startX, int width, float startTick)
+        {
+            // safety
+            if (startX < 0 || width <= 0) return;
+
+            // clear region
             for (int y = 0; y < textureHeight; y++)
             {
-                uint* rowPtr = pixelPtr32 + (y * pixelsPerRow);
-                uint* srcPtr = rowPtr + delta;
-
-                // Use AVX2 if available for 8 pixels at once, otherwise SSE3 for 4 pixels
-                int vectorPos = 0;
-
-                if (Avx2.IsSupported && shiftPixels >= 8)
-                {
-                    int avxChunks = shiftPixels / 8;
-                    for (int chunk = 0; chunk < avxChunks; chunk++)
-                    {
-                        var data = Avx2.LoadVector256(srcPtr + vectorPos);
-                        Avx2.Store(rowPtr + vectorPos, data);
-                        vectorPos += 8;
-                    }
-                }
-                else if (Sse3.IsSupported && shiftPixels >= 4)
-                {
-                    int sseChunks = shiftPixels / 4;
-                    for (int chunk = 0; chunk < sseChunks; chunk++)
-                    {
-                        var data = Sse2.LoadVector128(srcPtr + vectorPos);
-                        Sse2.Store(rowPtr + vectorPos, data);
-                        vectorPos += 4;
-                    }
-                }
-
-                // Handle remaining pixels with scalar operations
-                for (int remaining = vectorPos; remaining < shiftPixels; remaining++)
-                {
-                    rowPtr[remaining] = srcPtr[remaining];
-                }
-
-                // Clear the new area using SIMD
-                ClearPixelsSSE(rowPtr + shiftPixels, clearPixels);
-            }
-        }
-
-        [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-        private static void ClearPixelsSSE(uint* ptr, int pixelCount)
-        {
-            int vectorPos = 0;
-
-            if (Avx2.IsSupported && pixelCount >= 8)
-            {
-                int avxChunks = pixelCount / 8;
-                for (int chunk = 0; chunk < avxChunks; chunk++)
-                {
-                    Avx2.Store(ptr + vectorPos, ZeroVector256);
-                    vectorPos += 8;
-                }
-            }
-            else if (Sse2.IsSupported && pixelCount >= 4)
-            {
-                int sseChunks = pixelCount / 4;
-                for (int chunk = 0; chunk < sseChunks; chunk++)
-                {
-                    Sse2.Store(ptr + vectorPos, ZeroVector128);
-                    vectorPos += 4;
-                }
+                uint* row = pixelPtr + (y * textureWidth + startX);
+                ClearPixels(row, width);
             }
 
-            // Clear remaining pixels
-            for (int remaining = vectorPos; remaining < pixelCount; remaining++)
-            {
-                ptr[remaining] = 0;
-            }
-        }
-
-        [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-        private static void RenderColumnsSSE(int startX, int width, float startTick)
-        {
             var packed = NoteProcessor.AllPackedNotes;
             var buckets = NoteProcessor.BucketOffsets;
             int bucketSize = NoteProcessor.BucketSize;
-
             if (packed.Length == 0 || buckets.Length == 0) return;
 
-            // Clear region using SSE
-            ClearPixelBufferRegionSSE(startX, width);
-
-            float endTick = startTick + (width * cachedTicksPerPixel);
+            float endTick = startTick + width * cachedTicksPerPixel;
             int viewBucket = Math.Max(0, (int)(startTick / bucketSize));
             int startBucket = Math.Max(0, viewBucket - 1);
-
             if (startBucket >= buckets.Length - 1) return;
 
-            int noteIndex = buckets[startBucket];
             int totalNotes = NoteProcessor.TotalPackedNotes;
-
+            int noteIndex = buckets[startBucket];
             int currentBucket = startBucket;
             int nextBucketBound = (currentBucket + 1 < buckets.Length) ? buckets[currentBucket + 1] : totalNotes;
             int bucketStartTick = currentBucket * bucketSize;
 
-            // Process notes in larger batches for better cache utilization
-            const int batchSize = 256;
-
-            for (; noteIndex < totalNotes; noteIndex += batchSize)
+            // iterate through notes sequentially (buckets are chronological)
+            while (noteIndex < totalNotes)
             {
-                int batchEnd = Math.Min(noteIndex + batchSize, totalNotes);
-
-                for (int i = noteIndex; i < batchEnd; i++)
+                // move to next bucket if needed
+                while (noteIndex >= nextBucketBound)
                 {
-                    // Update bucket bounds when needed
-                    while (i >= nextBucketBound)
-                    {
-                        currentBucket++;
-                        if (currentBucket + 1 < buckets.Length) 
-                            nextBucketBound = buckets[currentBucket + 1];
-                        else 
-                            nextBucketBound = totalNotes;
-                        bucketStartTick = currentBucket * bucketSize;
-                    }
-
-                    NoteProcessor.UnpackNoteAt(i, out int relStart, out int duration, out int noteNumber, out int colorIndex, out int trackIndex);
-
-                    int absStart = bucketStartTick + relStart;
-                    int absEnd = absStart + duration;
-
-                    // Early termination - notes are sorted by start time
-                    if (absStart > endTick) return;
-                    if (absEnd < startTick) continue;
-
-                    // Calculate pixel coordinates
-                    float startPx = (absStart - startTick) * invTicksPerPixel;
-                    float endPx = (absEnd - startTick) * invTicksPerPixel;
-
-                    int x1 = Math.Max(0, (int)startPx);
-                    int x2 = Math.Min(width, (int)endPx + 1);
-                    if (x2 <= x1) continue;
-
-                    var rect = new NoteRect(startX + x1, noteToPixelY[noteNumber], x2 - x1, 1);
-                    uint color = NoteProcessor.trackColors[colorIndex & 0x0F];
-                    
-                    DrawNoteFastSSE(rect, color);
+                    currentBucket++;
+                    bucketStartTick = currentBucket * bucketSize;
+                    nextBucketBound = (currentBucket + 1 < buckets.Length) ? buckets[currentBucket + 1] : totalNotes;
                 }
+
+                // unpack note (8 bytes)
+                int byteOffset = noteIndex * 8;
+                ulong packedValue;
+                fixed (byte* bptr = &packed[byteOffset])
+                {
+                    packedValue = *(ulong*)bptr;
+                }
+
+                int relStart = (int)(packedValue & 0x7FFu);
+                int duration = (int)((packedValue >> 11) & 0xFFFFu);
+                int noteNumber = (int)((packedValue >> 27) & 0x7Fu);
+                int colorIndex = (int)((packedValue >> 34) & 0x0Fu);
+                // trackIndex currently stored but unused by renderer
+                //int trackIndex = (int)((packedValue >> 38) & 0xFFFFu);
+
+                int absStart = bucketStartTick + relStart;
+                int absEnd = absStart + duration;
+
+                // Early termination: notes are chronological
+                if (absStart > endTick) break;
+                if (absEnd < startTick) { noteIndex++; continue; }
+
+                // Map to pixel X
+                float startPx = (absStart - startTick) * invTicksPerPixel;
+                float endPx = (absEnd - startTick) * invTicksPerPixel;
+                int x1 = Math.Max(0, (int)startPx);
+                int x2 = Math.Min(width, (int)endPx + 1);
+                if (x2 <= x1) { noteIndex++; continue; }
+
+                int y = noteToPixelY[noteNumber];
+
+                uint color = NoteProcessor.trackColors[colorIndex & 0x0F];
+
+                // draw single-row fast path
+                uint* rowPtr = pixelPtr + (y * textureWidth + startX + x1);
+                int w = x2 - x1;
+                FillRow(rowPtr, w, color);
+
+                noteIndex++;
             }
         }
 
-        [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-        private static void DrawNoteFastSSE(NoteRect note, uint color)
-        {
-            if (!initialized || pixelPtr32 == null) return;
-
-            int maxX = Math.Min(note.X + note.Width, textureWidth);
-            int maxY = Math.Min(note.Y + note.Height, textureHeight);
-            int x = Math.Max((byte)0, note.X);
-            int y = Math.Max((byte)0, note.Y);
-
-            if (maxX <= x || maxY <= y) return;
-
-            int actualWidth = maxX - x;
-
-            // For single-pixel height notes (most common case), optimize heavily
-            if (note.Height == 1 && actualWidth > 0)
-            {
-                uint* rowPtr = pixelPtr32 + (y * textureWidth + x);
-                FillRowSSE(rowPtr, actualWidth, color);
-                return;
-            }
-
-            // Multi-row filling (rare case for standard piano roll)
-            for (int py = y; py < maxY; py++)
-            {
-                uint* rowPtr = pixelPtr32 + (py * textureWidth + x);
-                FillRowSSE(rowPtr, actualWidth, color);
-            }
-        }
-
-        [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-        private static void FillRowSSE(uint* rowPtr, int width, uint color)
-        {
-            int vectorPos = 0;
-
-            if (Avx2.IsSupported && width >= 8)
-            {
-                var colorVec256 = Vector256.Create(color);
-                int avxChunks = width / 8;
-                
-                for (int chunk = 0; chunk < avxChunks; chunk++)
-                {
-                    Avx2.Store(rowPtr + vectorPos, colorVec256);
-                    vectorPos += 8;
-                }
-            }
-            else if (Sse2.IsSupported && width >= 4)
-            {
-                var colorVec128 = Vector128.Create(color);
-                int sseChunks = width / 4;
-                
-                for (int chunk = 0; chunk < sseChunks; chunk++)
-                {
-                    Sse2.Store(rowPtr + vectorPos, colorVec128);
-                    vectorPos += 4;
-                }
-            }
-
-            // Handle remaining pixels with manual loop unrolling
-            int remaining = width - vectorPos;
-            uint* ptr = rowPtr + vectorPos;
-            
-            // Unroll by 4 for better pipeline utilization
-            while (remaining >= 4)
-            {
-                ptr[0] = color;
-                ptr[1] = color;
-                ptr[2] = color;
-                ptr[3] = color;
-                ptr += 4;
-                remaining -= 4;
-            }
-            
-            // Handle final pixels
-            for (int i = 0; i < remaining; i++)
-            {
-                ptr[i] = color;
-            }
-        }
-
-        [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-        private static void ClearPixelBufferRegionSSE(int startX, int width)
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private static void FillRow(uint* rowPtr, int width, uint color)
         {
             if (width <= 0) return;
 
-            // Clear multiple rows efficiently using SSE
-            for (int y = 0; y < textureHeight; y++)
+            if (Avx2.IsSupported && width >= 8)
             {
-                uint* clearPtr = pixelPtr32 + (y * textureWidth + startX);
-                ClearPixelsSSE(clearPtr, width);
+                var v = Vector256.Create(color);
+                int chunks = width / 8;
+                for (int i = 0; i < chunks; i++) Avx2.Store(rowPtr + (i * 8), v);
+                int pos = chunks * 8;
+                for (int i = pos; i < width; i++) rowPtr[i] = color;
+            }
+            else if (Sse2.IsSupported && width >= 4)
+            {
+                var v = Vector128.Create(color);
+                int chunks = width / 4;
+                for (int i = 0; i < chunks; i++) Sse2.Store(rowPtr + (i * 4), v);
+                int pos = chunks * 4;
+                for (int i = pos; i < width; i++) rowPtr[i] = color;
+            }
+            else
+            {
+                for (int i = 0; i < width; i++) rowPtr[i] = color;
             }
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private static void UpdateTexture()
         {
-            Raylib.UpdateTexture(streamingTexture.Texture, pixelPtr32);
+            Raylib.UpdateTexture(streamingTexture, pixelPtr);
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -410,14 +361,13 @@ namespace SharpMIDI.Renderer
 
             var src = new Raylib_cs.Rectangle(0, 0, textureWidth, textureHeight);
             var dst = new Raylib_cs.Rectangle(0, pad, screenWidth, screenHeight - (pad << 1));
-            Raylib.DrawTexturePro(streamingTexture.Texture, src, dst, Vector2.Zero, 0f, Raylib_cs.Color.White);
+            Raylib.DrawTexturePro(streamingTexture, src, dst, Vector2.Zero, 0f, Raylib_cs.Color.White);
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static void SetWindow(float newWindow)
         {
             if (newWindow <= 0) return;
-            
             cachedWindow = newWindow;
             cachedTicksPerPixel = cachedWindow / textureWidth;
             invTicksPerPixel = textureWidth / cachedWindow;
@@ -426,17 +376,16 @@ namespace SharpMIDI.Renderer
             lastRenderedColumn = -1;
         }
 
+
         public static void Cleanup()
         {
             if (!initialized) return;
 
-            if (Raylib.IsTextureValid(streamingTexture.Texture))
-                Raylib.UnloadRenderTexture(streamingTexture);
-            
+            if (Raylib.IsTextureValid(streamingTexture))
+                Raylib.UnloadTexture(streamingTexture);
+
             if (bufferHandle.IsAllocated)
                 bufferHandle.Free();
-            
-            //initialized = false;
             forceFullRedraw = true;
         }
     }

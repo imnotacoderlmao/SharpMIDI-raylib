@@ -31,7 +31,7 @@
                 i.tempos.Clear();
             }
             Array.Clear(tracks);
-            tracks = new MIDITrack[0];
+            tracks = Array.Empty<MIDITrack>();
             GC.Collect();
         }
 
@@ -98,7 +98,7 @@
             //Sound.Reload();
             stopping = false;
             double recentDelay = 0;
-            float[] trackPositions = new float[tracks.Length];
+            double[] trackPositions = new double[tracks.Length];
             int[] eventProgress = new int[tracks.Length];
             int[] tempoProgress = new int[tracks.Length];
             System.Diagnostics.Stopwatch? watch = System.Diagnostics.Stopwatch.StartNew();
@@ -108,7 +108,7 @@
             MIDIClock.Start();
             fixed (int* eP = eventProgress)
             {
-                fixed (float* tP = trackPositions)
+                fixed (double* tP = trackPositions)
                 {
                     while (true)
                     {
