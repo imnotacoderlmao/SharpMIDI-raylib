@@ -1,4 +1,6 @@
-﻿namespace SharpMIDI
+﻿using System.Runtime.CompilerServices;
+
+namespace SharpMIDI
 {
     class MIDIPlayer
     {
@@ -92,6 +94,7 @@
             }
         }
 
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static unsafe async Task StartPlayback()
         {
             //if (!Renderer.MIDIRenderer.run){Renderer.MIDIRenderer.StartRenderer();};
@@ -115,7 +118,7 @@
                         //UpdateUI(); moved ui updates to form1, no more choppy playback (steamhappy emote here)
                         clock = MIDIClock.GetTick();
                         long watchtime = watch.ElapsedTicks;
-                        watch.Stop();
+                        watch.Restart();
                         watch = System.Diagnostics.Stopwatch.StartNew();
                         double delay = (double)watchtime / TimeSpan.TicksPerSecond;
                         totalDelay += watchtime;
@@ -127,7 +130,6 @@
                             loops++;
                             while (true)
                             {
-                                unsafe
                                 {
                                     if (tempoProgress[loops] < i.tempoAmount)
                                     {
@@ -173,7 +175,6 @@
                                 }
                             }
                         }
-
                         totalFrames++;
                         if (evs == 0 || stopping)
                         {
