@@ -158,7 +158,7 @@ namespace SharpMIDI.Renderer
             if (Debug)
             {
                 debugStr.Clear();
-                debugStr.Append("Drawcalls?: ").Append(NoteRenderer.RenderedColumns)
+                debugStr.Append("Drawcalls?: ").Append(NoteRenderer.NotesDrawnLastFrame)
                         .Append(" | Memory: ").Append(Form1.toMemoryText(GC.GetTotalMemory(false)));
                 Raylib.DrawText(debugStr.ToString(), 12, 25, 16, Raylib_cs.Color.SkyBlue);
             }

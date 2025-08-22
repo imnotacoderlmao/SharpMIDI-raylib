@@ -10,372 +10,232 @@ namespace SharpMIDI.Renderer
 {
     public static unsafe class NoteRenderer
     {
-        private const int TOTAL_TEXTURE_HEIGHT = 128;  // 1 pixel per MIDI note
-
+        private const int TEXTURE_HEIGHT = 128;  // 1 pixel per MIDI note
+        
         private static int textureWidth = 2048;
-        private static int textureHeight = TOTAL_TEXTURE_HEIGHT;
-
-        // We will use a Texture2D and a pinned uint[] buffer
         private static Texture2D streamingTexture;
-        private static uint[] pixelBuffer; // 32-bit ARGB
+        private static uint[] pixelBuffer;
         private static GCHandle bufferHandle;
-        private static uint* pixelPtr; // pinned pointer for intrinsics
+        private static uint* pixelPtr;
 
-        // Note Y lookup (vertical flip)
-        private static readonly byte[] noteToPixelY = new byte[128];
+        // Note Y lookup (flipped)
+        private static readonly byte[] noteToY = new byte[128];
 
-        private static float cachedWindow = 2000f;
-        private static float cachedTicksPerPixel;
-        private static float invTicksPerPixel;
+        private static float currentWindow = 2000f;
+        private static float ticksPerPixel;
         private static float pixelsPerTick;
 
-        private static int lastRenderedColumn = -1;
-        private static float lastRenderTick = 0;
-        private static float currentTick = 0;
-        private static bool forceFullRedraw = true;
+        private static int lastColumn = -1;
+        private static bool forceRedraw = true;
+        private static float lastTick = 0;
+
         public static bool initialized = false;
-
-        public static float Window => cachedWindow;
-        public static int RenderedColumns { get; private set; } = 0;
-
-        private static readonly Vector128<uint> Zero128 = Vector128<uint>.Zero;
-        private static readonly Vector256<uint> Zero256 = Vector256<uint>.Zero;
+        public static float Window => currentWindow;
+        public static int NotesDrawnLastFrame { get; private set; } = 0;
 
         static NoteRenderer()
         {
-            for (int i = 0; i < 128; i++) noteToPixelY[i] = (byte)(127 - i);
+            for (int i = 0; i < 128; i++) 
+                noteToY[i] = (byte)(127 - i);
         }
 
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static void Initialize(int width, int height)
         {
-            int maxTextureWidth = Math.Min(width, 8192);
-            if (initialized && maxTextureWidth == textureWidth) return;
+            int newWidth = Math.Min(width, 8192);
+            if (initialized && newWidth == textureWidth) return;
 
             if (initialized) Cleanup();
 
-            textureWidth = maxTextureWidth;
-            textureHeight = TOTAL_TEXTURE_HEIGHT;
+            textureWidth = newWidth;
+            UpdateWindowParams();
 
-            cachedTicksPerPixel = cachedWindow / textureWidth;
-            invTicksPerPixel = textureWidth / cachedWindow;
-            pixelsPerTick = invTicksPerPixel;
-
-            // Create Texture2D from blank Image
-            Raylib_cs.Image img = Raylib.GenImageColor(textureWidth, textureHeight, Raylib_cs.Color.Blank);
+            // Create texture
+            var img = Raylib.GenImageColor(textureWidth, TEXTURE_HEIGHT, Raylib_cs.Color.Blank);
             streamingTexture = Raylib.LoadTextureFromImage(img);
             Raylib.UnloadImage(img);
 
-            // allocate and pin pixel buffer
-            pixelBuffer = new uint[textureWidth * textureHeight];
+            // Setup buffer
+            pixelBuffer = new uint[textureWidth * TEXTURE_HEIGHT];
             bufferHandle = GCHandle.Alloc(pixelBuffer, GCHandleType.Pinned);
             pixelPtr = (uint*)bufferHandle.AddrOfPinnedObject();
 
-            // clear buffer
-            ClearAllBuffer();
-
-            // push initial texture data
+            ClearBuffer();
             Raylib.UpdateTexture(streamingTexture, pixelPtr);
 
-            lastRenderedColumn = -1;
-            forceFullRedraw = true;
+            lastColumn = -1;
+            forceRedraw = true;
             initialized = true;
         }
 
-        [MethodImpl(MethodImplOptions.AggressiveOptimization)]
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private static void UpdateWindowParams()
+        {
+            ticksPerPixel = currentWindow / textureWidth;
+            pixelsPerTick = textureWidth / currentWindow;
+        }
+
         public static void UpdateStreaming(float tick)
         {
             if (!NoteProcessor.IsReady || NoteProcessor.BucketOffsets.Length < 2)
                 return;
 
-            if (!MIDIPlayer.stopping && tick < lastRenderTick)
-            {
-                // Prevent backwards jumps hopefully
-                currentTick = lastRenderTick;
-            }
-            else
-            {
-                currentTick = tick;
-            }
-            lastRenderTick = currentTick;
+            // Prevent backwards jumps
+            if (!MIDIPlayer.stopping && tick < lastTick)
+                tick = lastTick;
+            lastTick = tick;
 
-            float tickPosition = currentTick * pixelsPerTick;
-            int newColumn = (int)tickPosition % textureWidth;
+            float tickPos = tick * pixelsPerTick;
+            int newColumn = (int)tickPos % textureWidth;
             if (newColumn < 0) newColumn += textureWidth;
 
-            int delta = newColumn >= lastRenderedColumn
-                ? newColumn - lastRenderedColumn
-                : (textureWidth - lastRenderedColumn) + newColumn;
+            int delta = lastColumn == -1 ? textureWidth :
+                       newColumn >= lastColumn ? newColumn - lastColumn :
+                       (textureWidth - lastColumn) + newColumn;
 
-            if (lastRenderedColumn == -1) delta = textureWidth;
-
-            if (forceFullRedraw || delta >= textureWidth)
+            if (forceRedraw || delta >= textureWidth)
             {
-                float startTick = currentTick - (cachedWindow * 0.5f);
-                RenderColumns(0, textureWidth, startTick);
-                UpdateTexture();
-                forceFullRedraw = false;
-                RenderedColumns = textureWidth;
+                float startTick = tick - (currentWindow * 0.5f);
+                RenderRegion(0, textureWidth, startTick);
+                forceRedraw = false;
             }
             else if (delta > 0)
             {
-                // scroll left by delta columns and render the newly-exposed right region
-                ScrollBuffer(delta);
-                float startTick = currentTick - (cachedWindow * 0.5f) + (cachedWindow * (textureWidth - delta) / textureWidth);
-                RenderColumns(textureWidth - delta, delta, startTick);
-                UpdateTexture();
-                RenderedColumns = delta;
-            }
-            else
-            {
-                RenderedColumns = 0;
+                ScrollLeft(delta);
+                float startTick = tick - (currentWindow * 0.5f) + (currentWindow * (textureWidth - delta) / textureWidth);
+                RenderRegion(textureWidth - delta, delta, startTick);
             }
 
-            lastRenderedColumn = newColumn;
+            Raylib.UpdateTexture(streamingTexture, pixelPtr);
+            lastColumn = newColumn;
         }
 
         [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-        private static void ScrollBuffer(int delta)
+        private static void ScrollLeft(int pixels)
         {
-            if (delta <= 0 || delta >= textureWidth) return;
+            if (pixels <= 0) return;
 
-            int rows = textureHeight;
-            int pixelsPerRow = textureWidth;
-            int shift = delta;
-            int keepPixels = (textureWidth - shift);
-
-            // For each row, memmove left by delta and clear right area
-            for (int y = 0; y < rows; y++)
+            int keepPixels = textureWidth - pixels;
+            
+            // Scroll each row
+            for (int y = 0; y < TEXTURE_HEIGHT; y++)
             {
-                uint* row = pixelPtr + (y * pixelsPerRow);
-                // use intrinsics to copy chunks
-                int pos = 0;
-                int count = keepPixels;
-                if (Avx2.IsSupported && count >= 8)
-                {
-                    int chunks = count / 8;
-                    for (int c = 0; c < chunks; c++)
-                    {
-                        var v = Avx2.LoadVector256(row + shift + pos);
-                        Avx2.Store(row + pos, v);
-                        pos += 8;
-                    }
-                }
-                else if (Sse2.IsSupported && count >= 4)
-                {
-                    int chunks = count / 4;
-                    for (int c = 0; c < chunks; c++)
-                    {
-                        var v = Sse2.LoadVector128(row + shift + pos);
-                        Sse2.Store(row + pos, v);
-                        pos += 4;
-                    }
-                }
-                // scalar remainder
-                for (int i = pos; i < count; i++) row[i] = row[shift + i];
-
-                // clear rightmost 'shift' pixels
-                ClearPixels(row + keepPixels, shift);
-            }
-        }
-
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private static void ClearAllBuffer()
-        {
-            int total = textureWidth * textureHeight;
-            if (Avx2.IsSupported)
-            {
-                int pos = 0;
-                var z = Vector256<uint>.Zero;
-                int chunks = total / 8;
-                for (int i = 0; i < chunks; i++)
-                {
-                    Avx2.Store(pixelPtr + pos, z);
-                    pos += 8;
-                }
-                for (int i = pos; i < total; i++) pixelPtr[i] = 0;
-            }
-            else if (Sse2.IsSupported)
-            {
-                int pos = 0;
-                var z = Vector128<uint>.Zero;
-                int chunks = total / 4;
-                for (int i = 0; i < chunks; i++)
-                {
-                    Sse2.Store(pixelPtr + pos, z);
-                    pos += 4;
-                }
-                for (int i = pos; i < total; i++) pixelPtr[i] = 0;
-            }
-            else
-            {
-                for (int i = 0; i < total; i++) pixelPtr[i] = 0;
-            }
-        }
-
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private static void ClearPixels(uint* ptr, int count)
-        {
-            if (count <= 0) return;
-            if (Avx2.IsSupported && count >= 8)
-            {
-                var z = Vector256<uint>.Zero;
-                int chunks = count / 8;
-                for (int i = 0; i < chunks; i++) Avx2.Store(ptr + (i * 8), z);
-                int pos = chunks * 8;
-                for (int i = pos; i < count; i++) ptr[i] = 0;
-            }
-            else if (Sse2.IsSupported && count >= 4)
-            {
-                var z = Vector128<uint>.Zero;
-                int chunks = count / 4;
-                for (int i = 0; i < chunks; i++) Sse2.Store(ptr + (i * 4), z);
-                int pos = chunks * 4;
-                for (int i = pos; i < count; i++) ptr[i] = 0;
-            }
-            else
-            {
-                for (int i = 0; i < count; i++) ptr[i] = 0;
+                uint* row = pixelPtr + (y * textureWidth);
+                
+                // Copy left
+                for (int x = 0; x < keepPixels; x++)
+                    row[x] = row[x + pixels];
+                
+                // Clear right
+                for (int x = keepPixels; x < textureWidth; x++)
+                    row[x] = 0;
             }
         }
 
         [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-        private static void RenderColumns(int startX, int width, float startTick)
+        private static void RenderRegion(int startX, int width, float startTick)
         {
-            // safety
-            if (startX < 0 || width <= 0) return;
+            if (width <= 0) return;
 
-            // clear region
-            for (int y = 0; y < textureHeight; y++)
+            NotesDrawnLastFrame = 0;
+
+            // Clear region
+            for (int y = 0; y < TEXTURE_HEIGHT; y++)
             {
                 uint* row = pixelPtr + (y * textureWidth + startX);
-                ClearPixels(row, width);
+                for (int x = 0; x < width; x++)
+                    row[x] = 0;
             }
 
             var packed = NoteProcessor.AllPackedNotes;
             var buckets = NoteProcessor.BucketOffsets;
-            int bucketSize = NoteProcessor.BucketSize;
             if (packed.Length == 0 || buckets.Length == 0) return;
 
-            float endTick = startTick + width * cachedTicksPerPixel;
-            int viewBucket = Math.Max(0, (int)(startTick / bucketSize));
-            int startBucket = Math.Max(0, viewBucket - 1);
+            float endTick = startTick + width * ticksPerPixel;
+            int bucketSize = NoteProcessor.BucketSize;
+
+            // Find bucket range
+            int startBucket = Math.Max(0, (int)(startTick / bucketSize) - 1);
+            int endBucket = Math.Min(buckets.Length - 2, (int)(endTick / bucketSize) + 1);
+
             if (startBucket >= buckets.Length - 1) return;
 
-            int totalNotes = NoteProcessor.TotalPackedNotes;
-            int noteIndex = buckets[startBucket];
-            int currentBucket = startBucket;
-            int nextBucketBound = (currentBucket + 1 < buckets.Length) ? buckets[currentBucket + 1] : totalNotes;
-            int bucketStartTick = currentBucket * bucketSize;
-
-            // iterate through notes sequentially (buckets are chronological)
-            while (noteIndex < totalNotes)
+            // Render notes
+            fixed (byte* packedPtr = packed)
             {
-                // move to next bucket if needed
-                while (noteIndex >= nextBucketBound)
+                for (int bucketIdx = startBucket; bucketIdx <= endBucket; bucketIdx++)
                 {
-                    currentBucket++;
-                    bucketStartTick = currentBucket * bucketSize;
-                    nextBucketBound = (currentBucket + 1 < buckets.Length) ? buckets[currentBucket + 1] : totalNotes;
+                    int bucketStart = buckets[bucketIdx];
+                    int bucketEnd = buckets[bucketIdx + 1];
+                    int bucketStartTick = bucketIdx * bucketSize;
+
+                    for (int noteIdx = bucketStart; noteIdx < bucketEnd; noteIdx++)
+                    {
+                        ulong packedValue = *(ulong*)(packedPtr + (noteIdx * 8));
+
+                        // Unpack
+                        int relStart = (int)(packedValue & 0x7FF);
+                        int duration = (int)((packedValue >> 11) & 0xFFFF);
+                        int absStart = bucketStartTick + relStart;
+                        int absEnd = absStart + duration;
+
+                        // Cull
+                        if (absEnd < startTick || absStart > endTick) 
+                            continue;
+
+                        // Calculate pixel coords
+                        float startPx = (absStart - startTick) / ticksPerPixel;
+                        float endPx = (absEnd - startTick) / ticksPerPixel;
+
+                        int x1 = Math.Max(0, (int)startPx);
+                        int x2 = Math.Min(width, (int)endPx + 1);
+
+                        if (x2 <= x1) continue;
+
+                        // Get note properties
+                        int noteNumber = (int)((packedValue >> 27) & 0x7F);
+                        int colorIndex = (int)((packedValue >> 34) & 0x0F);
+
+                        // Draw note
+                        int y = noteToY[noteNumber];
+                        uint color = NoteProcessor.trackColors[colorIndex];
+                        uint* rowPtr = pixelPtr + (y * textureWidth + startX + x1);
+                        
+                        int noteWidth = x2 - x1;
+                        for (int x = 0; x < noteWidth; x++)
+                            rowPtr[x] = color;
+
+                        NotesDrawnLastFrame++;
+                    }
                 }
-
-                // unpack note (8 bytes)
-                int byteOffset = noteIndex * 8;
-                ulong packedValue;
-                fixed (byte* bptr = &packed[byteOffset])
-                {
-                    packedValue = *(ulong*)bptr;
-                }
-
-                int relStart = (int)(packedValue & 0x7FFu);
-                int duration = (int)((packedValue >> 11) & 0xFFFFu);
-                int noteNumber = (int)((packedValue >> 27) & 0x7Fu);
-                int colorIndex = (int)((packedValue >> 34) & 0x0Fu);
-                // trackIndex currently stored but unused by renderer
-                //int trackIndex = (int)((packedValue >> 38) & 0xFFFFu);
-
-                int absStart = bucketStartTick + relStart;
-                int absEnd = absStart + duration;
-
-                // Early termination: notes are chronological
-                if (absStart > endTick) break;
-                if (absEnd < startTick) { noteIndex++; continue; }
-
-                // Map to pixel X
-                float startPx = (absStart - startTick) * invTicksPerPixel;
-                float endPx = (absEnd - startTick) * invTicksPerPixel;
-                int x1 = Math.Max(0, (int)startPx);
-                int x2 = Math.Min(width, (int)endPx + 1);
-                if (x2 <= x1) { noteIndex++; continue; }
-
-                int y = noteToPixelY[noteNumber];
-
-                uint color = NoteProcessor.trackColors[colorIndex & 0x0F];
-
-                // draw single-row fast path
-                uint* rowPtr = pixelPtr + (y * textureWidth + startX + x1);
-                int w = x2 - x1;
-                FillRow(rowPtr, w, color);
-
-                noteIndex++;
             }
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private static void FillRow(uint* rowPtr, int width, uint color)
+        private static void ClearBuffer()
         {
-            if (width <= 0) return;
-
-            if (Avx2.IsSupported && width >= 8)
-            {
-                var v = Vector256.Create(color);
-                int chunks = width / 8;
-                for (int i = 0; i < chunks; i++) Avx2.Store(rowPtr + (i * 8), v);
-                int pos = chunks * 8;
-                for (int i = pos; i < width; i++) rowPtr[i] = color;
-            }
-            else if (Sse2.IsSupported && width >= 4)
-            {
-                var v = Vector128.Create(color);
-                int chunks = width / 4;
-                for (int i = 0; i < chunks; i++) Sse2.Store(rowPtr + (i * 4), v);
-                int pos = chunks * 4;
-                for (int i = pos; i < width; i++) rowPtr[i] = color;
-            }
-            else
-            {
-                for (int i = 0; i < width; i++) rowPtr[i] = color;
-            }
+            int total = textureWidth * TEXTURE_HEIGHT;
+            for (int i = 0; i < total; i++)
+                pixelPtr[i] = 0;
         }
 
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private static void UpdateTexture()
-        {
-            Raylib.UpdateTexture(streamingTexture, pixelPtr);
-        }
-
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static void Render(int screenWidth, int screenHeight, int pad)
         {
             if (!initialized) return;
 
-            var src = new Raylib_cs.Rectangle(0, 0, textureWidth, textureHeight);
+            var src = new Raylib_cs.Rectangle(0, 0, textureWidth, TEXTURE_HEIGHT);
             var dst = new Raylib_cs.Rectangle(0, pad, screenWidth, screenHeight - (pad << 1));
             Raylib.DrawTexturePro(streamingTexture, src, dst, Vector2.Zero, 0f, Raylib_cs.Color.White);
         }
 
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static void SetWindow(float newWindow)
         {
-            if (newWindow <= 0) return;
-            cachedWindow = newWindow;
-            cachedTicksPerPixel = cachedWindow / textureWidth;
-            invTicksPerPixel = textureWidth / cachedWindow;
-            pixelsPerTick = invTicksPerPixel;
-            forceFullRedraw = true;
-            lastRenderedColumn = -1;
+            if (newWindow <= 0 || newWindow == currentWindow) return;
+            
+            currentWindow = newWindow;
+            UpdateWindowParams();
+            forceRedraw = true;
+            lastColumn = -1;
         }
-
 
         public static void Cleanup()
         {
@@ -386,7 +246,9 @@ namespace SharpMIDI.Renderer
 
             if (bufferHandle.IsAllocated)
                 bufferHandle.Free();
-            forceFullRedraw = true;
+
+            //initialized = false;
+            forceRedraw = true;
         }
     }
 }
