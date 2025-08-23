@@ -238,13 +238,23 @@ namespace SharpMIDI.Renderer
         {
             int cnt = bucketCounts[b];
             if (cnt <= 1 || bucketBuffers[b] == null) return;
-
+        
             Array.Sort(bucketBuffers[b], 0, cnt, Comparer<ulong>.Create((u1, u2) =>
             {
+                // Primary sort by relative start position
                 int r1 = (int)(u1 & 0x7FFu);
                 int r2 = (int)(u2 & 0x7FFu);
-                return r1 != r2 ? r1 - r2 : 
-                       (int)((u1 >> 11) & 0xFFFFu) - (int)((u2 >> 11) & 0xFFFFu);
+                if (r1 != r2) return r1 - r2;
+        
+                // Secondary sort by trackIndex (higher track numbers render last = on top)
+                int t1 = (int)((u1 >> 38) & 0xFFFFu);
+                int t2 = (int)((u2 >> 38) & 0xFFFFu);
+                if (t1 != t2) return t1 - t2;
+        
+                // Tertiary sort by duration (shorter notes last = on top)
+                int d1 = (int)((u1 >> 11) & 0xFFFFu);
+                int d2 = (int)((u2 >> 11) & 0xFFFFu);
+                return d2 - d1;
             }));
         }
 

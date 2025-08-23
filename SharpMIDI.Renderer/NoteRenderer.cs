@@ -195,14 +195,16 @@ namespace SharpMIDI.Renderer
                         int noteNumber = (int)((packedValue >> 27) & 0x7F);
                         int colorIndex = (int)((packedValue >> 34) & 0x0F);
 
-                        // Draw note
+                        // Draw note - respect layering by not overwriting existing pixels
                         int y = noteToY[noteNumber];
                         uint color = NoteProcessor.trackColors[colorIndex];
                         uint* rowPtr = pixelPtr + (y * textureWidth + startX + x1);
-                        
+
                         int noteWidth = x2 - x1;
                         for (int x = 0; x < noteWidth; x++)
-                            rowPtr[x] = color;
+                        {
+                            rowPtr[x] = color; // Always overwrite - sorting handles layering
+                        }
 
                         NotesDrawnLastFrame++;
                     }
