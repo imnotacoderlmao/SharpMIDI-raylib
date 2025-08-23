@@ -394,6 +394,7 @@ namespace SharpMIDI
                                 case 0xFF:
                                     {
                                         readEvent = PushbackRead();
+                                        // why the FUCK does tempo events notn work properly sometimes
                                         if (readEvent == 81)
                                         {
                                             Seek(1);

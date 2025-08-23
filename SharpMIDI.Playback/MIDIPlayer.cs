@@ -137,9 +137,10 @@ namespace SharpMIDI
                                         evs++;
                                         if (ev.pos <= clock)
                                         {
-                                            MIDIClock.SubmitBPM(ev.pos, ev.tempo);
                                             bpm = 60000000d / ev.tempo;
                                             tempoProgress[loops]++;
+                                            //tP[loops] += ev.pos; i tried to add this line but it just made tempo events process 92343240x slower
+                                            MIDIClock.SubmitBPM(ev.pos, ev.tempo);
                                         }
                                         else
                                         {

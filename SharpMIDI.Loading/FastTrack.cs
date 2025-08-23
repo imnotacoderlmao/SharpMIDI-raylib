@@ -207,6 +207,7 @@ namespace SharpMIDI
                                 case 0xFF:
                                     {
                                         readEvent = stupid.Read();
+                                        // why the FUCK does tempo events notn work properly sometimes
                                         if (readEvent == 0x51)
                                         {
                                             stupid.Skip(1);
