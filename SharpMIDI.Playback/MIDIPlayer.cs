@@ -117,7 +117,7 @@ namespace SharpMIDI
                             loops++;
                             while (true)
                             {
-                                while (tempoProgress[loops] < i.tempoAmount)
+                                if (tempoProgress[loops] < i.tempoAmount)
                                 {
                                     Tempo ev = i.tempos[tempoProgress[loops]];
                                     evs++;
@@ -127,9 +127,9 @@ namespace SharpMIDI
                                         //bpm = 60000000d / ev.tempo;
                                         tempoProgress[loops]++;
                                     }
-                                    break;
+                                    else break;
                                 }
-                                while (eP[loops] < i.eventAmount)
+                                if (eP[loops] < i.eventAmount)
                                 {
                                     SynthEvent ev = i.synthEvents[eP[loops]];
                                     evs++;
@@ -139,9 +139,9 @@ namespace SharpMIDI
                                         tP[loops] += ev.pos;
                                         Sound.Submit((uint)ev.val);
                                     }
-                                    break;
+                                    else break;
                                 }
-                                break;
+                                else break;
                             }
                         }
                         totalFrames++;
