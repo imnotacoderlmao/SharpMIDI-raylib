@@ -1,4 +1,5 @@
 ﻿using System.Runtime.CompilerServices;
+using SharpMIDI.Renderer;
 
 namespace SharpMIDI
 {
@@ -108,7 +109,6 @@ namespace SharpMIDI
                         clock = MIDIClock.GetTick();
                         long watchtime = watch.ElapsedTicks;
                         watch.Restart();
-                        watch = System.Diagnostics.Stopwatch.StartNew();
                         totalDelay += watchtime;
                         int evs = 0;
                         int loops = -1;
@@ -129,17 +129,13 @@ namespace SharpMIDI
                                     }
                                     else break;
                                 }
-                                if (eP[loops] < i.eventAmount)
+                                if (eP[loops] < i.eventAmount && tP[loops] + i.synthEvents[eP[loops]].pos <= clock)
                                 {
-                                    SynthEvent ev = i.synthEvents[eP[loops]];
+                                    var ev = i.synthEvents[eP[loops]];
                                     evs++;
-                                    if (tP[loops] + ev.pos <= clock)
-                                    {
-                                        eP[loops]++;
-                                        tP[loops] += ev.pos;
-                                        Sound.Submit((uint)ev.val);
-                                    }
-                                    else break;
+                                    tP[loops] += ev.pos;
+                                    Sound.Submit((uint)ev.val);
+                                    eP[loops]++;
                                 }
                                 else break;
                             }
@@ -149,6 +145,7 @@ namespace SharpMIDI
                         {
                             if (stopping)
                             Console.WriteLine("Playback finished...");
+                            NoteRenderer.lastTick = 0;
                             break;
                         }
                     }
