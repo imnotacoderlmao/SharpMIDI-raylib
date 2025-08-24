@@ -5,7 +5,7 @@ namespace SharpMIDI
     class MIDIClock
     {
         public static double time = 0f;
-        static double bpm = 120d;
+        public static double bpm = 120d;
         public static double ppq = 0;
         public static double ticklen;
         static Stopwatch test = new Stopwatch();

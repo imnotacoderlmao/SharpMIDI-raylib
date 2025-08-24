@@ -150,7 +150,7 @@ namespace SharpMIDI.Renderer
             // Main UI
             tickStr.Clear();
             tickStr.Append("Tick: ").Append((int)tick)
-                   .Append(" | Tempo: ").Append(MIDIPlayer.bpm.ToString("F1"))
+                   .Append(" | Tempo: ").Append(MIDIClock.bpm.ToString("F1"))
                    .Append(" | Zoom: ").Append((int)NoteRenderer.Window)
                    .Append(" | Glow: ").Append("broken") // keep parity with existing code
                    .Append(" | FPS: ").Append(Raylib.GetFPS());
@@ -158,7 +158,7 @@ namespace SharpMIDI.Renderer
             if (Debug)
             {
                 debugStr.Clear();
-                debugStr.Append("Drawcalls?: ").Append(NoteRenderer.NotesDrawnLastFrame)
+                debugStr.Append("DrawOps: ").Append(NoteRenderer.NotesDrawnLastFrame)
                         .Append(" | Memory: ").Append(Form1.toMemoryText(GC.GetTotalMemory(false)));
                 Raylib.DrawText(debugStr.ToString(), 12, 25, 16, Raylib_cs.Color.SkyBlue);
             }

@@ -17,7 +17,6 @@ namespace SharpMIDI
         public static bool paused = false;
         public static double bpm = 120;
         private static double clock = 0;
-        //private static double timeSinceLastPrint = tick();
         private static int totalFrames = 0;
         private static double totalDelay = 0;
         public static void ClearEntries()
@@ -72,22 +71,16 @@ namespace SharpMIDI
         }
         public static bool stopping = false;
 
-        public static async Task UpdateUI()
+        public static Task UpdateUI()
         {
             while (true)
             {
                 Starter.form.label12.Text = "FPS \u2248 " + Math.Round(1 / ((double)(totalDelay / TimeSpan.TicksPerSecond) / (double)totalFrames), 5);
-                //Starter.form.label12.Update();
                 Starter.form.label7.Text = "Memory Usage: " + Form1.toMemoryText(GC.GetTotalMemory(false)) + " (May be inaccurate)";
-                //Starter.form.label7.Update();
                 Starter.form.label14.Text = "Tick: " + Math.Round(clock, 0) + " / " + maxTick;
-                //Starter.form.label14.Update();
                 Starter.form.label16.Text = "TPS: " + Math.Round(1 / MIDIClock.ticklen, 5);
-                //Starter.form.label16.Update();
-                Starter.form.label17.Text = "BPM: " + Math.Round(bpm, 5);
-                //Starter.form.label17.Update();
+                Starter.form.label17.Text = "BPM: " + Math.Round(MIDIClock.bpm, 5);
                 Starter.form.label3.Text = "Played events: " + Sound.totalEvents + " / " + eventCount;
-                //Starter.form.label3.Update();
                 totalFrames = 0;
                 totalDelay = 0;
                 Thread.Sleep(10);
@@ -97,10 +90,7 @@ namespace SharpMIDI
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static unsafe async Task StartPlayback()
         {
-            //if (!Renderer.MIDIRenderer.run){Renderer.MIDIRenderer.StartRenderer();};
-            //Sound.Reload();
             stopping = false;
-            double recentDelay = 0;
             double[] trackPositions = new double[tracks.Length];
             int[] eventProgress = new int[tracks.Length];
             int[] tempoProgress = new int[tracks.Length];
@@ -115,14 +105,11 @@ namespace SharpMIDI
                 {
                     while (true)
                     {
-                        //UpdateUI(); moved ui updates to form1, no more choppy playback (steamhappy emote here)
                         clock = MIDIClock.GetTick();
                         long watchtime = watch.ElapsedTicks;
                         watch.Restart();
                         watch = System.Diagnostics.Stopwatch.StartNew();
-                        double delay = (double)watchtime / TimeSpan.TicksPerSecond;
                         totalDelay += watchtime;
-                        recentDelay = watchtime;
                         int evs = 0;
                         int loops = -1;
                         foreach (MIDITrack i in tracks)
@@ -130,32 +117,19 @@ namespace SharpMIDI
                             loops++;
                             while (true)
                             {
+                                while (tempoProgress[loops] < i.tempoAmount)
                                 {
-                                    if (tempoProgress[loops] < i.tempoAmount)
+                                    Tempo ev = i.tempos[tempoProgress[loops]];
+                                    evs++;
+                                    if (ev.pos <= clock)
                                     {
-                                        Tempo ev = i.tempos[tempoProgress[loops]];
-                                        evs++;
-                                        if (ev.pos <= clock)
-                                        {
-                                            bpm = 60000000d / ev.tempo;
-                                            tempoProgress[loops]++;
-                                            //tP[loops] += ev.pos; i tried to add this line but it just made tempo events process 92343240x slower
-                                            MIDIClock.SubmitBPM(ev.pos, ev.tempo);
-                                        }
-                                        else
-                                        {
-                                            break;
-                                        }
+                                        MIDIClock.SubmitBPM(ev.pos, ev.tempo);
+                                        //bpm = 60000000d / ev.tempo;
+                                        tempoProgress[loops]++;
                                     }
-                                    else
-                                    {
-                                        break;
-                                    }
+                                    break;
                                 }
-                            }
-                            while (true)
-                            {
-                                if (eP[loops] < i.eventAmount)
+                                while (eP[loops] < i.eventAmount)
                                 {
                                     SynthEvent ev = i.synthEvents[eP[loops]];
                                     evs++;
@@ -165,15 +139,9 @@ namespace SharpMIDI
                                         tP[loops] += ev.pos;
                                         Sound.Submit((uint)ev.val);
                                     }
-                                    else
-                                    {
-                                        break;
-                                    }
-                                }
-                                else
-                                {
                                     break;
                                 }
+                                break;
                             }
                         }
                         totalFrames++;

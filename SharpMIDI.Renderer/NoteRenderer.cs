@@ -189,7 +189,7 @@ namespace SharpMIDI.Renderer
                         int x1 = Math.Max(0, (int)startPx);
                         int x2 = Math.Min(width, (int)endPx + 1);
 
-                        if (x2 <= x1) continue;
+                        //if (x2 <= x1) continue;
 
                         // Get note properties
                         int noteNumber = (int)((packedValue >> 27) & 0x7F);
@@ -205,7 +205,6 @@ namespace SharpMIDI.Renderer
                         {
                             rowPtr[x] = color; // Always overwrite - sorting handles layering
                         }
-
                         NotesDrawnLastFrame++;
                     }
                 }
