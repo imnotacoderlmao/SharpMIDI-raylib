@@ -110,7 +110,6 @@ namespace SharpMIDI
                         long watchtime = watch.ElapsedTicks;
                         watch.Restart();
                         totalDelay += watchtime;
-                        int evs = 0;
                         int loops = -1;
                         foreach (MIDITrack i in tracks)
                         {
@@ -120,7 +119,6 @@ namespace SharpMIDI
                                 if (tempoProgress[loops] < i.tempoAmount)
                                 {
                                     Tempo ev = i.tempos[tempoProgress[loops]];
-                                    evs++;
                                     if (ev.pos <= clock)
                                     {
                                         MIDIClock.SubmitBPM(ev.pos, ev.tempo);
@@ -132,7 +130,6 @@ namespace SharpMIDI
                                 if (eP[loops] < i.eventAmount && tP[loops] + i.synthEvents[eP[loops]].pos <= clock)
                                 {
                                     var ev = i.synthEvents[eP[loops]];
-                                    evs++;
                                     tP[loops] += ev.pos;
                                     Sound.Submit((uint)ev.val);
                                     eP[loops]++;
@@ -141,7 +138,7 @@ namespace SharpMIDI
                             }
                         }
                         totalFrames++;
-                        if (evs == 0 || stopping)
+                        if (clock >= maxTick || stopping)
                         {
                             if (stopping)
                             Console.WriteLine("Playback finished...");
