@@ -27,7 +27,7 @@ namespace SharpMIDI.Renderer
 
         private static int lastColumn = -1;
         private static bool forceRedraw = true;
-        private static float lastTick = 0;
+        public static float lastTick = 0;
 
         public static bool initialized = false;
         public static float Window => currentWindow;

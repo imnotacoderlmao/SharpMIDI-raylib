@@ -7,6 +7,11 @@ namespace SharpMIDI
         public float pos;
         public int val;
     }
+    public struct Tempo
+    {
+        public float pos;
+        public int tempo;
+    }
 
     public class MIDITrack
     {
@@ -17,6 +22,7 @@ namespace SharpMIDI
         public long loadedNotes = 0;
         public long totalNotes = 0;
         public float maxTick = 0;
+        public static bool finished = false;
     }
 
     public unsafe class FastTrack : IDisposable
@@ -213,15 +219,14 @@ namespace SharpMIDI
                                             stupid.Skip(1);
                                             int tempo = 0;
                                             for (int i = 0; i != 3; i++)
-                                                tempo = (int)((tempo << 8) | stupid.Read());
-                                            Tempo tempoEvent = new Tempo();
-                                            tempoEvent.pos = trackTime;
-                                            tempoEvent.tempo = tempo;
+                                                tempo = (tempo << 8) | stupid.Read();
                                             track.tempoAmount++;
-                                            lock (track.tempos)
+                                            track.tempos.Add(new Tempo()
                                             {
-                                                track.tempos.Add(tempoEvent);
-                                            }
+                                                pos = trackTime,
+                                                tempo = tempo
+                                            });
+                                            removedOffset = 0;
                                         }
                                         else if (readEvent == 0x2F)
                                         {
@@ -245,6 +250,7 @@ namespace SharpMIDI
                 }
             }
             track.maxTick = trackTime;
+            MIDITrack.finished = true;
         }
         long ReadVariableLen()
         {

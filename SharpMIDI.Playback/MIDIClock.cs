@@ -51,7 +51,7 @@ namespace SharpMIDI
             bpm = 60000000 / tempo;
             timeLost = 0d;
             //Console.WriteLine("New BPM: " + bpm + " Tick: " + pos); this mf was slowing down the playback thread when tempo changes occur :(
-            ticklen = (1 / (double)ppq) * (60 / bpm);
+            ticklen = 60.0 / (bpm * ppq);
             time += remainder;
             test.Restart();
         }

@@ -23,7 +23,7 @@ namespace SharpMIDI
             form.label1.Update();
             form.label2.Update();
             filename = Path.GetFileName(str);
-            MIDILoader.LoadPath(str, (int)form.numericUpDown1.Value, (int)form.numericUpDown3.Value);
+            MIDILoader.LoadPath(str, (byte)form.numericUpDown1.Value, (int)form.numericUpDown3.Value);
             return;
         }
     }

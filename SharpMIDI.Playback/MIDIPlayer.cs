@@ -107,9 +107,8 @@ namespace SharpMIDI
                     while (true)
                     {
                         clock = MIDIClock.GetTick();
-                        long watchtime = watch.ElapsedTicks;
                         watch.Restart();
-                        totalDelay += watchtime;
+                        totalDelay += (long)watch.ElapsedTicks;
                         int loops = -1;
                         foreach (MIDITrack i in tracks)
                         {
@@ -121,28 +120,32 @@ namespace SharpMIDI
                                     Tempo ev = i.tempos[tempoProgress[loops]];
                                     if (ev.pos <= clock)
                                     {
+                                        tempoProgress[loops]++;
                                         MIDIClock.SubmitBPM(ev.pos, ev.tempo);
                                         //bpm = 60000000d / ev.tempo;
-                                        tempoProgress[loops]++;
                                     }
                                     else break;
                                 }
-                                if (eP[loops] < i.eventAmount && tP[loops] + i.synthEvents[eP[loops]].pos <= clock)
+                                if (eP[loops] < i.eventAmount)
                                 {
-                                    var ev = i.synthEvents[eP[loops]];
-                                    tP[loops] += ev.pos;
-                                    Sound.Submit((uint)ev.val);
-                                    eP[loops]++;
+                                    SynthEvent ev = i.synthEvents[eP[loops]];
+                                    if (tP[loops] + ev.pos <= clock)
+                                    {
+                                        eP[loops]++;
+                                        tP[loops] += ev.pos;
+                                        Sound.Submit((uint)ev.val);
+                                    }
+                                    else break;
                                 }
                                 else break;
                             }
                         }
                         totalFrames++;
-                        if (clock >= maxTick || stopping)
+                        if (clock > maxTick || stopping)
                         {
                             if (stopping)
-                            Console.WriteLine("Playback finished...");
-                            NoteRenderer.lastTick = 0;
+                                Console.WriteLine("Playback finished...");
+                                NoteRenderer.lastTick = 0;
                             break;
                         }
                     }
