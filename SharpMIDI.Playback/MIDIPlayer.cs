@@ -106,9 +106,10 @@ namespace SharpMIDI
                 {
                     while (true)
                     {
+                        long watchtime = watch.ElapsedTicks;
                         clock = MIDIClock.GetTick();
                         watch.Restart();
-                        totalDelay += (long)watch.ElapsedTicks;
+                        totalDelay += watchtime;
                         int loops = -1;
                         foreach (MIDITrack i in tracks)
                         {
