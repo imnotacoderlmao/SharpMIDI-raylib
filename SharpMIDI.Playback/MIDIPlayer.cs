@@ -147,6 +147,7 @@ namespace SharpMIDI
                             if (stopping)
                                 Console.WriteLine("Playback finished...");
                                 NoteRenderer.lastTick = 0;
+                                NoteRenderer.forceRedraw = true;
                             break;
                         }
                     }

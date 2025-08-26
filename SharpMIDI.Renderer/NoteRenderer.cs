@@ -26,7 +26,7 @@ namespace SharpMIDI.Renderer
         private static float pixelsPerTick;
 
         private static int lastColumn = -1;
-        private static bool forceRedraw = true;
+        public static bool forceRedraw = true;
         public static float lastTick = 0;
 
         public static bool initialized = false;
@@ -76,7 +76,7 @@ namespace SharpMIDI.Renderer
 
         public static void UpdateStreaming(float tick)
         {
-            if (!NoteProcessor.IsReady || NoteProcessor.BucketOffsets.Length < 2)
+            if (!NoteProcessor.IsReady)
                 return;
 
             // Prevent backwards jumps
@@ -146,56 +146,60 @@ namespace SharpMIDI.Renderer
                     row[x] = 0;
             }
 
-            var packed = NoteProcessor.AllPackedNotes;
-            var buckets = NoteProcessor.BucketOffsets;
-            if (packed.Length == 0 || buckets.Length == 0) return;
+            var buckets = NoteProcessor.SortedBuckets;
+            var bucketCounts = NoteProcessor.BucketCounts;
+            if (buckets.Length == 0) return;
 
             float endTick = startTick + width * ticksPerPixel;
             int bucketSize = NoteProcessor.BucketSize;
 
             // Find bucket range
             int startBucket = Math.Max(0, (int)(startTick / bucketSize) - 1);
-            int endBucket = Math.Min(buckets.Length - 2, (int)(endTick / bucketSize) + 1);
+            int endBucket = Math.Min(buckets.Length - 1, (int)(endTick / bucketSize) + 1);
 
-            if (startBucket >= buckets.Length - 1) return;
+            if (startBucket >= buckets.Length) return;
 
-            // Render notes
-            fixed (byte* packedPtr = packed)
+            // Render notes from buckets
+            for (int bucketIdx = startBucket; bucketIdx <= endBucket; bucketIdx++)
             {
-                for (int bucketIdx = startBucket; bucketIdx <= endBucket; bucketIdx++)
+                var bucket = buckets[bucketIdx];
+                int count = bucketCounts[bucketIdx];
+
+                if (bucket == null || count == 0) continue;
+
+                int bucketStartTick = bucketIdx * bucketSize;
+
+                // Use unsafe fixed block for performance
+                fixed (ulong* bucketPtr = bucket)
                 {
-                    int bucketStart = buckets[bucketIdx];
-                    int bucketEnd = buckets[bucketIdx + 1];
-                    int bucketStartTick = bucketIdx * bucketSize;
-
-                    for (int noteIdx = bucketStart; noteIdx < bucketEnd; noteIdx++)
+                    for (int noteIdx = 0; noteIdx < count; noteIdx++)
                     {
-                        ulong packedValue = *(ulong*)(packedPtr + (noteIdx * 8));
+                        ulong packedValue = bucketPtr[noteIdx];
 
-                        // Unpack
+                        // Unpack note data
                         int relStart = (int)(packedValue & 0x7FF);
                         int duration = (int)((packedValue >> 11) & 0xFFFF);
                         int absStart = bucketStartTick + relStart;
                         int absEnd = absStart + duration;
 
-                        // Cull
+                        // Cull notes outside viewport
                         if (absEnd < startTick || absStart > endTick) 
                             continue;
 
-                        // Calculate pixel coords
+                        // Calculate pixel coordinates
                         float startPx = (absStart - startTick) / ticksPerPixel;
                         float endPx = (absEnd - startTick) / ticksPerPixel;
 
                         int x1 = Math.Max(0, (int)startPx);
                         int x2 = Math.Min(width, (int)endPx + 1);
 
-                        //if (x2 <= x1) continue;
+                        if (x2 <= x1) continue;
 
                         // Get note properties
                         int noteNumber = (int)((packedValue >> 27) & 0x7F);
                         int colorIndex = (int)((packedValue >> 34) & 0x0F);
 
-                        // Draw note - respect layering by not overwriting existing pixels
+                        // Draw note
                         int y = noteToY[noteNumber];
                         uint color = NoteProcessor.trackColors[colorIndex];
                         uint* rowPtr = pixelPtr + (y * textureWidth + startX + x1);
@@ -203,7 +207,7 @@ namespace SharpMIDI.Renderer
                         int noteWidth = x2 - x1;
                         for (int x = 0; x < noteWidth; x++)
                         {
-                            rowPtr[x] = color; // Always overwrite - sorting handles layering
+                            rowPtr[x] = color;
                         }
                         NotesDrawnLastFrame++;
                     }

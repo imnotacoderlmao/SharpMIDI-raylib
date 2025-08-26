@@ -13,19 +13,17 @@ namespace SharpMIDI.Renderer
         // bits 34..37  -> colorIndex (4 bits, 0-15)
         // bits 38..53  -> trackIndex (16 bits, 0-65535)
 
-        public static byte[] AllPackedNotes = Array.Empty<byte>();
-        public static int[] BucketOffsets = Array.Empty<int>();
+        // Stream directly from buckets - no flattening
+        public static ulong[][] SortedBuckets = Array.Empty<ulong[]>();
+        public static int[] BucketCounts = Array.Empty<int>();
         public static readonly int BucketSize = 2048;
         public static bool IsReady { get; private set; } = false;
+        public static long TotalNoteCount { get; private set; } = 0;
 
         // Simplified active note tracking
         private struct ActiveNote { public float StartTick; public ushort TrackIndex; public byte Channel; }
         private static readonly ActiveNote[] activeNotes = new ActiveNote[2048]; // 16 channels * 128 notes
         private static readonly bool[] activeFlags = new bool[2048];
-
-        // Bucket management
-        private static ulong[][] bucketBuffers = Array.Empty<ulong[]>();
-        private static int[] bucketCounts = Array.Empty<int>();
 
         // Color table
         public static readonly uint[] trackColors = new uint[16];
@@ -81,8 +79,10 @@ namespace SharpMIDI.Renderer
                     globalMaxTick = tracks[t].maxTick;
 
             int bucketCount = Math.Max(2, (int)(globalMaxTick / BucketSize) + 2);
-            bucketBuffers = new ulong[bucketCount][];
-            bucketCounts = new int[bucketCount];
+            
+            // Initialize buckets
+            SortedBuckets = new ulong[bucketCount][];
+            BucketCounts = new int[bucketCount];
 
             // Process tracks in parallel
             System.Threading.Tasks.Parallel.For(0, tracks.Length, trackIndex =>
@@ -92,25 +92,36 @@ namespace SharpMIDI.Renderer
                     ProcessTrack(track, trackIndex, bucketCount);
             });
 
-            // Count total notes
+            // Count total notes and sort buckets
             long totalNotes = 0;
-            for (int i = 0; i < bucketCount; i++) 
-                totalNotes += bucketCounts[i];
-
-            if (totalNotes == 0)
+            System.Threading.Tasks.Parallel.For(0, bucketCount, bucketIdx =>
             {
-                IsReady = true;
-                return;
-            }
+                SortBucket(bucketIdx);
+            });
 
-            // Sort and flatten
-            System.Threading.Tasks.Parallel.For(0, bucketCount, SortBucket);
-            FlattenBuckets(bucketCount, totalNotes);
-            BuildBucketOffsets(bucketCount);
+            for (int i = 0; i < bucketCount; i++)
+                totalNotes += BucketCounts[i];
 
-            // Cleanup
-            bucketBuffers = Array.Empty<ulong[]>();
-            bucketCounts = Array.Empty<int>();
+            TotalNoteCount = totalNotes;
+
+            // Trim bucket arrays to actual size to save memory
+            System.Threading.Tasks.Parallel.For(0, bucketCount, bucketIdx =>
+            {
+                if (SortedBuckets[bucketIdx] != null && BucketCounts[bucketIdx] > 0)
+                {
+                    if (SortedBuckets[bucketIdx].Length > BucketCounts[bucketIdx])
+                    {
+                        var trimmed = new ulong[BucketCounts[bucketIdx]];
+                        Array.Copy(SortedBuckets[bucketIdx], trimmed, BucketCounts[bucketIdx]);
+                        SortedBuckets[bucketIdx] = trimmed;
+                    }
+                }
+                else if (SortedBuckets[bucketIdx] != null)
+                {
+                    SortedBuckets[bucketIdx] = null; // Free empty buckets
+                }
+            });
+
             IsReady = true;
         }
 
@@ -218,28 +229,31 @@ namespace SharpMIDI.Renderer
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private static void AddToBucket(int bucket, ulong packed)
         {
-            lock (bucketBuffers) // Single lock for simplicity
+            lock (SortedBuckets) // Single lock for simplicity
             {
-                if (bucketBuffers[bucket] == null)
-                    bucketBuffers[bucket] = new ulong[512];
-                
-                if (bucketCounts[bucket] >= bucketBuffers[bucket].Length)
+                if (SortedBuckets[bucket] == null)
                 {
-                    var newBuf = new ulong[bucketBuffers[bucket].Length * 2];
-                    Array.Copy(bucketBuffers[bucket], newBuf, bucketCounts[bucket]);
-                    bucketBuffers[bucket] = newBuf;
+                    SortedBuckets[bucket] = new ulong[512];
+                    BucketCounts[bucket] = 0;
                 }
                 
-                bucketBuffers[bucket][bucketCounts[bucket]++] = packed;
+                if (BucketCounts[bucket] >= SortedBuckets[bucket].Length)
+                {
+                    var newBuf = new ulong[SortedBuckets[bucket].Length * 2];
+                    Array.Copy(SortedBuckets[bucket], newBuf, BucketCounts[bucket]);
+                    SortedBuckets[bucket] = newBuf;
+                }
+                
+                SortedBuckets[bucket][BucketCounts[bucket]++] = packed;
             }
         }
 
         private static void SortBucket(int b)
         {
-            int cnt = bucketCounts[b];
-            if (cnt <= 1 || bucketBuffers[b] == null) return;
+            int cnt = BucketCounts[b];
+            if (cnt <= 1 || SortedBuckets[b] == null) return;
 
-            Array.Sort(bucketBuffers[b], 0, cnt, Comparer<ulong>.Create((u1, u2) =>
+            Array.Sort(SortedBuckets[b], 0, cnt, Comparer<ulong>.Create((u1, u2) =>
             {
                 // Sort by relative start position
                 int r1 = (int)(u1 & 0x7FFu);
@@ -258,40 +272,6 @@ namespace SharpMIDI.Renderer
             }));
         }
 
-        private static void FlattenBuckets(int bucketCount, long totalNotes)
-        {
-            AllPackedNotes = new byte[totalNotes * 8];
-            
-            int writeOffset = 0;
-            fixed (byte* destPtr = AllPackedNotes)
-            {
-                for (int b = 0; b < bucketCount; b++)
-                {
-                    var buf = bucketBuffers[b];
-                    int cnt = bucketCounts[b];
-                    if (cnt == 0 || buf == null) continue;
-
-                    fixed (ulong* srcPtr = buf)
-                    {
-                        Buffer.MemoryCopy(srcPtr, destPtr + writeOffset, cnt * 8, cnt * 8);
-                    }
-                    writeOffset += cnt * 8;
-                }
-            }
-        }
-
-        private static void BuildBucketOffsets(int bucketCount)
-        {
-            BucketOffsets = new int[bucketCount + 1];
-            int accum = 0;
-            for (int i = 0; i < bucketCount; i++)
-            {
-                BucketOffsets[i] = accum;
-                accum += bucketCounts[i];
-            }
-            BucketOffsets[bucketCount] = accum;
-        }
-
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private static ulong Pack(int relStart, ushort duration, byte note, byte color, ushort track)
         {
@@ -303,25 +283,20 @@ namespace SharpMIDI.Renderer
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static void UnpackNoteAt(int index, out int relStart, out int duration, out int noteNumber, out int colorIndex, out int trackIndex)
+        public static void UnpackNote(ulong packed, out int relStart, out int duration, out int noteNumber, out int colorIndex, out int trackIndex)
         {
-            fixed (byte* ptr = &AllPackedNotes[index * 8])
-            {
-                ulong packed = *(ulong*)ptr;
-                relStart = (int)(packed & 0x7FF);
-                duration = (int)((packed >> 11) & 0xFFFF);
-                noteNumber = (int)((packed >> 27) & 0x7F);
-                colorIndex = (int)((packed >> 34) & 0x0F);
-                trackIndex = (int)((packed >> 38) & 0xFFFF);
-            }
+            relStart = (int)(packed & 0x7FF);
+            duration = (int)((packed >> 11) & 0xFFFF);
+            noteNumber = (int)((packed >> 27) & 0x7F);
+            colorIndex = (int)((packed >> 34) & 0x0F);
+            trackIndex = (int)((packed >> 38) & 0xFFFF);
         }
 
         private static void ClearAllData()
         {
-            AllPackedNotes = Array.Empty<byte>();
-            BucketOffsets = Array.Empty<int>();
-            bucketBuffers = Array.Empty<ulong[]>();
-            bucketCounts = Array.Empty<int>();
+            SortedBuckets = Array.Empty<ulong[]>();
+            BucketCounts = Array.Empty<int>();
+            TotalNoteCount = 0;
             Array.Clear(activeFlags, 0, activeFlags.Length);
         }
 
