@@ -111,28 +111,24 @@ namespace SharpMIDI
                     foreach (MIDITrack i in tracks)
                     {
                         loops++;
-                        while (true)
+                        while (tempoProgress[loops] < i.tempoAmount)
                         {
-                            if (tempoProgress[loops] < i.tempoAmount)
+                            Tempo ev = i.tempos[tempoProgress[loops]];
+                            if (ev.pos <= clock)
                             {
-                                Tempo ev = i.tempos[tempoProgress[loops]];
-                                if (ev.pos <= clock)
-                                {
-                                    tempoProgress[loops]++;
-                                    MIDIClock.SubmitBPM(ev.pos, ev.tempo);
-                                    //bpm = 60000000d / ev.tempo;
-                                }
-                                else break;
+                                tempoProgress[loops]++;
+                                MIDIClock.SubmitBPM(ev.pos, ev.tempo);
+                                //bpm = 60000000d / ev.tempo;
                             }
-                            if (eP[loops] < i.eventAmount)
+                            else break;
+                        }
+                        while (eP[loops] < i.eventAmount)
+                        {
+                            SynthEvent ev = i.synthEvents[eP[loops]];
+                            if (ev.pos <= clock)
                             {
-                                SynthEvent ev = i.synthEvents[eP[loops]];
-                                if (ev.pos <= clock)
-                                {
-                                    eP[loops]++;
-                                    Sound.Submit((uint)ev.val);
-                                }
-                                else break;
+                                eP[loops]++;
+                                Sound.Submit((uint)ev.val);
                             }
                             else break;
                         }
