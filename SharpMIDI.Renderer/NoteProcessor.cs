@@ -136,7 +136,7 @@ namespace SharpMIDI.Renderer
             for (int i = 0; i < events.Count; i++)
             {
                 var synthEvent = events[i];
-                currentTick += synthEvent.pos;
+                currentTick = synthEvent.pos;
 
                 int eventValue = synthEvent.val;
                 int status = eventValue & 0xF0;

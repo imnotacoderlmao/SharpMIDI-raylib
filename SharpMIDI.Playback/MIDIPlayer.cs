@@ -92,7 +92,6 @@ namespace SharpMIDI
         public static unsafe async Task StartPlayback()
         {
             stopping = false;
-            double[] trackPositions = new double[tracks.Length];
             int[] eventProgress = new int[tracks.Length];
             int[] tempoProgress = new int[tracks.Length];
             System.Diagnostics.Stopwatch? watch = System.Diagnostics.Stopwatch.StartNew();
@@ -102,64 +101,60 @@ namespace SharpMIDI
             MIDIClock.Start();
             fixed (int* eP = eventProgress)
             {
-                fixed (double* tP = trackPositions)
+                while (true)
                 {
-                    while (true)
+                    long watchtime = watch.ElapsedTicks;
+                    clock = MIDIClock.GetTick();
+                    watch.Restart();
+                    totalDelay += watchtime;
+                    int loops = -1;
+                    foreach (MIDITrack i in tracks)
                     {
-                        long watchtime = watch.ElapsedTicks;
-                        clock = MIDIClock.GetTick();
-                        watch.Restart();
-                        totalDelay += watchtime;
-                        int loops = -1;
-                        foreach (MIDITrack i in tracks)
+                        loops++;
+                        while (true)
                         {
-                            loops++;
-                            while (true)
+                            if (tempoProgress[loops] < i.tempoAmount)
                             {
-                                if (tempoProgress[loops] < i.tempoAmount)
+                                Tempo ev = i.tempos[tempoProgress[loops]];
+                                if (ev.pos <= clock)
                                 {
-                                    Tempo ev = i.tempos[tempoProgress[loops]];
-                                    if (ev.pos <= clock)
-                                    {
-                                        tempoProgress[loops]++;
-                                        MIDIClock.SubmitBPM(ev.pos, ev.tempo);
-                                        //bpm = 60000000d / ev.tempo;
-                                    }
-                                    else break;
-                                }
-                                if (eP[loops] < i.eventAmount)
-                                {
-                                    SynthEvent ev = i.synthEvents[eP[loops]];
-                                    if (tP[loops] + ev.pos <= clock)
-                                    {
-                                        eP[loops]++;
-                                        tP[loops] += ev.pos;
-                                        Sound.Submit((uint)ev.val);
-                                    }
-                                    else break;
+                                    tempoProgress[loops]++;
+                                    MIDIClock.SubmitBPM(ev.pos, ev.tempo);
+                                    //bpm = 60000000d / ev.tempo;
                                 }
                                 else break;
                             }
-                        }
-                        totalFrames++;
-                        if (clock > maxTick || stopping)
-                        {
-                            if (stopping)
-                                Console.WriteLine("Playback finished...");
-                                NoteRenderer.lastTick = 0;
-                                NoteRenderer.forceRedraw = true;
-                            break;
+                            if (eP[loops] < i.eventAmount)
+                            {
+                                SynthEvent ev = i.synthEvents[eP[loops]];
+                                if (ev.pos <= clock)
+                                {
+                                    eP[loops]++;
+                                    Sound.Submit((uint)ev.val);
+                                }
+                                else break;
+                            }
+                            else break;
                         }
                     }
-                    MIDIClock.Reset();
-                    Starter.form.button4.Enabled = true;
-                    Starter.form.button4.Update();
-                    Starter.form.button5.Enabled = false;
-                    Starter.form.button5.Update();
-                    Starter.form.button6.Enabled = false;
-                    Starter.form.button6.Update();
-                    return;
+                    totalFrames++;
+                    if (clock > maxTick || stopping)
+                    {
+                        if (stopping)
+                            Console.WriteLine("Playback finished...");
+                            NoteRenderer.lastTick = 0;
+                            NoteRenderer.forceRedraw = true;
+                        break;
+                    }
                 }
+                MIDIClock.Reset();
+                Starter.form.button4.Enabled = true;
+                Starter.form.button4.Update();
+                Starter.form.button5.Enabled = false;
+                Starter.form.button5.Update();
+                Starter.form.button6.Enabled = false;
+                Starter.form.button6.Update();
+                return;
             }
         }
     }

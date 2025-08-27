@@ -43,7 +43,6 @@ namespace SharpMIDI
                 skippedNotes.Add(new int[256]);
             }
             float trackTime = 0;
-            float removedOffset = 0;
             while (true)
             {
                 try
@@ -75,15 +74,13 @@ namespace SharpMIDI
                                         track.eventAmount++;
                                         track.synthEvents.Add(new SynthEvent()
                                         {
-                                            pos = test + removedOffset,
+                                            pos = trackTime,
                                             val = readEvent | (note << 8) | (vel << 16)
                                         });
-                                        removedOffset = 0;
                                     }
                                     else
                                     {
                                         skippedNotes[ch][note]++;
-                                        removedOffset += test;
                                     }
                                 }
                                 else
@@ -94,15 +91,13 @@ namespace SharpMIDI
                                         track.eventAmount++;
                                         track.synthEvents.Add(new SynthEvent()
                                         {
-                                            pos = test+removedOffset,
+                                            pos = trackTime,
                                             val = customEvent | (note << 8) | (vel << 16)
                                         });
-                                        removedOffset = 0;
                                     }
                                     else
                                     {
                                         skippedNotes[ch][note]--;
-                                        removedOffset += test;
                                     }
                                 }
                             }
@@ -117,15 +112,13 @@ namespace SharpMIDI
                                     track.eventAmount++;
                                     track.synthEvents.Add(new SynthEvent()
                                     {
-                                        pos = test + removedOffset,
+                                        pos = trackTime,
                                         val = readEvent | (note << 8) | (vel << 16)
                                     });
-                                    removedOffset = 0;
                                 }
                                 else
                                 {
                                     skippedNotes[ch][note]--;
-                                    removedOffset += test;
                                 }
                             }
                             break;
@@ -137,10 +130,9 @@ namespace SharpMIDI
                                 track.eventAmount++;
                                 track.synthEvents.Add(new SynthEvent()
                                 {
-                                    pos = test + removedOffset,
+                                    pos = trackTime,
                                     val = readEvent | (note << 8) | (vel << 16)
                                 });
-                                removedOffset = 0;
                             }
                             break;
                         case 0b11000000:
@@ -150,10 +142,9 @@ namespace SharpMIDI
                                 track.eventAmount++;
                                 track.synthEvents.Add(new SynthEvent()
                                 {
-                                    pos = test + removedOffset,
+                                    pos = trackTime,
                                     val = readEvent | (program << 8)
                                 });
-                                removedOffset = 0;
                             }
                             break;
                         case 0b11010000:
@@ -163,10 +154,9 @@ namespace SharpMIDI
                                 track.eventAmount++;
                                 track.synthEvents.Add(new SynthEvent()
                                 {
-                                    pos = test + removedOffset,
+                                    pos = trackTime,
                                     val = readEvent | (pressure << 8)
                                 });
-                                removedOffset = 0;
                             }
                             break;
                         case 0b11100000:
@@ -177,10 +167,9 @@ namespace SharpMIDI
                                 track.eventAmount++;
                                 track.synthEvents.Add(new SynthEvent()
                                 {
-                                    pos = test + removedOffset,
+                                    pos = trackTime,
                                     val = readEvent | (l << 8) | (m << 16)
                                 });
-                                removedOffset = 0;
                             }
                             break;
                         case 0b10110000:
@@ -191,14 +180,12 @@ namespace SharpMIDI
                                 track.eventAmount++;
                                 track.synthEvents.Add(new SynthEvent()
                                 {
-                                    pos = test + removedOffset,
+                                    pos = trackTime,
                                     val = readEvent | (cc << 8) | (vv << 16)
                                 });
-                                removedOffset = 0;
                             }
                             break;
                         default:
-                            removedOffset += test;
                             switch (readEvent)
                             {
                                 case 0b11110000:
@@ -226,7 +213,6 @@ namespace SharpMIDI
                                                 pos = trackTime,
                                                 tempo = tempo
                                             });
-                                            removedOffset = 0;
                                         }
                                         else if (readEvent == 0x2F)
                                         {
