@@ -11,7 +11,6 @@ namespace SharpMIDI.Renderer
         // Dynamic window dimensions
         private static int currentWidth = 1280;
         private static int currentHeight = 720;
-        //public static bool skipping = false;
 
         // Pre-allocated buffers for UI strings
         private static readonly System.Text.StringBuilder tickStr = new(256);
@@ -119,15 +118,11 @@ namespace SharpMIDI.Renderer
             // Seeking controls
             if (Raylib.IsKeyPressed(KeyboardKey.Right) || Raylib.IsKeyPressedRepeat(KeyboardKey.Right))
             {
-                //skipping = true;
                 MIDIClock.time += Math.Round(1 / MIDIClock.ticklen, 5);
-                //skipping = false;
             }
             if (Raylib.IsKeyPressed(KeyboardKey.Left) || Raylib.IsKeyPressedRepeat(KeyboardKey.Left))
             {
-                //skipping = true;
                 MIDIClock.time -= Math.Round(1 / MIDIClock.ticklen, 5);
-                //skipping = false;
             }
             // Toggle controls
             if (Raylib.IsKeyPressed(KeyboardKey.D))

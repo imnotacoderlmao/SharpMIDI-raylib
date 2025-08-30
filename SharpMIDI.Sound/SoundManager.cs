@@ -2,26 +2,18 @@ using System.Runtime.CompilerServices;
 
 namespace SharpMIDI
 {
+    
     unsafe class Sound
     {
         private static int engine = 0;
         public static long totalEvents = 0;
         static string lastWinMMDevice = "";
         private static IntPtr? handle;
-        static System.Diagnostics.Stopwatch watch = System.Diagnostics.Stopwatch.StartNew();
+        //static System.Diagnostics.Stopwatch watch = System.Diagnostics.Stopwatch.StartNew();
         public static Func<uint,uint> sendTo;
-        static uint stWinMM(uint ev)
-        {
-            return WinMM.midiOutShortMsg((IntPtr)handle, ev);
-        }
-        static uint stXSynth(uint ev)
-        {
-            return XSynth.SendDirectData(ev);
-        }
-        static uint stKDMAPI(uint ev)
-        {
-            return KDMAPI.SendDirectData(ev);
-        }
+        static uint stWinMM(uint ev) => WinMM.midiOutShortMsg((IntPtr)handle, ev);
+        static uint stXSynth(uint ev) => XSynth.SendDirectData(ev);
+        static uint stKDMAPI(uint ev) => KDMAPI.SendDirectData(ev);
         public static bool Init(int synth, string winMMdev)
         {
             Close();
@@ -93,11 +85,9 @@ namespace SharpMIDI
                     return;
             }
         }
-        public static void Submit(uint ev)
-        {
-            sendTo(ev);
-            totalEvents++;
-        }
+        
+        public static void Submit(uint ev) => sendTo(ev);
+
         public static void Close(){
             switch(engine){
                 case 1:

@@ -84,11 +84,11 @@ namespace SharpMIDI
                 Starter.form.label3.Text = "Played events: " + Sound.totalEvents + " / " + eventCount;
                 totalFrames = 0;
                 totalDelay = 0;
-                Thread.Sleep(10);
+                Thread.Sleep(33);
             }
         }
 
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        [MethodImpl(MethodImplOptions.AggressiveOptimization)]
         public static unsafe async Task StartPlayback()
         {
             stopping = false;
@@ -110,6 +110,7 @@ namespace SharpMIDI
                     int loops = -1;
                     foreach (MIDITrack i in tracks)
                     {
+                    //how the FUCK do i optimize this loop
                         loops++;
                         while (tempoProgress[loops] < i.tempoAmount)
                         {
@@ -118,7 +119,6 @@ namespace SharpMIDI
                             {
                                 tempoProgress[loops]++;
                                 MIDIClock.SubmitBPM(ev.pos, ev.tempo);
-                                //bpm = 60000000d / ev.tempo;
                             }
                             else break;
                         }
@@ -129,6 +129,7 @@ namespace SharpMIDI
                             {
                                 eP[loops]++;
                                 Sound.Submit((uint)ev.val);
+                                Sound.totalEvents++;
                             }
                             else break;
                         }

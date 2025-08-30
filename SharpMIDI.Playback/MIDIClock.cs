@@ -29,7 +29,7 @@ namespace SharpMIDI
 
         public static double GetElapsed()
         {
-            elapsed = (double)test.ElapsedTicks / TimeSpan.TicksPerSecond;
+            elapsed = (double)test.ElapsedTicks * 0.0000001;
             if (throttle && elapsed - last > 0.0166666d)
             {
                 timeLost += elapsed - last;
