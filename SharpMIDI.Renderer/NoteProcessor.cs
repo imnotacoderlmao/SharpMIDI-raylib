@@ -16,7 +16,7 @@ namespace SharpMIDI.Renderer
         // Stream directly from buckets - no flattening
         public static ulong[][] SortedBuckets = Array.Empty<ulong[]>();
         public static int[] BucketCounts = Array.Empty<int>();
-        public static readonly int BucketSize = 2048;
+        public static int BucketSize => Math.Clamp((int)MIDIPlayer.ppq, 96, 2048); // this works somehow lmao
         public static bool IsReady { get; private set; } = false;
         public static long TotalNoteCount { get; private set; } = 0;
 

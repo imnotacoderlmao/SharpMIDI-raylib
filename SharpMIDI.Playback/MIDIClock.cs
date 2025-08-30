@@ -30,18 +30,14 @@ namespace SharpMIDI
         public static double GetElapsed()
         {
             elapsed = (double)test.ElapsedTicks / TimeSpan.TicksPerSecond;
-            if (throttle)
+            if (throttle && elapsed - last > 0.0166666d)
             {
-                if (elapsed-last > 0.0166666d)
-                {
-                    timeLost += (elapsed - last) - 0.0166666d;
-                    last = elapsed;
-                    return elapsed-timeLost;
-                }
+                timeLost += elapsed - last;
+                last = elapsed;
+                return elapsed - timeLost;
             }
-            //last = temp;
-            //return temp-timeLost;
-            return elapsed;
+            last = elapsed;
+            return elapsed-timeLost;
         }
 
         public static void SubmitBPM(double pos, double tempo)

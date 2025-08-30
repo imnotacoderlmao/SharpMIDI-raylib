@@ -5,7 +5,7 @@ namespace SharpMIDI
 {
     class MIDIPlayer
     {
-        public static MIDITrack[] tracks = new MIDITrack[0];
+        public static MIDITrack[] tracks = Array.Empty<MIDITrack>();
         public static void SubmitTrackCount(int count)
         {
             tracks = new MIDITrack[count];
@@ -136,10 +136,9 @@ namespace SharpMIDI
                     totalFrames++;
                     if (clock > maxTick || stopping)
                     {
-                        if (stopping)
-                            Console.WriteLine("Playback finished...");
-                            NoteRenderer.lastTick = 0;
-                            NoteRenderer.forceRedraw = true;
+                        Console.WriteLine("Playback finished...");
+                        NoteRenderer.lastTick = 0;
+                        NoteRenderer.forceRedraw = true;
                         break;
                     }
                 }
