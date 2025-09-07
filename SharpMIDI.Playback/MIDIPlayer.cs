@@ -16,8 +16,8 @@ namespace SharpMIDI
         public static double maxTick = 0;
         public static uint ppq = 0;
         public static bool paused = false;
-        public static double bpm = 120;
-        private static double clock = 0;
+        //public static double bpm => MIDIClock.bpm;
+        private static double clock => MIDIClock.GetTick();
         private static int totalFrames = 0;
         private static double totalDelay = 0;
         public static void ClearEntries()
@@ -30,7 +30,7 @@ namespace SharpMIDI
             foreach (MIDITrack i in tracks)
             {
                 i.synthEvents.Clear();
-                i.tempos.Clear();
+                MIDITrack.tempos.Clear();
             }
             Array.Clear(tracks);
             tracks = Array.Empty<MIDITrack>();
@@ -93,7 +93,7 @@ namespace SharpMIDI
         {
             stopping = false;
             int[] eventProgress = new int[tracks.Length];
-            int[] tempoProgress = new int[tracks.Length];
+            int tempoProgress = 0;
             System.Diagnostics.Stopwatch? watch = System.Diagnostics.Stopwatch.StartNew();
 
             MIDIClock.Reset();
@@ -104,29 +104,27 @@ namespace SharpMIDI
                 while (true)
                 {
                     long watchtime = watch.ElapsedTicks;
-                    clock = MIDIClock.GetTick();
                     watch.Restart();
                     totalDelay += watchtime;
                     int loops = -1;
-                    foreach (MIDITrack i in tracks)
+                    while (true)
                     {
-                    //how the FUCK do i optimize this loop
-                        loops++;
-                        while (tempoProgress[loops] < i.tempoAmount)
+                        if (tempoProgress < MIDITrack.tempos.Count && MIDITrack.tempos[tempoProgress].pos <= clock)
                         {
-                            Tempo ev = i.tempos[tempoProgress[loops]];
-                            if (ev.pos <= clock)
-                            {
-                                tempoProgress[loops]++;
-                                MIDIClock.SubmitBPM(ev.pos, ev.tempo);
-                            }
-                            else break;
+                            Tempo tev = MIDITrack.tempos[tempoProgress];
+                            tempoProgress++;
+                            MIDIClock.SubmitBPM(tev.pos, tev.tempo);
                         }
-                        while (eP[loops] < i.eventAmount)
+                        else break;
+                    }
+                    foreach (MIDITrack i in tracks) //how the FUCK do i optimize this loop
+                    {
+                        loops++;
+                        while (true)
                         {
-                            SynthEvent ev = i.synthEvents[eP[loops]];
-                            if (ev.pos <= clock)
+                            if (eP[loops] < i.eventAmount && i.synthEvents[eP[loops]].pos <= clock)
                             {
+                                SynthEvent ev = i.synthEvents[eP[loops]];
                                 eP[loops]++;
                                 Sound.Submit((uint)ev.val);
                                 Sound.totalEvents++;

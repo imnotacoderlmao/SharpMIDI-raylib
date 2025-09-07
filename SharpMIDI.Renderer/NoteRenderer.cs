@@ -14,9 +14,29 @@ namespace SharpMIDI.Renderer
         
         private static int textureWidth = 2048;
         private static Texture2D streamingTexture;
-        private static uint[] pixelBuffer;
+        
+        // RGB buffer without alpha - pack 3 bytes per pixel
+        [StructLayout(LayoutKind.Sequential, Pack = 1)]
+        private struct RGB24
+        {
+            public byte R, G, B;
+            
+            public RGB24(uint color)
+            {
+                R = (byte)((color >> 16) & 0xFF);
+                G = (byte)((color >> 8) & 0xFF);
+                B = (byte)(color & 0xFF);
+            }
+            
+            public uint ToRGBA() => 0xFF000000u | ((uint)R << 16) | ((uint)G << 8) | B;
+        }
+        
+        private static RGB24[] pixelBuffer;
+        private static uint[] tempRGBABuffer; // Temporary buffer for Raylib updates
         private static GCHandle bufferHandle;
-        private static uint* pixelPtr;
+        private static GCHandle tempBufferHandle;
+        private static RGB24* pixelPtr;
+        private static uint* tempPixelPtr;
 
         // Note Y lookup (flipped)
         private static readonly byte[] noteToY = new byte[128];
@@ -54,13 +74,18 @@ namespace SharpMIDI.Renderer
             streamingTexture = Raylib.LoadTextureFromImage(img);
             Raylib.UnloadImage(img);
 
-            // Setup buffer
-            pixelBuffer = new uint[textureWidth * TEXTURE_HEIGHT];
+            // Setup RGB24 buffer (75% memory usage compared to RGBA)
+            pixelBuffer = new RGB24[textureWidth * TEXTURE_HEIGHT];
             bufferHandle = GCHandle.Alloc(pixelBuffer, GCHandleType.Pinned);
-            pixelPtr = (uint*)bufferHandle.AddrOfPinnedObject();
+            pixelPtr = (RGB24*)bufferHandle.AddrOfPinnedObject();
+
+            // Temporary RGBA buffer for Raylib updates
+            tempRGBABuffer = new uint[textureWidth * TEXTURE_HEIGHT];
+            tempBufferHandle = GCHandle.Alloc(tempRGBABuffer, GCHandleType.Pinned);
+            tempPixelPtr = (uint*)tempBufferHandle.AddrOfPinnedObject();
 
             ClearBuffer();
-            Raylib.UpdateTexture(streamingTexture, pixelPtr);
+            UpdateTextureFromRGB();
 
             lastColumn = -1;
             forceRedraw = true;
@@ -72,6 +97,18 @@ namespace SharpMIDI.Renderer
         {
             ticksPerPixel = currentWindow / textureWidth;
             pixelsPerTick = textureWidth / currentWindow;
+        }
+
+        // Convert RGB24 buffer to RGBA for Raylib
+        [MethodImpl(MethodImplOptions.AggressiveOptimization)]
+        private static void UpdateTextureFromRGB()
+        {
+            int total = textureWidth * TEXTURE_HEIGHT;
+            for (int i = 0; i < total; i++)
+            {
+                tempPixelPtr[i] = pixelPtr[i].ToRGBA();
+            }
+            Raylib.UpdateTexture(streamingTexture, tempPixelPtr);
         }
 
         public static void UpdateStreaming(float tick)
@@ -105,7 +142,7 @@ namespace SharpMIDI.Renderer
                 RenderRegion(textureWidth - delta, delta, startTick);
             }
 
-            Raylib.UpdateTexture(streamingTexture, pixelPtr);
+            UpdateTextureFromRGB();
             lastColumn = newColumn;
         }
 
@@ -116,18 +153,19 @@ namespace SharpMIDI.Renderer
 
             int keepPixels = textureWidth - pixels;
             
-            // Scroll each row
+            // Scroll each row using RGB24 structs
             for (int y = 0; y < TEXTURE_HEIGHT; y++)
             {
-                uint* row = pixelPtr + (y * textureWidth);
+                RGB24* row = pixelPtr + (y * textureWidth);
                 
                 // Copy left
                 for (int x = 0; x < keepPixels; x++)
                     row[x] = row[x + pixels];
                 
-                // Clear right
+                // Clear right (set to black RGB)
+                var black = new RGB24(0);
                 for (int x = keepPixels; x < textureWidth; x++)
-                    row[x] = 0;
+                    row[x] = black;
             }
         }
 
@@ -138,16 +176,20 @@ namespace SharpMIDI.Renderer
 
             NotesDrawnLastFrame = 0;
 
-            // Clear region
+            // Clear region to black
+            var black = new RGB24(0);
             for (int y = 0; y < TEXTURE_HEIGHT; y++)
             {
-                uint* row = pixelPtr + (y * textureWidth + startX);
+                RGB24* row = pixelPtr + (y * textureWidth + startX);
                 for (int x = 0; x < width; x++)
-                    row[x] = 0;
+                    row[x] = black;
             }
 
             var buckets = NoteProcessor.SortedBuckets;
             var bucketCounts = NoteProcessor.BucketCounts;
+            var colorIndices = NoteProcessor.ColorIndices;
+            var trackIndices = NoteProcessor.TrackIndices;
+            
             if (buckets.Length == 0) return;
 
             float endTick = startTick + width * ticksPerPixel;
@@ -163,6 +205,8 @@ namespace SharpMIDI.Renderer
             for (int bucketIdx = startBucket; bucketIdx <= endBucket; bucketIdx++)
             {
                 var bucket = buckets[bucketIdx];
+                var colors = colorIndices[bucketIdx];
+                var tracks = trackIndices[bucketIdx];
                 int count = bucketCounts[bucketIdx];
 
                 if (bucket == null || count == 0) continue;
@@ -170,15 +214,17 @@ namespace SharpMIDI.Renderer
                 int bucketStartTick = bucketIdx * bucketSize;
 
                 // Use unsafe fixed block for performance
-                fixed (ulong* bucketPtr = bucket)
+                fixed (uint* bucketPtr = bucket)
+                fixed (byte* colorPtr = colors)
+                fixed (ushort* trackPtr = tracks)
                 {
                     for (int noteIdx = 0; noteIdx < count; noteIdx++)
                     {
-                        ulong packedValue = bucketPtr[noteIdx];
+                        uint packedValue = bucketPtr[noteIdx];
 
-                        // Unpack note data
+                        // Unpack note data (32-bit format)
                         int relStart = (int)(packedValue & 0x7FF);
-                        int duration = (int)((packedValue >> 11) & 0xFFFF);
+                        int duration = (int)((packedValue >> 11) & 0x1FFF);
                         int absStart = bucketStartTick + relStart;
                         int absEnd = absStart + duration;
 
@@ -196,18 +242,21 @@ namespace SharpMIDI.Renderer
                         if (x2 <= x1) continue;
 
                         // Get note properties
-                        int noteNumber = (int)((packedValue >> 27) & 0x7F);
-                        int colorIndex = (int)((packedValue >> 34) & 0x0F);
+                        int noteNumber = (int)((packedValue >> 24) & 0x7F);
+                        int colorIndex = colorPtr[noteIdx];
+                        
+                        // Get RGB color (no alpha)
+                        uint rgbColor = NoteProcessor.trackColors[colorIndex];
+                        var noteColor = new RGB24(rgbColor);
 
                         // Draw note
                         int y = noteToY[noteNumber];
-                        uint color = NoteProcessor.trackColors[colorIndex];
-                        uint* rowPtr = pixelPtr + (y * textureWidth + startX + x1);
+                        RGB24* rowPtr = pixelPtr + (y * textureWidth + startX + x1);
 
                         int noteWidth = x2 - x1;
                         for (int x = 0; x < noteWidth; x++)
                         {
-                            rowPtr[x] = color;
+                            rowPtr[x] = noteColor;
                         }
                         NotesDrawnLastFrame++;
                     }
@@ -218,9 +267,10 @@ namespace SharpMIDI.Renderer
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private static void ClearBuffer()
         {
+            var black = new RGB24(0);
             int total = textureWidth * TEXTURE_HEIGHT;
             for (int i = 0; i < total; i++)
-                pixelPtr[i] = 0;
+                pixelPtr[i] = black;
         }
 
         public static void Render(int screenWidth, int screenHeight, int pad)
@@ -251,6 +301,9 @@ namespace SharpMIDI.Renderer
 
             if (bufferHandle.IsAllocated)
                 bufferHandle.Free();
+                
+            if (tempBufferHandle.IsAllocated)
+                tempBufferHandle.Free();
 
             //initialized = false;
             forceRedraw = true;

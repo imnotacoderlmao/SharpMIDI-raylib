@@ -118,11 +118,11 @@ namespace SharpMIDI.Renderer
             // Seeking controls
             if (Raylib.IsKeyPressed(KeyboardKey.Right) || Raylib.IsKeyPressedRepeat(KeyboardKey.Right))
             {
-                MIDIClock.time += Math.Round(1 / MIDIClock.ticklen, 5);
+                MIDIClock.time += 1 /MIDIClock.ticklen;
             }
             if (Raylib.IsKeyPressed(KeyboardKey.Left) || Raylib.IsKeyPressedRepeat(KeyboardKey.Left))
             {
-                MIDIClock.time -= Math.Round(1 / MIDIClock.ticklen, 5);
+                MIDIClock.time -= 1 / MIDIClock.ticklen;
             }
             // Toggle controls
             if (Raylib.IsKeyPressed(KeyboardKey.D))

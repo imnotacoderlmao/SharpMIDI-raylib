@@ -16,7 +16,7 @@ namespace SharpMIDI
     public class MIDITrack
     {
         public List<SynthEvent> synthEvents = new List<SynthEvent>();
-        public List<Tempo> tempos = new List<Tempo>();
+        public static List<Tempo> tempos = new List<Tempo>();
         public long eventAmount = 0;
         public long tempoAmount = 0;
         public long loadedNotes = 0;
@@ -207,12 +207,11 @@ namespace SharpMIDI
                                             int tempo = 0;
                                             for (int i = 0; i != 3; i++)
                                                 tempo = (tempo << 8) | stupid.Read();
-                                            track.tempoAmount++;
-                                            track.tempos.Add(new Tempo()
-                                            {
-                                                pos = trackTime,
-                                                tempo = tempo
-                                            });
+                                            //track.tempoAmount++;
+                                            Tempo tev = new Tempo();
+                                            tev.pos = trackTime;
+                                            tev.tempo = tempo;
+                                            MIDITrack.tempos.Add(tev);
                                         }
                                         else if (readEvent == 0x2F)
                                         {

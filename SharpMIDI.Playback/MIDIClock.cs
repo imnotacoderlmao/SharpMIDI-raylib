@@ -32,7 +32,7 @@ namespace SharpMIDI
             elapsed = (double)test.ElapsedTicks * 0.0000001;
             if (throttle && elapsed - last > 0.0166666d)
             {
-                timeLost += elapsed - last;
+                timeLost += (elapsed - last) + 0.0166666d;
                 last = elapsed;
                 return elapsed - timeLost;
             }
