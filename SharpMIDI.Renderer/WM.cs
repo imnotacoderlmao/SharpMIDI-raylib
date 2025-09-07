@@ -16,7 +16,7 @@ namespace SharpMIDI.Renderer
         private static readonly System.Text.StringBuilder tickStr = new(256);
         private static readonly System.Text.StringBuilder debugStr = new(128);
         // Window state
-        private static bool vsync = true, controls = true;
+        private static bool vsync = true, controls = true, dynascroll = false;
         public static bool Debug { get; set; } = false;
         public static bool IsRunning { get; private set; } = false;
 
@@ -45,6 +45,9 @@ namespace SharpMIDI.Renderer
 
                 // grab tick from clock
                 tick = (float)MIDIClock.GetTick();
+
+                if (dynascroll && NoteRenderer.Window != 1 / MIDIClock.ticklen) 
+                    NoteRenderer.SetWindow((float)(1 / MIDIClock.ticklen)); //performance intensive since this forces a full rebuild every bpm change so hmmmm
 
                 // Update the streaming texture using NoteProcessor data.
                 // Lock around NoteProcessor to avoid racing with EnhanceTracksForRendering().
@@ -125,6 +128,7 @@ namespace SharpMIDI.Renderer
                 MIDIClock.time -= 1 / MIDIClock.ticklen;
             }
             // Toggle controls
+            if (Raylib.IsKeyPressed(KeyboardKey.S)) dynascroll = !dynascroll;
             if (Raylib.IsKeyPressed(KeyboardKey.D))
                 Debug = !Debug;
             if (Raylib.IsKeyPressed(KeyboardKey.V))
@@ -154,12 +158,13 @@ namespace SharpMIDI.Renderer
             {
                 debugStr.Clear();
                 debugStr.Append("DrawOps: ").Append(NoteRenderer.NotesDrawnLastFrame)
-                        .Append(" | Memory: ").Append(Form1.toMemoryText(GC.GetTotalMemory(false)));
+                        .Append(" | Memory: ").Append(Form1.toMemoryText(GC.GetTotalMemory(false)))
+                        .Append(" | DynaScroll: ").Append(dynascroll);
                 Raylib.DrawText(debugStr.ToString(), 12, 25, 16, Raylib_cs.Color.SkyBlue);
             }
             if (controls)
             {
-                Raylib.DrawText($"Up/Dn = zoom | V = vsync | Right = seek fwd | Left = skip bw (broken) | C = toggle this text | F = fullscreen | D = debug", 12, 45, 16, Raylib_cs.Color.White);
+                Raylib.DrawText($"Up/Dn = zoom | V = vsync | Right = seek fwd | Left = skip bw (broken) | C = toggle this text | F = fullscreen | D = debug | S = dynamic scrolling", 12, 45, 16, Raylib_cs.Color.White);
                 if (Raylib.GetTime() >= 4.0 && Raylib.GetTime() <= 4.5)
                     controls = false;
             }
