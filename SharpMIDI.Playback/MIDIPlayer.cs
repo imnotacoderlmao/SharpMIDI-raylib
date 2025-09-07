@@ -17,7 +17,7 @@ namespace SharpMIDI
         public static uint ppq = 0;
         public static bool paused = false;
         //public static double bpm => MIDIClock.bpm;
-        private static double clock => MIDIClock.GetTick();
+        private static double clock = 0;
         private static int totalFrames = 0;
         private static double totalDelay = 0;
         public static void ClearEntries()
@@ -103,6 +103,7 @@ namespace SharpMIDI
             {
                 while (true)
                 {
+                    clock = MIDIClock.GetTick();
                     long watchtime = watch.ElapsedTicks;
                     watch.Restart();
                     totalDelay += watchtime;
