@@ -7,7 +7,7 @@ namespace SharpMIDI.Renderer
     public static class WindowManager
     {
         public const int PAD = 20;
-        private static float tick = 0f;
+        private static float tick = 0f, scrollfactor = 1f;
         // Dynamic window dimensions
         private static int currentWidth = 1280;
         private static int currentHeight = 720;
@@ -47,7 +47,7 @@ namespace SharpMIDI.Renderer
                 tick = (float)MIDIClock.GetTick();
 
                 if (dynascroll && NoteRenderer.Window != 1 / MIDIClock.ticklen) 
-                    NoteRenderer.SetWindow((float)(1 / MIDIClock.ticklen)); //performance intensive since this forces a full rebuild every bpm change so hmmmm
+                    NoteRenderer.SetWindow((float)(1 / MIDIClock.ticklen) * scrollfactor); //performance intensive since this forces a full rebuild every bpm change so hmmmm
 
                 // Update the streaming texture using NoteProcessor data.
                 // Lock around NoteProcessor to avoid racing with EnhanceTracksForRendering().
@@ -109,11 +109,21 @@ namespace SharpMIDI.Renderer
             // Zoom controls
             if (Raylib.IsKeyPressed(KeyboardKey.Up) || Raylib.IsKeyPressedRepeat(KeyboardKey.Up))
             {
+                if (dynascroll)
+                {
+                    if (scrollfactor <= 1) scrollfactor /= 2;
+                    else scrollfactor -= 0.5f;
+                }
                 float newWindow = Math.Max(100f, NoteRenderer.Window * 0.9f);
                 NoteRenderer.SetWindow(newWindow);
             }
             if (Raylib.IsKeyPressed(KeyboardKey.Down) || Raylib.IsKeyPressedRepeat(KeyboardKey.Down))
             {
+                if(dynascroll)
+                {
+                    if (scrollfactor <= 1) scrollfactor *= 2;
+                    else scrollfactor += 0.5f;
+                }
                 float newWindow = Math.Min(100000f, NoteRenderer.Window * 1.1f);
                 NoteRenderer.SetWindow(newWindow);
             }
@@ -151,7 +161,7 @@ namespace SharpMIDI.Renderer
             tickStr.Append("Tick: ").Append((int)tick)
                    .Append(" | Tempo: ").Append(MIDIClock.bpm.ToString("F1"))
                    .Append(" | Zoom: ").Append((int)NoteRenderer.Window)
-                   .Append(" | Glow: ").Append("broken") // keep parity with existing code
+                   //.Append(" | Glow: ").Append("broken") // keep parity with existing code
                    .Append(" | FPS: ").Append(Raylib.GetFPS());
             Raylib.DrawText(tickStr.ToString(), 12, 4, 16, Raylib_cs.Color.Green);
             if (Debug)
@@ -159,7 +169,7 @@ namespace SharpMIDI.Renderer
                 debugStr.Clear();
                 debugStr.Append("DrawOps: ").Append(NoteRenderer.NotesDrawnLastFrame)
                         .Append(" | Memory: ").Append(Form1.toMemoryText(GC.GetTotalMemory(false)))
-                        .Append(" | DynaScroll: ").Append(dynascroll);
+                        .Append(" | DynaScroll: ").Append(dynascroll ? $"({scrollfactor}x ticklen)" : "False");
                 Raylib.DrawText(debugStr.ToString(), 12, 25, 16, Raylib_cs.Color.SkyBlue);
             }
             if (controls)
