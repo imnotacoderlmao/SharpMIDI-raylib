@@ -4,12 +4,12 @@ namespace SharpMIDI
 {
     public struct SynthEvent
     {
-        public float pos;
+        public int pos;
         public int val;
     }
     public struct Tempo
     {
-        public float pos;
+        public int pos;
         public int tempo;
     }
 
@@ -42,13 +42,13 @@ namespace SharpMIDI
             {
                 skippedNotes.Add(new int[256]);
             }
-            float trackTime = 0;
+            int trackTime = 0;
             while (true)
             {
                 try
                 {
                     //this is huge zenith inspiration lol, if you can't beat 'em, join 'em
-                    long test = ReadVariableLen();
+                    int test = ReadVariableLen();
                     trackTime += test;
                     byte readEvent = stupid.ReadFast();
                     if (readEvent < 0x80)
@@ -237,7 +237,7 @@ namespace SharpMIDI
             track.maxTick = trackTime;
             MIDITrack.finished = true;
         }
-        long ReadVariableLen()
+        int ReadVariableLen()
         {
             byte c;
             int val = 0;
