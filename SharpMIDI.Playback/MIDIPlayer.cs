@@ -14,7 +14,7 @@ namespace SharpMIDI
         public static double loadedNotes = 0;
         static double eventCount = 0;
         public static double maxTick = 0;
-        public static uint ppq = 0;
+        public static int ppq = 0;
         public static bool paused = false;
         //public static double bpm => MIDIClock.bpm;
         private static double clock = 0;
@@ -51,8 +51,6 @@ namespace SharpMIDI
             {
                 Array.Resize(ref tracks, tracks.Length + 1);
             }
-            Starter.form.label7.Text = "Memory Usage: " + Form1.toMemoryText(GC.GetTotalMemory(false)) + " (May be inaccurate)";
-            Starter.form.label7.Update();
             loadedNotes += track.loadedNotes;
             eventCount += track.eventAmount;
             totalNotes += track.totalNotes;
@@ -127,7 +125,7 @@ namespace SharpMIDI
                             {
                                 SynthEvent ev = i.synthEvents[eP[loops]];
                                 eP[loops]++;
-                                Sound.Submit((uint)ev.val);
+                                Sound.sendTo((uint)ev.val);
                                 Sound.totalEvents++;
                             }
                             else break;

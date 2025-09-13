@@ -146,7 +146,7 @@ namespace SharpMIDI.Renderer
             }
 
             var buckets = NoteProcessor.SortedBuckets;
-            var bucketCounts = NoteProcessor.BucketCounts;
+            var colors = NoteProcessor.NoteColors;
             
             if (buckets.Length == 0) return;
 
@@ -163,56 +163,52 @@ namespace SharpMIDI.Renderer
             for (int bucketIdx = startBucket; bucketIdx <= endBucket; bucketIdx++)
             {
                 var bucket = buckets[bucketIdx];
-                int count = bucketCounts[bucketIdx];
-
-                if (bucket == null || count == 0) continue;
+                var bucketColors = colors[bucketIdx];
+                if (bucket == null || bucket.Count == 0) continue;
 
                 int bucketStartTick = bucketIdx * bucketSize;
 
-                // Use unsafe fixed block for performance
-                fixed (ulong* bucketPtr = bucket)
+                // Access List<uint> and List<byte> directly
+                for (int noteIdx = 0; noteIdx < bucket.Count; noteIdx++)
                 {
-                    for (int noteIdx = 0; noteIdx < count; noteIdx++)
+                    uint packedValue = bucket[noteIdx];
+                    byte colorIndex = bucketColors[noteIdx];
+
+                    // Unpack note data (32-bit format + color byte)
+                    int relStart = (int)(packedValue & 0x7FFu);
+                    int duration = (int)((packedValue >> 11) & 0x1FFFu);
+                    int noteNumber = (int)((packedValue >> 24) & 0x7Fu);
+                    
+                    int absStart = bucketStartTick + relStart;
+                    int absEnd = absStart + duration;
+
+                    // Cull notes outside viewport
+                    if (absEnd < startTick || absStart > endTick) 
+                        continue;
+
+                    // Calculate pixel coordinates
+                    float startPx = (absStart - startTick) / ticksPerPixel;
+                    float endPx = (absEnd - startTick) / ticksPerPixel;
+
+                    int x1 = Math.Max(0, (int)startPx);
+                    int x2 = Math.Min(width, (int)endPx + 1);
+
+                    if (x2 <= x1) continue;
+
+                    // Get RGBA color (full 256 color range)
+                    uint rgbColor = NoteProcessor.trackColors[colorIndex];
+                    uint rgbaColor = 0xFF000000u | rgbColor; // Add alpha
+
+                    // Draw note
+                    int y = noteToY[noteNumber];
+                    uint* rowPtr = pixelPtr + (y * textureWidth + startX + x1);
+
+                    int noteWidth = x2 - x1;
+                    for (int x = 0; x < noteWidth; x++)
                     {
-                        ulong packedValue = bucketPtr[noteIdx];
-
-                        // Unpack note data (64-bit format)
-                        int relStart = (int)(packedValue & 0x7FFul);
-                        int duration = (int)((packedValue >> 11) & 0x1FFFul);
-                        int noteNumber = (int)((packedValue >> 24) & 0x7Ful);
-                        int colorIndex = (int)((packedValue >> 31) & 0xFFul);
-                        
-                        int absStart = bucketStartTick + relStart;
-                        int absEnd = absStart + duration;
-
-                        // Cull notes outside viewport
-                        if (absEnd < startTick || absStart > endTick) 
-                            continue;
-
-                        // Calculate pixel coordinates
-                        float startPx = (absStart - startTick) / ticksPerPixel;
-                        float endPx = (absEnd - startTick) / ticksPerPixel;
-
-                        int x1 = Math.Max(0, (int)startPx);
-                        int x2 = Math.Min(width, (int)endPx + 1);
-
-                        if (x2 <= x1) continue;
-
-                        // Get RGBA color
-                        uint rgbColor = NoteProcessor.trackColors[colorIndex];
-                        uint rgbaColor = 0xFF000000u | rgbColor; // Add alpha
-
-                        // Draw note
-                        int y = noteToY[noteNumber];
-                        uint* rowPtr = pixelPtr + (y * textureWidth + startX + x1);
-
-                        int noteWidth = x2 - x1;
-                        for (int x = 0; x < noteWidth; x++)
-                        {
-                            rowPtr[x] = rgbaColor;
-                        }
-                        NotesDrawnLastFrame++;
+                        rowPtr[x] = rgbaColor;
                     }
+                    NotesDrawnLastFrame++;
                 }
             }
         }

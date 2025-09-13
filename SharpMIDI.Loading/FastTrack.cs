@@ -21,7 +21,7 @@ namespace SharpMIDI
         public long tempoAmount = 0;
         public long loadedNotes = 0;
         public long totalNotes = 0;
-        public float maxTick = 0;
+        public int maxTick = 0;
         public static bool finished = false;
     }
 
@@ -200,7 +200,6 @@ namespace SharpMIDI
                                 case 0xFF:
                                     {
                                         readEvent = stupid.Read();
-                                        // why the FUCK does tempo events notn work properly sometimes
                                         if (readEvent == 0x51)
                                         {
                                             stupid.Skip(1);
@@ -208,10 +207,11 @@ namespace SharpMIDI
                                             for (int i = 0; i != 3; i++)
                                                 tempo = (tempo << 8) | stupid.Read();
                                             //track.tempoAmount++;
-                                            Tempo tev = new Tempo();
-                                            tev.pos = trackTime;
-                                            tev.tempo = tempo;
-                                            MIDITrack.tempos.Add(tev);
+                                            MIDITrack.tempos.Add(new Tempo()
+                                            { 
+                                                pos = trackTime,
+                                                tempo = tempo
+                                            });
                                         }
                                         else if (readEvent == 0x2F)
                                         {

@@ -4,7 +4,7 @@ namespace SharpMIDI
 {
     class MIDILoader
     {
-        static int pushback = -1;
+        //static int pushback = -1;
         private static List<long> trackLocations = new List<long>();
         private static List<uint> trackSizes = new List<uint>();
         static byte threshold = 0;
@@ -30,7 +30,7 @@ namespace SharpMIDI
             tks = 0;
             loadedTracks = 0;
             totalSize = 0;
-            pushback = -1;
+            //pushback = -1;
             trackLocations = new List<long>();
             trackSizes = new List<uint>();
         }
@@ -76,7 +76,7 @@ namespace SharpMIDI
             uint fmt = ReadInt16();
             uint tracks = ReadInt16();
             tks = (int)tracks;
-            uint ppq = ReadInt16();
+            int ppq = ReadInt16();
             MIDIClock.ppq = ppq;
             MIDIPlayer.ppq = ppq;
             Starter.form.label6.Text = "PPQ: "+ppq;
