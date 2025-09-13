@@ -226,6 +226,7 @@ namespace SharpMIDI
                                 default:
                                     break;
                             }
+                            track.synthEvents.TrimExcess();
                             break;
                     }
                 }
