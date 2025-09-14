@@ -86,7 +86,7 @@ namespace SharpMIDI
             }
         }
 
-        [MethodImpl(MethodImplOptions.AggressiveOptimization)]
+        [MethodImpl(MethodImplOptions.AggressiveOptimization | MethodImplOptions.AggressiveInlining)]
         public static unsafe async Task StartPlayback()
         {
             stopping = false;
@@ -106,29 +106,22 @@ namespace SharpMIDI
                     watch.Restart();
                     totalDelay += watchtime;
                     int loops = -1;
-                    while (true)
+                    while (tempoProgress < MIDITrack.tempos.Count)
                     {
-                        if (tempoProgress < MIDITrack.tempos.Count && MIDITrack.tempos[tempoProgress].pos <= clock)
-                        {
-                            Tempo tev = MIDITrack.tempos[tempoProgress];
-                            tempoProgress++;
-                            MIDIClock.SubmitBPM(tev.pos, tev.tempo);
-                        }
-                        else break;
+                        if (MIDITrack.tempos[tempoProgress].pos > clock) break;
+                        Tempo tev = MIDITrack.tempos[tempoProgress];
+                        tempoProgress++;
+                        MIDIClock.SubmitBPM(tev.pos, tev.tempo);
                     }
                     foreach (MIDITrack i in tracks) //how the FUCK do i optimize this loop
                     {
                         loops++;
-                        while (true)
+                        while (eP[loops] < i.eventAmount)
                         {
-                            if (eP[loops] < i.eventAmount && i.synthEvents[eP[loops]].pos <= clock)
-                            {
-                                SynthEvent ev = i.synthEvents[eP[loops]];
-                                eP[loops]++;
-                                Sound.sendTo((uint)ev.val);
-                                Sound.totalEvents++;
-                            }
-                            else break;
+                            if (i.synthEvents[eP[loops]].pos > clock) break;
+                            SynthEvent ev = i.synthEvents[eP[loops]];
+                            eP[loops]++;
+                            Sound.Submit((uint)ev.val);
                         }
                     }
                     totalFrames++;
