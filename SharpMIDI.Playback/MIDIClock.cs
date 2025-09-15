@@ -33,7 +33,7 @@ namespace SharpMIDI
             if (!throttle) return elapsed;
             if (elapsed - last > 0.0166666d)
             {
-                timeLost += (elapsed - last) + 0.0166666d;
+                timeLost += (elapsed - last) - 0.0166666d;
                 last = elapsed;
             }
             last = elapsed;
