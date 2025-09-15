@@ -17,7 +17,7 @@ namespace SharpMIDI
         public static int ppq = 0;
         public static bool paused = false;
         //public static double bpm => MIDIClock.bpm;
-        private static double clock = 0;
+        public static double clock = 0;
         private static int totalFrames = 0;
         private static double totalDelay = 0;
         public static void ClearEntries()
@@ -128,8 +128,6 @@ namespace SharpMIDI
                     if (clock > maxTick || stopping)
                     {
                         Console.WriteLine("Playback finished...");
-                        NoteRenderer.lastTick = 0;
-                        NoteRenderer.forceRedraw = true;
                         break;
                     }
                 }

@@ -12,7 +12,6 @@ namespace SharpMIDI
         public int pos;
         public int tempo;
     }
-
     public class MIDITrack
     {
         public List<SynthEvent> synthEvents = new List<SynthEvent>();
@@ -226,7 +225,6 @@ namespace SharpMIDI
                                 default:
                                     break;
                             }
-                            track.synthEvents.TrimExcess();
                             break;
                     }
                 }
@@ -235,6 +233,7 @@ namespace SharpMIDI
                     break;
                 }
             }
+            track.synthEvents.TrimExcess();
             track.maxTick = trackTime;
             MIDITrack.finished = true;
         }

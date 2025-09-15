@@ -43,17 +43,6 @@ namespace SharpMIDI
             button3.Enabled = t;
         }
 
-        
-        /*private async Task UpdateMemory()
-        {
-            while(true)
-            {
-                label7.Text = "Memory Usage: " + toMemoryText(GC.GetTotalMemory(false)) + " (May be inaccurate)";
-                label7.Update();
-                Thread.Sleep(100);
-            }
-        }*/
-
         private void button1_Click(object sender, EventArgs e)
         {
             using (OpenFileDialog openFileDialog = new OpenFileDialog())

@@ -85,8 +85,12 @@ namespace SharpMIDI
                     return;
             }
         }
-        
-        public static void Submit(uint ev) => sendTo(ev);
+
+        public static void Submit(uint ev) 
+        { 
+            sendTo(ev);
+            totalEvents++;
+        }
 
         public static void Close(){
             switch(engine){

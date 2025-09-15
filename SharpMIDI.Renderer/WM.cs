@@ -7,7 +7,8 @@ namespace SharpMIDI.Renderer
     public static class WindowManager
     {
         public const int PAD = 20;
-        private static float tick = 0f, scrollfactor = 1f;
+        private static float scrollfactor = 1f;
+        public static float tick = 0f;
         // Dynamic window dimensions
         private static int currentWidth = 1280;
         private static int currentHeight = 720;
@@ -44,7 +45,14 @@ namespace SharpMIDI.Renderer
                 HandleInput();
 
                 // grab tick from clock
-                tick = (float)MIDIClock.GetTick();
+                tick = (float)MIDIPlayer.clock;
+                if (MIDIPlayer.stopping || MIDIPlayer.clock > MIDIPlayer.maxTick) 
+                {
+                    tick = 0;
+                    NoteRenderer.lastTick = 0;
+                    NoteRenderer.forceRedraw = true;
+                }
+
 
                 if (dynascroll && NoteRenderer.Window != 1 / MIDIClock.ticklen) 
                     NoteRenderer.SetWindow((float)(1 / MIDIClock.ticklen) * scrollfactor); //performance intensive since this forces a full rebuild every bpm change so hmmmm

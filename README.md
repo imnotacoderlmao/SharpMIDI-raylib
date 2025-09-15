@@ -22,9 +22,9 @@ i have no idea why and how to fix if you have problems building.
 
 ## Credits
 
-#### SharpMIDI: EmK530
+SharpMIDI: EmK530
 
-#### maybe chatgpt and claude cause my brain dosent work sometimes :sob: 
+maybe chatgpt and claude cause my brain dosent work sometimes :sob: 
 
 ## License
 [GNU GPLv3](https://choosealicense.com/licenses/gpl-3.0/)
