@@ -2,10 +2,18 @@
 
 namespace SharpMIDI
 {
+    // genuinely do not know why its taking up more than 8 bytes/note
     public struct SynthEvent
     {
-        public int pos;
-        public int val;
+        public long mididata;
+        
+        public SynthEvent(int pos, int val)
+        {
+            mididata = ((long)pos << 32) | (uint)val;
+        }
+        
+        public int pos => (int)(mididata >> 32);
+        public int val => (int)(mididata & 0xFFFFFFFF);
     }
     public struct Tempo
     {
@@ -71,11 +79,10 @@ namespace SharpMIDI
                                     {
                                         track.loadedNotes++;
                                         track.eventAmount++;
-                                        track.synthEvents.Add(new SynthEvent()
-                                        {
-                                            pos = trackTime,
-                                            val = readEvent | (note << 8) | (vel << 16)
-                                        });
+                                        track.synthEvents.Add(new SynthEvent(
+                                            trackTime,
+                                            readEvent | (note << 8) | (vel << 16)
+                                        ));
                                     }
                                     else
                                     {
@@ -88,11 +95,10 @@ namespace SharpMIDI
                                     {
                                         byte customEvent = (byte)(readEvent - 0b00010000);
                                         track.eventAmount++;
-                                        track.synthEvents.Add(new SynthEvent()
-                                        {
-                                            pos = trackTime,
-                                            val = customEvent | (note << 8) | (vel << 16)
-                                        });
+                                        track.synthEvents.Add(new SynthEvent(
+                                            trackTime,
+                                            customEvent | (note << 8) | (vel << 16)
+                                        ));
                                     }
                                     else
                                     {
@@ -109,11 +115,10 @@ namespace SharpMIDI
                                 if (skippedNotes[ch][note] == 0)
                                 {
                                     track.eventAmount++;
-                                    track.synthEvents.Add(new SynthEvent()
-                                    {
-                                        pos = trackTime,
-                                        val = readEvent | (note << 8) | (vel << 16)
-                                    });
+                                    track.synthEvents.Add(new SynthEvent(
+                                        trackTime,
+                                        readEvent | (note << 8) | (vel << 16)
+                                    ));
                                 }
                                 else
                                 {
@@ -127,11 +132,10 @@ namespace SharpMIDI
                                 byte note = stupid.Read();
                                 byte vel = stupid.Read();
                                 track.eventAmount++;
-                                track.synthEvents.Add(new SynthEvent()
-                                {
-                                    pos = trackTime,
-                                    val = readEvent | (note << 8) | (vel << 16)
-                                });
+                                track.synthEvents.Add(new SynthEvent(
+                                    trackTime,
+                                    readEvent | (note << 8) | (vel << 16)
+                                ));
                             }
                             break;
                         case 0b11000000:
@@ -139,11 +143,10 @@ namespace SharpMIDI
                                 int channel = readEvent & 0b00001111;
                                 byte program = stupid.Read();
                                 track.eventAmount++;
-                                track.synthEvents.Add(new SynthEvent()
-                                {
-                                    pos = trackTime,
-                                    val = readEvent | (program << 8)
-                                });
+                                track.synthEvents.Add(new SynthEvent(
+                                    trackTime,
+                                    readEvent | (program << 8)
+                                ));
                             }
                             break;
                         case 0b11010000:
@@ -151,11 +154,10 @@ namespace SharpMIDI
                                 int channel = readEvent & 0b00001111;
                                 byte pressure = stupid.Read();
                                 track.eventAmount++;
-                                track.synthEvents.Add(new SynthEvent()
-                                {
-                                    pos = trackTime,
-                                    val = readEvent | (pressure << 8)
-                                });
+                                track.synthEvents.Add(new SynthEvent(
+                                    trackTime,
+                                    readEvent | (pressure << 8)
+                                ));
                             }
                             break;
                         case 0b11100000:
@@ -164,11 +166,10 @@ namespace SharpMIDI
                                 byte l = stupid.Read();
                                 byte m = stupid.Read();
                                 track.eventAmount++;
-                                track.synthEvents.Add(new SynthEvent()
-                                {
-                                    pos = trackTime,
-                                    val = readEvent | (l << 8) | (m << 16)
-                                });
+                                track.synthEvents.Add(new SynthEvent(
+                                    trackTime,
+                                    readEvent | (l << 8) | (m << 16)
+                                ));
                             }
                             break;
                         case 0b10110000:
@@ -177,11 +178,10 @@ namespace SharpMIDI
                                 byte cc = stupid.Read();
                                 byte vv = stupid.Read();
                                 track.eventAmount++;
-                                track.synthEvents.Add(new SynthEvent()
-                                {
-                                    pos = trackTime,
-                                    val = readEvent | (cc << 8) | (vv << 16)
-                                });
+                                track.synthEvents.Add(new SynthEvent(
+                                    trackTime,
+                                    readEvent | (cc << 8) | (vv << 16)
+                                ));
                             }
                             break;
                         default:
@@ -205,7 +205,6 @@ namespace SharpMIDI
                                             int tempo = 0;
                                             for (int i = 0; i != 3; i++)
                                                 tempo = (tempo << 8) | stupid.Read();
-                                            //track.tempoAmount++;
                                             MIDITrack.tempos.Add(new Tempo()
                                             { 
                                                 pos = trackTime,
