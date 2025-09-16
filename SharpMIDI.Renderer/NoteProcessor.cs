@@ -267,7 +267,8 @@ namespace SharpMIDI.Renderer
                 // Since we don't have track info, use color as tiebreaker
                 return p1.color.CompareTo(p2.color);
             });
-
+            bucket.TrimExcess();
+            colors.TrimExcess();
             // Copy back sorted data
             for (int i = 0; i < paired.Length; i++)
             {

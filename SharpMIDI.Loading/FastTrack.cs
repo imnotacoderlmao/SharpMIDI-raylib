@@ -1,5 +1,4 @@
 #pragma warning disable 8625
-
 namespace SharpMIDI
 {
     // genuinely do not know why its taking up more than 8 bytes/note

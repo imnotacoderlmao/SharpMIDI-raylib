@@ -151,7 +151,6 @@ namespace SharpMIDI
             Starter.form.button4.Update();
             Console.WriteLine("MIDI Loaded");
             midi.Close();
-            //MIDIPlayer.StartPlayback(ppq);
         }
 
         static uint VerifyHeader()

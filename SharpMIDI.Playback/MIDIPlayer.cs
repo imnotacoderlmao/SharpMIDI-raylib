@@ -30,8 +30,8 @@ namespace SharpMIDI
             foreach (MIDITrack i in tracks)
             {
                 i.synthEvents.Clear();
-                MIDITrack.tempos.Clear();
             }
+            MIDITrack.tempos.Clear();
             Array.Clear(tracks);
             tracks = Array.Empty<MIDITrack>();
             GC.Collect();
@@ -108,8 +108,8 @@ namespace SharpMIDI
                     int loops = -1;
                     while (tempoProgress < MIDITrack.tempos.Count)
                     {
-                        if (MIDITrack.tempos[tempoProgress].pos > clock) break;
                         Tempo tev = MIDITrack.tempos[tempoProgress];
+                        if (tev.pos > clock) break;
                         tempoProgress++;
                         MIDIClock.SubmitBPM(tev.pos, tev.tempo);
                     }
@@ -118,8 +118,8 @@ namespace SharpMIDI
                         loops++;
                         while (eP[loops] < i.eventAmount)
                         {
-                            if (i.synthEvents[eP[loops]].pos > clock) break;
                             SynthEvent ev = i.synthEvents[eP[loops]];
+                            if (ev.pos > clock) break;
                             eP[loops]++;
                             Sound.Submit((uint)ev.val);
                         }
