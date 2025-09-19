@@ -10,10 +10,8 @@ namespace SharpMIDI
         static string lastWinMMDevice = "";
         private static IntPtr? handle;
         //static System.Diagnostics.Stopwatch watch = System.Diagnostics.Stopwatch.StartNew();
-        public static Func<uint,uint> sendTo;
+        public static unsafe delegate*<uint,uint> sendTo;
         static uint stWinMM(uint ev) => WinMM.midiOutShortMsg((IntPtr)handle, ev);
-        static uint stXSynth(uint ev) => XSynth.SendDirectData(ev);
-        static uint stKDMAPI(uint ev) => KDMAPI.SendDirectData(ev);
         public static bool Init(int synth, string winMMdev)
         {
             Close();
@@ -28,7 +26,7 @@ namespace SharpMIDI
                         if (loaded == 1)
                         {
                             engine = 1;
-                            sendTo = stKDMAPI;
+                            sendTo = &KDMAPI.SendDirectData;
                             return true;
                         }
                         else { return false; }
@@ -44,7 +42,7 @@ namespace SharpMIDI
                     else
                     {
                         engine = 2;
-                        sendTo = stWinMM;
+                        sendTo = &stWinMM;
                         handle = result.Item4;
                         lastWinMMDevice = winMMdev;
                         return true;
@@ -58,7 +56,7 @@ namespace SharpMIDI
                         if (loaded == 1)
                         {
                             engine = 3;
-                            sendTo = stXSynth;
+                            sendTo = &XSynth.SendDirectData;
                             return true;
                         }
                         else { MessageBox.Show("KDMAPI is not available."); return false; }
@@ -85,7 +83,7 @@ namespace SharpMIDI
                     return;
             }
         }
-
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static void Submit(uint ev) 
         { 
             sendTo(ev);

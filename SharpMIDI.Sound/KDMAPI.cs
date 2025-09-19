@@ -72,49 +72,50 @@ namespace SharpMIDI
             double ASIOOutputLatency;
         }
 
-        [DllImport("OmniMIDI")]
+        [DllImport("OmniMIDI.dll")]
         public static extern bool ReturnKDMAPIVer(out Int32 Major, out Int32 Minor, out Int32 Build, out Int32 Revision);
 
-        [DllImport("OmniMIDI")]
+        [DllImport("OmniMIDI.dll")]
         public static extern bool IsKDMAPIAvailable();
 
-        [DllImport("OmniMIDI")]
+        [DllImport("OmniMIDI.dll")]
         public static extern int InitializeKDMAPIStream();
 
-        [DllImport("OmniMIDI")]
+        [DllImport("OmniMIDI.dll")]
         public static extern int TerminateKDMAPIStream();
 
-        [DllImport("OmniMIDI")]
+        [DllImport("OmniMIDI.dll")]
         public static extern void ResetKDMAPIStream();
 
-        [DllImport("OmniMIDI")]
+        [DllImport("OmniMIDI.dll")]
         public static extern uint SendCustomEvent(uint eventtype, uint chan, uint param);
 
-        [DllImport("OmniMIDI")]
+        [DllImport("OmniMIDI.dll", CallingConvention = CallingConvention.Cdecl)]
+        [SuppressGCTransition]
         public static extern uint SendDirectData(uint dwMsg);
 
-        [DllImport("OmniMIDI")]
+        [DllImport("OmniMIDI.dll")]
         public static extern uint SendDirectDataNoBuf(uint dwMsg);
 
-        [DllImport("OmniMIDI")]
+        [DllImport("OmniMIDI.dll")]
         public static extern uint SendDirectLongData(ref MIDIHDR IIMidiHdr);
 
-        [DllImport("OmniMIDI")]
+        [DllImport("OmniMIDI.dll")]
         public static extern uint SendDirectLongDataNoBuf(ref MIDIHDR IIMidiHdr);
 
-        [DllImport("OmniMIDI")]
+        [DllImport("OmniMIDI.dll")]
         public static extern uint PrepareLongData(ref MIDIHDR IIMidiHdr);
 
-        [DllImport("OmniMIDI")]
+        [DllImport("OmniMIDI.dll")]
         public static extern uint UnprepareLongData(ref MIDIHDR IIMidiHdr);
 
-        [DllImport("OmniMIDI")]
+        [DllImport("OmniMIDI.dll")]
         public static extern bool DriverSettings(OMSetting Setting, OMSettingMode Mode, IntPtr Value, Int32 cbValue);
 
-        [DllImport("OmniMIDI")]
+        [DllImport("OmniMIDI.dll")]
         public static extern void LoadCustomSoundFontsList(ref String Directory);
 
-        [DllImport("OmniMIDI")]
+        [DllImport("OmniMIDI.dll")]
         public static extern DebugInfo GetDriverDebugInfo();
     }
 }

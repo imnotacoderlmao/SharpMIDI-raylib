@@ -68,6 +68,7 @@ namespace SharpMIDI
         public static extern uint SendCustomEvent(uint eventtype, uint chan, uint param);
 
         [DllImport("XSynth.dll")]
+        [SuppressGCTransition]
         public static extern uint SendDirectData(uint dwMsg);
 
         [DllImport("XSynth.dll")]
