@@ -1,9 +1,10 @@
 #pragma warning disable 169
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 
 namespace SharpMIDI
 {
-    static class KDMAPI
+    static partial class KDMAPI
     {
         public struct MIDIHDR
         {
@@ -90,9 +91,12 @@ namespace SharpMIDI
         [DllImport("OmniMIDI.dll")]
         public static extern uint SendCustomEvent(uint eventtype, uint chan, uint param);
 
-        [DllImport("OmniMIDI.dll", CallingConvention = CallingConvention.Cdecl)]
+        //[DllImport("OmniMIDI.dll", CallingConvention = CallingConvention.Cdecl)]
+        //[SuppressGCTransition]
+        [LibraryImport("OmniMIDI.dll")]
+        [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
         [SuppressGCTransition]
-        public static extern uint SendDirectData(uint dwMsg);
+        public static partial uint SendDirectData(uint dwMsg);
 
         [DllImport("OmniMIDI.dll")]
         public static extern uint SendDirectDataNoBuf(uint dwMsg);

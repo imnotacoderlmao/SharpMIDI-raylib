@@ -2,7 +2,7 @@ using System.Runtime.InteropServices;
 
 namespace SharpMIDI
 {
-    static class XSynth
+    static partial class XSynth
     {
         public enum OMSettingMode
         {
@@ -67,9 +67,9 @@ namespace SharpMIDI
         [DllImport("XSynth.dll")]
         public static extern uint SendCustomEvent(uint eventtype, uint chan, uint param);
 
-        [DllImport("XSynth.dll")]
+        [LibraryImport("XSynth.dll")]
         [SuppressGCTransition]
-        public static extern uint SendDirectData(uint dwMsg);
+        public static partial uint SendDirectData(uint dwMsg);
 
         [DllImport("XSynth.dll")]
         public static extern uint SendDirectDataNoBuf(uint dwMsg);
