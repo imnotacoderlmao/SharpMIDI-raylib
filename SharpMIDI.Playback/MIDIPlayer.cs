@@ -113,14 +113,14 @@ namespace SharpMIDI
                         tempoProgress++;
                         MIDIClock.SubmitBPM(tev.pos, tev.tempo);
                     }
-                    foreach (MIDITrack i in tracks) //how the FUCK do i optimize this loop
+                    for (int trackIndex = 0; trackIndex < tracks.Length; trackIndex++) //how the FUCK do i optimize this loop
                     {
-                        loops++;
-                        while (eP[loops] < i.eventAmount)
+                        var track = tracks[trackIndex];  
+                        while (eP[trackIndex] < track.eventAmount)
                         {
-                            SynthEvent ev = i.synthEvents[eP[loops]];
+                            SynthEvent ev = track.synthEvents[eP[trackIndex]];
                             if (ev.pos > clock) break;
-                            eP[loops]++;
+                            eP[trackIndex]++;
                             Sound.Submit((uint)ev.val);
                         }
                     }

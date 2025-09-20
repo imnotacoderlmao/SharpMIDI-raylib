@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 
 namespace SharpMIDI
@@ -68,7 +69,7 @@ namespace SharpMIDI
         public static extern uint SendCustomEvent(uint eventtype, uint chan, uint param);
 
         [LibraryImport("XSynth.dll")]
-        [SuppressGCTransition]
+        [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvSuppressGCTransition) })]
         public static partial uint SendDirectData(uint dwMsg);
 
         [DllImport("XSynth.dll")]
