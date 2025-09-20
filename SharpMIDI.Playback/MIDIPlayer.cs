@@ -105,7 +105,6 @@ namespace SharpMIDI
                     long watchtime = watch.ElapsedTicks;
                     watch.Restart();
                     totalDelay += watchtime;
-                    int loops = -1;
                     while (tempoProgress < MIDITrack.tempos.Count)
                     {
                         Tempo tev = MIDITrack.tempos[tempoProgress];

@@ -93,8 +93,8 @@ namespace SharpMIDI
 
         //[DllImport("OmniMIDI.dll", CallingConvention = CallingConvention.Cdecl)]
         //[SuppressGCTransition]
+        [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvSuppressGCTransition), typeof(DisableRuntimeMarshallingAttribute) })]
         [LibraryImport("OmniMIDI.dll")]
-        [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvSuppressGCTransition) })]
         public static partial uint SendDirectData(uint dwMsg);
 
         [DllImport("OmniMIDI.dll")]

@@ -29,8 +29,8 @@ namespace SharpMIDI
         static extern uint midiOutOpen(out IntPtr lphMidiOut, uint uDeviceID, IntPtr dwCallback, IntPtr dwInstance, uint dwFlags);
         [DllImport("winmm.dll")]
         public static extern UInt32 midiOutClose(IntPtr hMidiOut);
+        [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvSuppressGCTransition), typeof(DisableRuntimeMarshallingAttribute) })]
         [LibraryImport("winmm.dll")]
-        [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvSuppressGCTransition) })]
         public static partial uint midiOutShortMsg(IntPtr hMidiOut, uint dwMsg);
 
         public static List<String> GetDevices()
