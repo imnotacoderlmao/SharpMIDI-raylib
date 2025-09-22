@@ -1,16 +1,21 @@
 using System.Runtime.CompilerServices;
-
+using System.Collections.Concurrent;
+using System.Threading;
 namespace SharpMIDI
 {
-    
     unsafe class Sound
     {
         private static int engine = 0;
         public static long totalEvents = 0;
         static string lastWinMMDevice = "";
+        public static bool isrunning = false;
+        private const int BufferSize = 65536;
+        private static readonly uint[] buffer = new uint[BufferSize];
+        private static int head = 0, tail = 0; // r/w index
+        private static Thread? worker;
         private static IntPtr? handle;
         //static System.Diagnostics.Stopwatch watch = System.Diagnostics.Stopwatch.StartNew();
-        public static unsafe delegate*<uint,uint> sendTo;
+        public static delegate*<uint,uint> sendTo;
         static uint stWinMM(uint ev) => WinMM.midiOutShortMsg((IntPtr)handle, ev);
         public static bool Init(int synth, string winMMdev)
         {
@@ -27,6 +32,7 @@ namespace SharpMIDI
                         {
                             engine = 1;
                             sendTo = &KDMAPI.SendDirectData;
+                            StartAudioThread();
                             return true;
                         }
                         else { return false; }
@@ -45,6 +51,7 @@ namespace SharpMIDI
                         sendTo = &stWinMM;
                         handle = result.Item4;
                         lastWinMMDevice = winMMdev;
+                        StartAudioThread();
                         return true;
                     }
                 case 3:
@@ -57,6 +64,7 @@ namespace SharpMIDI
                         {
                             engine = 3;
                             sendTo = &XSynth.SendDirectData;
+                            StartAudioThread();
                             return true;
                         }
                         else { MessageBox.Show("KDMAPI is not available."); return false; }
@@ -66,6 +74,18 @@ namespace SharpMIDI
                     return false;
             }
         }
+        
+        private static void StartAudioThread()
+        {
+            isrunning = true;
+            worker = new Thread(AudioThread)
+            {
+                IsBackground = true,
+                Priority = ThreadPriority.Highest
+            };
+            worker.Start();
+        }
+        
         public static void Reload()
         {
             Close();
@@ -83,14 +103,35 @@ namespace SharpMIDI
                     return;
             }
         }
+
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static void Submit(uint ev) 
-        { 
-            sendTo(ev);
-            totalEvents++;
+        private static void AudioThread()
+        {
+            while (isrunning)
+            {
+                while (tail != head)
+                {
+                    uint ev = buffer[tail & (BufferSize - 1)];
+                    tail++;
+                    sendTo(ev);
+                }
+            }
+        }
+
+        
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static void Submit(uint ev)
+        {
+            int next = (head + 1) & (BufferSize - 1);
+            if (next == (tail & (BufferSize - 1))) return;
+            buffer[head & (BufferSize - 1)] = ev;
+            head++;
         }
 
         public static void Close(){
+            isrunning = false;
+            worker?.Join();
+            worker = null;
             switch(engine){
                 case 1:
                     KDMAPI.TerminateKDMAPIStream();

@@ -8,32 +8,34 @@ namespace SharpMIDI.Renderer
     {
         // Compact packed note format: 32 bits stored as uint
         // bits 0..10   -> relativeStart (11 bits, 0-2047)
-        // bits 11..23  -> duration (13 bits, 0-8191)  
-        // bits 24..30  -> noteNumber (7 bits, 0-127)
-        // bit 31       -> unused (1 bit)
+        // bits 11..19  -> duration (9 bits, 0-511) - REDUCED by 1 bit
+        // bits 20..26  -> noteNumber (7 bits, 0-127)
+        // bits 27..31  -> color (5 bits, 0-31) - INCREASED by 1 bit
 
         public static List<uint>[] SortedBuckets = Array.Empty<List<uint>>();
-        public static List<byte>[] NoteColors = Array.Empty<List<byte>>();
         public static int BucketSize = Math.Clamp((int)MIDIPlayer.ppq, 96, 2048);
         public static bool IsReady { get; private set; } = false;
         public static long TotalNoteCount { get; private set; } = 0;
 
-        private const int MAX_DURATION = 8191; // 13-bit limit
+        private const int MAX_DURATION = 511; // 9-bit limit (reduced from 1023)
 
         // Simplified active note tracking
         private struct ActiveNote { public float StartTick; public ushort TrackIndex; public byte Channel; }
-        private static readonly bool[] activeFlags = new bool[2048];
 
-        // Color table - RGB only, no alpha (back to 256 colors)
-        public static readonly uint[] trackColors = new uint[256];
+        // Random color assignment
+        private static readonly Random colorRng = new Random();
+        private static readonly Dictionary<int, int> trackChannelColors = new Dictionary<int, int>();
+
+        // Color table - RGB only, no alpha (32 colors for 5-bit color index)
+        public static readonly uint[] trackColors = new uint[32];
 
         static NoteProcessor()
         {
-            // Initialize colors with golden ratio distribution (RGB only) - same as original
+            // Initialize colors with golden ratio distribution (RGB only) - expanded to 32 colors
             const float goldenRatio = 1.618034f;
-            for (int i = 0; i < 256; i++)
+            for (int i = 0; i < 32; i++)
             {
-                float h = (i * goldenRatio * 360f / 16f) % 360f;
+                float h = (i * 137.50776f) % 360f;
                 float hue60 = h / 60f;
                 float c = 0.72f;
                 float x = c * (1f - MathF.Abs(hue60 % 2f - 1f));
@@ -81,7 +83,6 @@ namespace SharpMIDI.Renderer
 
             // Initialize bucket arrays (Lists created lazily)
             SortedBuckets = new List<uint>[bucketCount];
-            NoteColors = new List<byte>[bucketCount];
 
             // Process tracks in parallel
             System.Threading.Tasks.Parallel.For(0, tracks.Length, trackIndex =>
@@ -166,13 +167,24 @@ namespace SharpMIDI.Renderer
             int noteStart = (int)activeNote.StartTick;
             int fullDuration = Math.Max(1, (int)(endTick - activeNote.StartTick));
 
-            // Generate color based on channel + track combination (full 8-bit range)
-            byte colorIndex = (byte)((channel + (trackIndex << 1)) & 0xFF);
+            // Generate random color for track+channel combination
+            int trackChannelKey = (trackIndex << 8) | channel; // Combine track and channel
+            if (!trackChannelColors.TryGetValue(trackChannelKey, out int colorIndex))
+            {
+                lock (trackChannelColors)
+                {
+                    if (!trackChannelColors.TryGetValue(trackChannelKey, out colorIndex))
+                    {
+                        colorIndex = colorRng.Next(32); // Random color 0-31 (increased from 16)
+                        trackChannelColors[trackChannelKey] = colorIndex;
+                    }
+                }
+            }
 
             SliceNoteWithMaxDuration(noteStart, fullDuration, noteNumber, colorIndex, bucketCount);
         }
 
-        private static void SliceNoteWithMaxDuration(int noteStart, int duration, int noteNumber, byte colorIndex, int bucketCount)
+        private static void SliceNoteWithMaxDuration(int noteStart, int duration, int noteNumber, int colorIndex, int bucketCount)
         {
             int remaining = duration;
             int currentStart = noteStart;
@@ -186,7 +198,7 @@ namespace SharpMIDI.Renderer
             }
         }
 
-        private static void SliceNoteChunk(int noteStart, int duration, int noteNumber, byte colorIndex, int bucketCount)
+        private static void SliceNoteChunk(int noteStart, int duration, int noteNumber, int colorIndex, int bucketCount)
         {
             int targetBucket = noteStart / BucketSize;
             if (targetBucket >= bucketCount) targetBucket = bucketCount - 1;
@@ -194,8 +206,8 @@ namespace SharpMIDI.Renderer
             if (noteStart + duration <= (targetBucket + 1) * BucketSize)
             {
                 int relStart = noteStart - (targetBucket * BucketSize);
-                uint packed = Pack32(relStart, duration, noteNumber);
-                AddToBucket(targetBucket, packed, colorIndex);
+                uint packed = Pack32(relStart, duration, noteNumber, colorIndex);
+                AddToBucket(targetBucket, packed);
             }
             else
             {
@@ -210,8 +222,8 @@ namespace SharpMIDI.Renderer
                     int available = BucketSize - relStartInBucket;
                     int slice = Math.Min(remaining, available);
 
-                    uint packed = Pack32(relStartInBucket, slice, noteNumber);
-                    AddToBucket(currentBucket, packed, colorIndex);
+                    uint packed = Pack32(relStartInBucket, slice, noteNumber, colorIndex);
+                    AddToBucket(currentBucket, packed);
 
                     writeStart += slice;
                     remaining -= slice;
@@ -220,7 +232,7 @@ namespace SharpMIDI.Renderer
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private static void AddToBucket(int bucket, uint packed, byte colorIndex)
+        private static void AddToBucket(int bucket, uint packed)
         {
             lock (SortedBuckets)
             {
@@ -229,78 +241,62 @@ namespace SharpMIDI.Renderer
                     // Estimate initial capacity based on bucket size and typical note density
                     int estimatedCapacity = Math.Max(64, BucketSize / 10);
                     SortedBuckets[bucket] = new List<uint>(estimatedCapacity);
-                    NoteColors[bucket] = new List<byte>(estimatedCapacity);
                 }
 
                 SortedBuckets[bucket].Add(packed);
-                NoteColors[bucket].Add(colorIndex);
             }
         }
 
         private static void SortBucket(int b)
         {
             var bucket = SortedBuckets[b];
-            var colors = NoteColors[b];
             if (bucket == null || bucket.Count <= 1) return;
 
-            // Create paired array for sorting
-            var paired = new (uint note, byte color)[bucket.Count];
-            for (int i = 0; i < bucket.Count; i++)
+            bucket.Sort((u1, u2) =>
             {
-                paired[i] = (bucket[i], colors[i]);
-            }
-
-            Array.Sort(paired, (p1, p2) =>
-            {
-                uint u1 = p1.note, u2 = p2.note;
-
                 // Sort by relative start position
                 int r1 = (int)(u1 & 0x7FFu);
                 int r2 = (int)(u2 & 0x7FFu);
                 if (r1 != r2) return r1 - r2;
-
+                
                 // Then by duration (shorter notes last = on top)
-                int d1 = (int)((u1 >> 11) & 0x1FFFu);
-                int d2 = (int)((u2 >> 11) & 0x1FFFu);
-                if (d1 != d2) return d2 - d1;
-
-                // Since we don't have track info, use color as tiebreaker
-                return p1.color.CompareTo(p2.color);
+                /*int d1 = (int)((u1 >> 11) & 0x1FFu); // 9-bit mask (updated)
+                int d2 = (int)((u2 >> 11) & 0x1FFu); // 9-bit mask (updated)
+                if (d1 != d2) return d2 - d1;*/
+                
+                // Then by color as tiebreaker
+                int c1 = (int)((u1 >> 28) & 0xFu);
+                int c2 = (int)((u2 >> 28) & 0xFu);
+                return c1.CompareTo(c2);
             });
+            
             bucket.TrimExcess();
-            colors.TrimExcess();
-            // Copy back sorted data
-            for (int i = 0; i < paired.Length; i++)
-            {
-                bucket[i] = paired[i].note;
-                colors[i] = paired[i].color;
-            }
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private static uint Pack32(int relStart, int duration, int noteNumber)
+        private static uint Pack32(int relStart, int duration, int noteNumber, int colorIndex)
         {
-            return ((uint)relStart & 0x7FFu) |
-                   (((uint)duration & 0x1FFFu) << 11) |
-                   (((uint)noteNumber & 0x7Fu) << 24);
+            return ((uint)relStart & 0x7FFu) |              // 11 bits: 0-10
+                   (((uint)duration & 0x1FFu) << 11) |      // 9 bits: 11-19 (reduced from 10)
+                   (((uint)noteNumber & 0x7Fu) << 20) |     // 7 bits: 20-26 (shifted from 21)
+                   (((uint)colorIndex & 0x1Fu) << 27);      // 5 bits: 27-31 (increased from 4)
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static void UnpackNote(uint packed, byte colorIndex, out int relStart, out int duration, out int noteNumber, out int color)
+        public static void UnpackNote(uint packed, out int relStart, out int duration, out int noteNumber, out int colorIndex)
         {
             relStart = (int)(packed & 0x7FFu);
-            duration = (int)((packed >> 11) & 0x1FFFu);
-            noteNumber = (int)((packed >> 24) & 0x7Fu);
-            color = colorIndex;
+            duration = (int)((packed >> 11) & 0x1FFu);      // 9-bit mask (updated)
+            noteNumber = (int)((packed >> 20) & 0x7Fu);     // Shifted from 21 to 20
+            colorIndex = (int)((packed >> 27) & 0x1Fu);     // 5-bit color (updated)
         }
 
         private static void ClearAllData()
         {
             // Lists will be garbage collected automatically
             SortedBuckets = Array.Empty<List<uint>>();
-            NoteColors = Array.Empty<List<byte>>();
             TotalNoteCount = 0;
-            Array.Clear(activeFlags, 0, activeFlags.Length);
+            trackChannelColors.Clear(); // Clear color assignments for new file
         }
 
         public static void Cleanup()

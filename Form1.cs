@@ -31,6 +31,7 @@ namespace SharpMIDI
             {
                 comboBox1.Items.Add(i);
             }
+            Renderer.MIDIRenderer.StartRenderer();
             Task.Run(() => MIDIPlayer.UpdateUI());
         }
 

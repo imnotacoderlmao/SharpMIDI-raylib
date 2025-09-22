@@ -86,7 +86,7 @@ namespace SharpMIDI
             }
         }
 
-        [MethodImpl(MethodImplOptions.AggressiveOptimization | MethodImplOptions.AggressiveInlining)]
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static unsafe async Task StartPlayback()
         {
             stopping = false;
@@ -114,13 +114,14 @@ namespace SharpMIDI
                     }
                     for (int trackIndex = 0; trackIndex < tracks.Length; trackIndex++) //how the FUCK do i optimize this loop
                     {
-                        var track = tracks[trackIndex];  
+                        var track = tracks[trackIndex];
                         while (eP[trackIndex] < track.eventAmount)
                         {
                             SynthEvent ev = track.synthEvents[eP[trackIndex]];
                             if (ev.pos > clock) break;
                             eP[trackIndex]++;
                             Sound.Submit((uint)ev.val);
+                            Sound.totalEvents++;
                         }
                     }
                     totalFrames++;

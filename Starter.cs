@@ -11,7 +11,6 @@ namespace SharpMIDI
         {
             Form.CheckForIllegalCrossThreadCalls = false;
             ApplicationConfiguration.Initialize();
-            Renderer.MIDIRenderer.StartRenderer();
             Application.Run(form);
         }
         public static void SubmitMIDIPath(string str)

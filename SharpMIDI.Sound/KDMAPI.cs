@@ -1,6 +1,7 @@
 #pragma warning disable 169
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
+using System.Security;
 
 namespace SharpMIDI
 {
@@ -91,10 +92,9 @@ namespace SharpMIDI
         [DllImport("OmniMIDI.dll")]
         public static extern uint SendCustomEvent(uint eventtype, uint chan, uint param);
 
-        //[DllImport("OmniMIDI.dll", CallingConvention = CallingConvention.Cdecl)]
-        //[SuppressGCTransition]
-        [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvSuppressGCTransition), typeof(DisableRuntimeMarshallingAttribute) })]
-        [LibraryImport("OmniMIDI.dll")]
+        //idk how to reduce overhead more
+        [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvSuppressGCTransition), typeof(DisableRuntimeMarshallingAttribute)})]
+        [LibraryImport("OmniMIDI.dll", EntryPoint = "SendDirectData")]
         public static partial uint SendDirectData(uint dwMsg);
 
         [DllImport("OmniMIDI.dll")]

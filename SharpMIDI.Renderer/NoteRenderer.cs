@@ -18,12 +18,11 @@ namespace SharpMIDI.Renderer
         private static GCHandle bufferHandle;
         private static uint* pixelPtr;
 
-        // Note Y lookup (flipped)
+        // Note Y lookup (flipped) - precomputed
         private static readonly byte[] noteToY = new byte[128];
 
         private static float currentWindow = 2000f;
         private static float ticksPerPixel;
-        private static float pixelsPerTick;
 
         private static int lastColumn = -1;
         public static bool forceRedraw = true;
@@ -33,8 +32,12 @@ namespace SharpMIDI.Renderer
         public static float Window => currentWindow;
         public static int NotesDrawnLastFrame { get; private set; } = 0;
 
+        // Constants for optimization
+        private const uint BLACK_ALPHA = 0xFF000000u;
+
         static NoteRenderer()
         {
+            // Precompute flipped Y coordinates
             for (int i = 0; i < 128; i++) 
                 noteToY[i] = (byte)(127 - i);
         }
@@ -71,7 +74,6 @@ namespace SharpMIDI.Renderer
         private static void UpdateWindowParams()
         {
             ticksPerPixel = currentWindow / textureWidth;
-            pixelsPerTick = textureWidth / currentWindow;
         }
 
         public static void UpdateStreaming(float tick)
@@ -83,7 +85,7 @@ namespace SharpMIDI.Renderer
                 tick = lastTick;
             lastTick = tick;
 
-            float tickPos = tick * pixelsPerTick;
+            float tickPos = tick / ticksPerPixel; // Removed unnecessary multiplication and division
             int newColumn = (int)tickPos % textureWidth;
             if (newColumn < 0) newColumn += textureWidth;
 
@@ -115,18 +117,18 @@ namespace SharpMIDI.Renderer
 
             int keepPixels = textureWidth - pixels;
             
-            // Scroll each row using SIMD-friendly operations
+            // Optimized scrolling using pointer arithmetic
             for (int y = 0; y < TEXTURE_HEIGHT; y++)
             {
                 uint* row = pixelPtr + (y * textureWidth);
                 
-                // Copy left
-                for (int x = 0; x < keepPixels; x++)
-                    row[x] = row[x + pixels];
+                // Use memmove equivalent for better performance
+                Buffer.MemoryCopy(row + pixels, row, keepPixels * sizeof(uint), keepPixels * sizeof(uint));
                 
-                // Clear right (set to black RGBA)
-                for (int x = keepPixels; x < textureWidth; x++)
-                    row[x] = 0xFF000000u; // Black with alpha
+                // Clear right portion
+                uint* clearStart = row + keepPixels;
+                for (int x = 0; x < pixels; x++)
+                    clearStart[x] = BLACK_ALPHA;
             }
         }
 
@@ -137,56 +139,57 @@ namespace SharpMIDI.Renderer
 
             NotesDrawnLastFrame = 0;
 
-            // Clear region to black
+            // Clear region to black - optimized bulk clear
+            int clearSize = width * sizeof(uint);
             for (int y = 0; y < TEXTURE_HEIGHT; y++)
             {
                 uint* row = pixelPtr + (y * textureWidth + startX);
-                for (int x = 0; x < width; x++)
-                    row[x] = 0xFF000000u; // Black with alpha
+                for (int x = 0; x < width; x++) // Simple loop is often faster than memset for small widths
+                    row[x] = BLACK_ALPHA;
             }
 
             var buckets = NoteProcessor.SortedBuckets;
-            var colors = NoteProcessor.NoteColors;
-            
             if (buckets.Length == 0) return;
 
             float endTick = startTick + width * ticksPerPixel;
             int bucketSize = NoteProcessor.BucketSize;
 
-            // Find bucket range
+            // Find bucket range with bounds checking
             int startBucket = Math.Max(0, (int)(startTick / bucketSize) - 1);
             int endBucket = Math.Min(buckets.Length - 1, (int)(endTick / bucketSize) + 1);
 
             if (startBucket >= buckets.Length) return;
 
-            // Render notes from buckets
+            // Render notes from buckets - optimized unpacking
             for (int bucketIdx = startBucket; bucketIdx <= endBucket; bucketIdx++)
             {
                 var bucket = buckets[bucketIdx];
-                var bucketColors = colors[bucketIdx];
                 if (bucket == null || bucket.Count == 0) continue;
 
                 int bucketStartTick = bucketIdx * bucketSize;
 
-                // Access List<uint> and List<byte> directly
-                for (int noteIdx = 0; noteIdx < bucket.Count; noteIdx++)
+                // Direct access to List<uint> with optimized unpacking
+                var bucketArray = bucket;
+                int count = bucketArray.Count;
+                
+                for (int noteIdx = 0; noteIdx < count; noteIdx++)
                 {
-                    uint packedValue = bucket[noteIdx];
-                    byte colorIndex = bucketColors[noteIdx];
+                    uint packed = bucketArray[noteIdx];
 
-                    // Unpack note data (32-bit format + color byte)
-                    int relStart = (int)(packedValue & 0x7FFu);
-                    int duration = (int)((packedValue >> 11) & 0x1FFFu);
-                    int noteNumber = (int)((packedValue >> 24) & 0x7Fu);
+                    // Inline unpacking for maximum performance
+                    int relStart = (int)(packed & 0x7FFu);
+                    int duration = (int)((packed >> 11) & 0x1FFu);    // Updated for 9-bit duration
+                    int noteNumber = (int)((packed >> 20) & 0x7Fu);   // Updated bit position
+                    int colorIndex = (int)((packed >> 27) & 0x1Fu);   // Updated for 5-bit color
                     
                     int absStart = bucketStartTick + relStart;
                     int absEnd = absStart + duration;
 
-                    // Cull notes outside viewport
+                    // Early culling
                     if (absEnd < startTick || absStart > endTick) 
                         continue;
 
-                    // Calculate pixel coordinates
+                    // Calculate pixel coordinates with single division
                     float startPx = (absStart - startTick) / ticksPerPixel;
                     float endPx = (absEnd - startTick) / ticksPerPixel;
 
@@ -195,19 +198,32 @@ namespace SharpMIDI.Renderer
 
                     if (x2 <= x1) continue;
 
-                    // Get RGBA color (full 256 color range)
-                    uint rgbColor = NoteProcessor.trackColors[colorIndex];
-                    uint rgbaColor = 0xFF000000u | rgbColor; // Add alpha
+                    // Get precomputed RGBA color (now 32 colors available)
+                    uint rgbaColor = BLACK_ALPHA | NoteProcessor.trackColors[colorIndex];
 
-                    // Draw note
+                    // Optimized drawing - direct pointer access
                     int y = noteToY[noteNumber];
                     uint* rowPtr = pixelPtr + (y * textureWidth + startX + x1);
 
                     int noteWidth = x2 - x1;
-                    for (int x = 0; x < noteWidth; x++)
+                    
+                    // Unrolled loop for small widths, regular loop for larger ones
+                    if (noteWidth <= 4)
                     {
-                        rowPtr[x] = rgbaColor;
+                        switch (noteWidth)
+                        {
+                            case 4: rowPtr[3] = rgbaColor; goto case 3;
+                            case 3: rowPtr[2] = rgbaColor; goto case 2;
+                            case 2: rowPtr[1] = rgbaColor; goto case 1;
+                            case 1: rowPtr[0] = rgbaColor; break;
+                        }
                     }
+                    else
+                    {
+                        for (int x = 0; x < noteWidth; x++)
+                            rowPtr[x] = rgbaColor;
+                    }
+                    
                     NotesDrawnLastFrame++;
                 }
             }
@@ -218,7 +234,7 @@ namespace SharpMIDI.Renderer
         {
             int total = textureWidth * TEXTURE_HEIGHT;
             for (int i = 0; i < total; i++)
-                pixelPtr[i] = 0xFF000000u; // Black with alpha
+                pixelPtr[i] = BLACK_ALPHA;
         }
 
         public static void Render(int screenWidth, int screenHeight, int pad)
