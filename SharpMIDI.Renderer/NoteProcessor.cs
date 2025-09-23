@@ -7,37 +7,32 @@ namespace SharpMIDI.Renderer
     public static unsafe class NoteProcessor
     {
         // Compact packed note format: 32 bits stored as uint
-        // bits 0..10   -> relativeStart (11 bits, 0-2047)
-        // bits 11..19  -> duration (9 bits, 0-511) - REDUCED by 1 bit
-        // bits 20..26  -> noteNumber (7 bits, 0-127)
-        // bits 27..31  -> color (5 bits, 0-31) - INCREASED by 1 bit
+        // bits 0..9    -> relativeStart (10 bits, 0-1023)
+        // bits 10..18  -> duration (9 bits, 0-511)
+        // bits 19..25  -> noteNumber (7 bits, 0-127)
+        // bits 26..31  -> color (6 bits, 0-63)
 
         public static List<uint>[] SortedBuckets = Array.Empty<List<uint>>();
-        public static int BucketSize = Math.Clamp((int)MIDIPlayer.ppq, 96, 2048);
+        public static int BucketSize = Math.Clamp((int)MIDIPlayer.ppq, 96, 1023); // Reduced max from 2048 to 1023
         public static bool IsReady { get; private set; } = false;
         public static long TotalNoteCount { get; private set; } = 0;
 
-        private const int MAX_DURATION = 511; // 9-bit limit (reduced from 1023)
+        private const int MAX_DURATION = 511; // 9-bit limit
+        private const int MAX_REL_START = 1023; // 10-bit limit
 
         // Simplified active note tracking
         private struct ActiveNote { public float StartTick; public ushort TrackIndex; public byte Channel; }
-
-        // Random color assignment
-        private static readonly Random colorRng = new Random();
+        private static readonly bool[] activeFlags = new bool[2048];
         private static readonly Dictionary<int, int> trackChannelColors = new Dictionary<int, int>();
-
-        // Color table - RGB only, no alpha (32 colors for 5-bit color index)
-        public static readonly uint[] trackColors = new uint[32];
+        public static readonly uint[] trackColors = new uint[64];
 
         static NoteProcessor()
         {
-            // Initialize colors with golden ratio distribution (RGB only) - expanded to 32 colors
-            const float goldenRatio = 1.618034f;
-            for (int i = 0; i < 32; i++)
+            for (int i = 0; i < 64; i++)
             {
                 float h = (i * 137.50776f) % 360f;
                 float hue60 = h / 60f;
-                float c = 0.72f;
+                float c = 0.75f; // Slightly higher saturation for more colors
                 float x = c * (1f - MathF.Abs(hue60 % 2f - 1f));
 
                 float r, g, b;
@@ -52,9 +47,9 @@ namespace SharpMIDI.Renderer
                     default: r = c; g = 0; b = x; break;
                 }
 
-                uint finalR = Math.Min((uint)((r + 0.18f) * 255f), 255u);
-                uint finalG = Math.Min((uint)((g + 0.18f) * 255f), 255u);
-                uint finalB = Math.Min((uint)((b + 0.18f) * 255f), 255u);
+                uint finalR = Math.Min((uint)((r + 0.15f) * 255f), 255u);
+                uint finalG = Math.Min((uint)((g + 0.15f) * 255f), 255u);
+                uint finalB = Math.Min((uint)((b + 0.15f) * 255f), 255u);
 
                 trackColors[i] = (finalR << 16) | (finalG << 8) | finalB;
             }
@@ -166,21 +161,7 @@ namespace SharpMIDI.Renderer
         {
             int noteStart = (int)activeNote.StartTick;
             int fullDuration = Math.Max(1, (int)(endTick - activeNote.StartTick));
-
-            // Generate random color for track+channel combination
-            int trackChannelKey = (trackIndex << 8) | channel; // Combine track and channel
-            if (!trackChannelColors.TryGetValue(trackChannelKey, out int colorIndex))
-            {
-                lock (trackChannelColors)
-                {
-                    if (!trackChannelColors.TryGetValue(trackChannelKey, out colorIndex))
-                    {
-                        colorIndex = colorRng.Next(32); // Random color 0-31 (increased from 16)
-                        trackChannelColors[trackChannelKey] = colorIndex;
-                    }
-                }
-            }
-
+            int colorIndex = (channel + (trackIndex << 1)) & 0xFF;
             SliceNoteWithMaxDuration(noteStart, fullDuration, noteNumber, colorIndex, bucketCount);
         }
 
@@ -206,6 +187,7 @@ namespace SharpMIDI.Renderer
             if (noteStart + duration <= (targetBucket + 1) * BucketSize)
             {
                 int relStart = noteStart - (targetBucket * BucketSize);
+                relStart = Math.Min(relStart, MAX_REL_START); // Clamp to 10-bit max
                 uint packed = Pack32(relStart, duration, noteNumber, colorIndex);
                 AddToBucket(targetBucket, packed);
             }
@@ -218,7 +200,7 @@ namespace SharpMIDI.Renderer
                 {
                     int currentBucket = Math.Min(writeStart / BucketSize, bucketCount - 1);
                     int bucketStartTick = currentBucket * BucketSize;
-                    int relStartInBucket = Math.Min(writeStart - bucketStartTick, BucketSize - 1);
+                    int relStartInBucket = Math.Min(writeStart - bucketStartTick, MAX_REL_START);
                     int available = BucketSize - relStartInBucket;
                     int slice = Math.Min(remaining, available);
 
@@ -238,7 +220,6 @@ namespace SharpMIDI.Renderer
             {
                 if (SortedBuckets[bucket] == null)
                 {
-                    // Estimate initial capacity based on bucket size and typical note density
                     int estimatedCapacity = Math.Max(64, BucketSize / 10);
                     SortedBuckets[bucket] = new List<uint>(estimatedCapacity);
                 }
@@ -255,19 +236,14 @@ namespace SharpMIDI.Renderer
             bucket.Sort((u1, u2) =>
             {
                 // Sort by relative start position
-                int r1 = (int)(u1 & 0x7FFu);
-                int r2 = (int)(u2 & 0x7FFu);
+                int r1 = (int)(u1 & 0x3FFu); // 10-bit mask (updated)
+                int r2 = (int)(u2 & 0x3FFu);
                 if (r1 != r2) return r1 - r2;
-                
-                // Then by duration (shorter notes last = on top)
-                /*int d1 = (int)((u1 >> 11) & 0x1FFu); // 9-bit mask (updated)
-                int d2 = (int)((u2 >> 11) & 0x1FFu); // 9-bit mask (updated)
-                if (d1 != d2) return d2 - d1;*/
-                
-                // Then by color as tiebreaker
-                int c1 = (int)((u1 >> 28) & 0xFu);
-                int c2 = (int)((u2 >> 28) & 0xFu);
-                return c1.CompareTo(c2);
+                                
+                // Then by color
+                int c1 = (int)((u1 >> 26) & 0x3Fu); // Updated bit shift and mask for 6-bit color
+                int c2 = (int)((u2 >> 26) & 0x3Fu);
+                return c1 - c2;
             });
             
             bucket.TrimExcess();
@@ -276,27 +252,27 @@ namespace SharpMIDI.Renderer
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private static uint Pack32(int relStart, int duration, int noteNumber, int colorIndex)
         {
-            return ((uint)relStart & 0x7FFu) |              // 11 bits: 0-10
-                   (((uint)duration & 0x1FFu) << 11) |      // 9 bits: 11-19 (reduced from 10)
-                   (((uint)noteNumber & 0x7Fu) << 20) |     // 7 bits: 20-26 (shifted from 21)
-                   (((uint)colorIndex & 0x1Fu) << 27);      // 5 bits: 27-31 (increased from 4)
+            return ((uint)relStart & 0x3FFu) |              // 10 bits: 0-9 (reduced from 11)
+                   (((uint)duration & 0x1FFu) << 10) |      // 9 bits: 10-18 (shifted)
+                   (((uint)noteNumber & 0x7Fu) << 19) |     // 7 bits: 19-25 (shifted)
+                   (((uint)colorIndex & 0x3Fu) << 26);      // 6 bits: 26-31 (increased from 5)
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static void UnpackNote(uint packed, out int relStart, out int duration, out int noteNumber, out int colorIndex)
         {
-            relStart = (int)(packed & 0x7FFu);
-            duration = (int)((packed >> 11) & 0x1FFu);      // 9-bit mask (updated)
-            noteNumber = (int)((packed >> 20) & 0x7Fu);     // Shifted from 21 to 20
-            colorIndex = (int)((packed >> 27) & 0x1Fu);     // 5-bit color (updated)
+            relStart = (int)(packed & 0x3FFu);              // 10-bit mask (updated)
+            duration = (int)((packed >> 10) & 0x1FFu);      // Updated bit shift
+            noteNumber = (int)((packed >> 19) & 0x7Fu);     // Updated bit shift
+            colorIndex = (int)((packed >> 26) & 0x3Fu);     // 6-bit color (updated)
         }
 
         private static void ClearAllData()
         {
-            // Lists will be garbage collected automatically
             SortedBuckets = Array.Empty<List<uint>>();
             TotalNoteCount = 0;
-            trackChannelColors.Clear(); // Clear color assignments for new file
+            Array.Clear(activeFlags, 0, activeFlags.Length);
+            trackChannelColors.Clear();
         }
 
         public static void Cleanup()

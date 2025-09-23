@@ -99,13 +99,11 @@ namespace SharpMIDI
                 {
                     bool success = IndexTrack();
                     Starter.form.label10.Text = "Loaded tracks: 0 / "+tks+" (" + tracks + ")";
-                    Starter.form.label10.Update();
                     if (!success) { break; }
                 }
                 MIDIPlayer.SubmitTrackCount(tks);
                 Starter.form.label10.Text = "Loaded tracks: 0 / " + tks;
-                Starter.form.label10.Update();
-                midiStream.Position += 1;
+                midiStream.Position++;
                 int loops = 0;
                 Parallel.For(0, tks, (i) =>
                 {
@@ -125,7 +123,6 @@ namespace SharpMIDI
                             MIDIPlayer.SubmitTrackForPlayback(i, temp.track);
                             loops++;
                             Starter.form.label10.Text = "Loaded tracks: " + loops + " / " + MIDILoader.tks;
-                            Starter.form.label10.Update();
                             if (totalSize >= gcRequirement)
                             {
                                 totalSize = 0;
@@ -139,13 +136,11 @@ namespace SharpMIDI
                     }
                 });
                 Starter.form.label10.Text = "Loaded tracks: " + MIDIPlayer.tracks.Length + " / " + MIDILoader.tks;
-                Starter.form.label10.Update();
                 midiStream.Close();
             }
             Console.WriteLine("Calling MIDIRenderer.EnhanceTracksForRendering()...");
             await Task.Run(() => Renderer.MIDIRenderer.EnhanceTracksForRendering());
             Starter.form.label2.Text = "Status: Loaded";
-            Starter.form.label2.Update();
             GC.Collect();
             Starter.form.button4.Enabled = true;
             Starter.form.button4.Update();

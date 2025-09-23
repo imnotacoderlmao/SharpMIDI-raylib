@@ -59,7 +59,6 @@ namespace SharpMIDI
                 maxTick = track.maxTick;
             }
             Starter.form.label5.Text = "Notes: " + loadedNotes + " / " + totalNotes;
-            Starter.form.label5.Update();
             tracks[index] = track;
         }
         public static double tick()

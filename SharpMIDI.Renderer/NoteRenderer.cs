@@ -85,7 +85,7 @@ namespace SharpMIDI.Renderer
                 tick = lastTick;
             lastTick = tick;
 
-            float tickPos = tick / ticksPerPixel; // Removed unnecessary multiplication and division
+            float tickPos = tick / ticksPerPixel;
             int newColumn = (int)tickPos % textureWidth;
             if (newColumn < 0) newColumn += textureWidth;
 
@@ -140,11 +140,10 @@ namespace SharpMIDI.Renderer
             NotesDrawnLastFrame = 0;
 
             // Clear region to black - optimized bulk clear
-            int clearSize = width * sizeof(uint);
             for (int y = 0; y < TEXTURE_HEIGHT; y++)
             {
                 uint* row = pixelPtr + (y * textureWidth + startX);
-                for (int x = 0; x < width; x++) // Simple loop is often faster than memset for small widths
+                for (int x = 0; x < width; x++)
                     row[x] = BLACK_ALPHA;
             }
 
@@ -176,11 +175,11 @@ namespace SharpMIDI.Renderer
                 {
                     uint packed = bucketArray[noteIdx];
 
-                    // Inline unpacking for maximum performance
-                    int relStart = (int)(packed & 0x7FFu);
-                    int duration = (int)((packed >> 11) & 0x1FFu);    // Updated for 9-bit duration
-                    int noteNumber = (int)((packed >> 20) & 0x7Fu);   // Updated bit position
-                    int colorIndex = (int)((packed >> 27) & 0x1Fu);   // Updated for 5-bit color
+                    // Inline unpacking for maximum performance - updated for new bit layout
+                    int relStart = (int)(packed & 0x3FFu);        // 10-bit relStart (updated)
+                    int duration = (int)((packed >> 10) & 0x1FFu); // 9-bit duration (updated shift)
+                    int noteNumber = (int)((packed >> 19) & 0x7Fu); // 7-bit noteNumber (updated shift)
+                    int colorIndex = (int)((packed >> 26) & 0x3Fu); // 6-bit color (updated shift and mask)
                     
                     int absStart = bucketStartTick + relStart;
                     int absEnd = absStart + duration;
@@ -198,7 +197,7 @@ namespace SharpMIDI.Renderer
 
                     if (x2 <= x1) continue;
 
-                    // Get precomputed RGBA color (now 32 colors available)
+                    // Get precomputed RGBA color (now 64 colors available)
                     uint rgbaColor = BLACK_ALPHA | NoteProcessor.trackColors[colorIndex];
 
                     // Optimized drawing - direct pointer access
