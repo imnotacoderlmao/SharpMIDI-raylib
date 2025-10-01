@@ -1,4 +1,5 @@
 ﻿using System.Runtime.CompilerServices;
+using System.Windows.Forms.VisualStyles;
 using SharpMIDI.Renderer;
 
 namespace SharpMIDI
@@ -88,57 +89,69 @@ namespace SharpMIDI
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static unsafe async Task StartPlayback()
         {
+            clock = 0;
             stopping = false;
-            int[] eventProgress = new int[tracks.Length];
             int tempoProgress = 0;
             System.Diagnostics.Stopwatch? watch = System.Diagnostics.Stopwatch.StartNew();
 
             MIDIClock.Reset();
             Sound.totalEvents = 0;
             MIDIClock.Start();
-            fixed (int* eP = eventProgress)
+            
+            var enums = new IEnumerator<SynthEvent>[tracks.Length];
+            var trackFinished = new bool[tracks.Length];
+            for (int i = 0; i < tracks.Length; i++)
             {
-                while (true)
+                enums[i] = tracks[i].synthEvents.GetEnumerator();
+                if (!enums[i].MoveNext())
                 {
-                    clock = MIDIClock.GetTick();
-                    long watchtime = watch.ElapsedTicks;
-                    watch.Restart();
-                    totalDelay += watchtime;
-                    while (tempoProgress < MIDITrack.tempos.Count)
+                    trackFinished[i] = true; // no events in this track
+                }
+            }
+            int activeTracks = tracks.Length;
+            
+            while (!stopping)
+            {
+                clock = MIDIClock.GetTick();
+                long watchtime = watch.ElapsedTicks;
+                watch.Restart();
+                totalDelay += watchtime;
+                while (tempoProgress < MIDITrack.tempos.Count)
+                {
+                    Tempo tev = MIDITrack.tempos[tempoProgress];
+                    if (tev.pos > clock) break;
+                    tempoProgress++;
+                    MIDIClock.SubmitBPM(tev.pos, tev.tempo);
+                }
+                for (int i = 0; i < enums.Length; i++)
+                {
+                    if (trackFinished[i]) continue;
+                    var enumerator = enums[i];
+                    while (enumerator.Current.pos <= clock)
                     {
-                        Tempo tev = MIDITrack.tempos[tempoProgress];
-                        if (tev.pos > clock) break;
-                        tempoProgress++;
-                        MIDIClock.SubmitBPM(tev.pos, tev.tempo);
-                    }
-                    for (int trackIndex = 0; trackIndex < tracks.Length; trackIndex++) //how the FUCK do i optimize this loop
-                    {
-                        var track = tracks[trackIndex];
-                        while (eP[trackIndex] < track.eventAmount)
+                        Sound.Submit((uint)enumerator.Current.val);
+                        Sound.totalEvents++;
+                        if (!enumerator.MoveNext())
                         {
-                            SynthEvent ev = track.synthEvents[eP[trackIndex]];
-                            if (ev.pos > clock) break;
-                            eP[trackIndex]++;
-                            Sound.Submit((uint)ev.val);
-                            Sound.totalEvents++;
+                            trackFinished[i] = true;
+                            activeTracks--;
+                            break;
                         }
                     }
-                    totalFrames++;
-                    if (clock > maxTick || stopping)
-                    {
-                        Console.WriteLine("Playback finished...");
-                        break;
-                    }
                 }
-                MIDIClock.Reset();
-                Starter.form.button4.Enabled = true;
-                Starter.form.button4.Update();
-                Starter.form.button5.Enabled = false;
-                Starter.form.button5.Update();
-                Starter.form.button6.Enabled = false;
-                Starter.form.button6.Update();
-                return;
+                totalFrames++;
+                if (clock > maxTick) stopping = true;
             }
+            
+            Console.WriteLine("Playback finished...");
+            MIDIClock.Reset();
+            Starter.form.button4.Enabled = true;
+            Starter.form.button4.Update();
+            Starter.form.button5.Enabled = false;
+            Starter.form.button5.Update();
+            Starter.form.button6.Enabled = false;
+            Starter.form.button6.Update();
+            return;
         }
     }
 }
