@@ -9,7 +9,7 @@ namespace SharpMIDI
         public static long totalEvents = 0;
         static string lastWinMMDevice = "";
         public static bool isrunning = false;
-        private const int BufferSize = 65536;
+        private const int BufferSize = 131072;
         private static readonly uint[] buffer = new uint[BufferSize];
         private static int head = 0, tail = 0; // r/w index
         private static Thread? worker;
@@ -107,13 +107,14 @@ namespace SharpMIDI
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private static void AudioThread()
         {
+            int localTail = tail;
             while (isrunning)
             {
-                while (tail != head)
+                if (localTail != head)
                 {
-                    uint ev = buffer[tail & (BufferSize - 1)];
-                    tail++;
-                    sendTo(ev);
+                    sendTo(buffer[localTail & (BufferSize - 1)]);
+                    localTail++;
+                    tail = localTail;
                 }
             }
         }
@@ -122,13 +123,15 @@ namespace SharpMIDI
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static void Submit(uint ev)
         {
-            int next = (head + 1) & (BufferSize - 1);
-            if (next == (tail & (BufferSize - 1))) return;
-            buffer[head & (BufferSize - 1)] = ev;
-            head++;
+            int currentHead = head;
+            // Check if buffer is full (simplified)
+            if (((currentHead + 1) & (BufferSize - 1)) == (tail & (BufferSize - 1))) return;
+            buffer[currentHead & (BufferSize - 1)] = ev;
+            head = currentHead + 1; // Single write
         }
 
-        public static void Close(){
+        public static void Close()
+        {
             isrunning = false;
             worker?.Join();
             worker = null;

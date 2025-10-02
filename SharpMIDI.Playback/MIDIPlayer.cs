@@ -17,7 +17,7 @@ namespace SharpMIDI
         public static double maxTick = 0;
         public static int ppq = 0;
         public static bool paused = false;
-        //public static double bpm => MIDIClock.bpm;
+        public static bool stopping = false;
         public static double clock = 0;
         private static int totalFrames = 0;
         private static double totalDelay = 0;
@@ -68,8 +68,6 @@ namespace SharpMIDI
             double secondsSinceEpoch = t.TotalSeconds;
             return secondsSinceEpoch;
         }
-        public static bool stopping = false;
-
         public static Task UpdateUI()
         {
             while (true)
@@ -98,17 +96,14 @@ namespace SharpMIDI
             Sound.totalEvents = 0;
             MIDIClock.Start();
             
-            var enums = new IEnumerator<SynthEvent>[tracks.Length];
-            var trackFinished = new bool[tracks.Length];
+            var nextEventTick = new int[tracks.Length];
+            var trackIndices = new int[tracks.Length];
+            var trackCounts = new int[tracks.Length];
             for (int i = 0; i < tracks.Length; i++)
             {
-                enums[i] = tracks[i].synthEvents.GetEnumerator();
-                if (!enums[i].MoveNext())
-                {
-                    trackFinished[i] = true; // no events in this track
-                }
+                trackCounts[i] = tracks[i].synthEvents.Count;
+                nextEventTick[i] = trackCounts[i] > 0 ? tracks[i].synthEvents[0].pos : int.MaxValue;
             }
-            int activeTracks = tracks.Length;
             
             while (!stopping)
             {
@@ -123,21 +118,18 @@ namespace SharpMIDI
                     tempoProgress++;
                     MIDIClock.SubmitBPM(tev.pos, tev.tempo);
                 }
-                for (int i = 0; i < enums.Length; i++)
+                for (int i = 0; i < tracks.Length; i++)
                 {
-                    if (trackFinished[i]) continue;
-                    var enumerator = enums[i];
-                    while (enumerator.Current.pos <= clock)
+                    if (nextEventTick[i] > clock) continue;
+                    var events = tracks[i].synthEvents;
+                    int idx = trackIndices[i];
+                    while (idx < trackCounts[i] && events[idx].pos <= clock)
                     {
-                        Sound.Submit((uint)enumerator.Current.val);
+                        Sound.Submit((uint)events[idx++].val);
                         Sound.totalEvents++;
-                        if (!enumerator.MoveNext())
-                        {
-                            trackFinished[i] = true;
-                            activeTracks--;
-                            break;
-                        }
                     }
+                    trackIndices[i] = idx;
+                    nextEventTick[i] = idx < trackCounts[i] ? events[idx].pos : int.MaxValue;
                 }
                 totalFrames++;
                 if (clock > maxTick) stopping = true;
