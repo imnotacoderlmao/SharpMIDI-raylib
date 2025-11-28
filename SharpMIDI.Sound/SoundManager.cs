@@ -1,25 +1,29 @@
 using System.Runtime.CompilerServices;
-using System.Collections.Concurrent;
+using System.Runtime.InteropServices;
 using System.Threading;
+
 namespace SharpMIDI
 {
-    unsafe class Sound
+    static unsafe class Sound
     {
+        const int BufferBits = 17;
+        const int BufferSize = 1 << BufferBits;
+        const int BufferMask = BufferSize - 1;
+        static uint* buf = null;
+        static volatile int head = 0, tail = 0;
+        static bool running = false;
+        static Thread audthread;
+        
         private static int engine = 0;
-        public static long totalEvents = 0;
+        public static long playedEvents = 0;
         static string lastWinMMDevice = "";
-        public static bool isrunning = false;
-        private const int BufferSize = 131072;
-        private static readonly uint[] buffer = new uint[BufferSize];
-        private static int head = 0, tail = 0; // r/w index
-        private static Thread? worker;
         private static IntPtr? handle;
-        //static System.Diagnostics.Stopwatch watch = System.Diagnostics.Stopwatch.StartNew();
         public static delegate*<uint,uint> sendTo;
-        static uint stWinMM(uint ev) => WinMM.midiOutShortMsg((IntPtr)handle, ev);
         public static bool Init(int synth, string winMMdev)
         {
             Close();
+            AllocateEvBuffer();
+            StartAudioThread();
             switch (synth)
             {
                 case 1:
@@ -27,12 +31,12 @@ namespace SharpMIDI
                     try { KDMAPIAvailable = KDMAPI.IsKDMAPIAvailable(); } catch (DllNotFoundException) { }
                     if (KDMAPIAvailable)
                     {
+                        KDMAPI.InitializeFunctionPointer();
                         int loaded = KDMAPI.InitializeKDMAPIStream();
                         if (loaded == 1)
                         {
                             engine = 1;
-                            sendTo = &KDMAPI.SendDirectData;
-                            StartAudioThread();
+                            sendTo = (delegate*<uint,uint>)KDMAPI._sendDirectData;
                             return true;
                         }
                         else { return false; }
@@ -48,10 +52,9 @@ namespace SharpMIDI
                     else
                     {
                         engine = 2;
-                        sendTo = &stWinMM;
+                        sendTo = (delegate*<uint,uint>)WinMM._midiOutShortMsg;
                         handle = result.Item4;
                         lastWinMMDevice = winMMdev;
-                        StartAudioThread();
                         return true;
                     }
                 case 3:
@@ -59,12 +62,12 @@ namespace SharpMIDI
                     try { XSynthAvailable = XSynth.IsKDMAPIAvailable(); } catch (DllNotFoundException) { }
                     if (XSynthAvailable)
                     {
+                        XSynth.InitializeFunctionPointer();
                         int loaded = XSynth.InitializeKDMAPIStream();
                         if (loaded == 1)
                         {
                             engine = 3;
-                            sendTo = &XSynth.SendDirectData;
-                            StartAudioThread();
+                            sendTo = (delegate*<uint,uint>)XSynth._sendDirectData;
                             return true;
                         }
                         else { MessageBox.Show("KDMAPI is not available."); return false; }
@@ -74,18 +77,55 @@ namespace SharpMIDI
                     return false;
             }
         }
-        
-        private static void StartAudioThread()
+
+        static void AllocateEvBuffer()
         {
-            isrunning = true;
-            worker = new Thread(AudioThread)
-            {
-                IsBackground = true,
-                Priority = ThreadPriority.Highest
-            };
-            worker.Start();
+            if (buf != null) return;
+            buf = (uint*)Marshal.AllocHGlobal(BufferSize * sizeof(uint));
+            for (int i = 0; i < BufferSize; i++) buf[i] = 0;
         }
         
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static void Submit(uint ev)
+        {
+            int h = head;
+            int next = (h + 1) & BufferMask;
+
+            if (next == tail) return;
+
+            buf[h] = ev;
+            Volatile.Write(ref head, next);
+        }
+
+        static void StartAudioThread()
+        {
+            if (running) return;
+            running = true;
+            audthread = new Thread(AudioThread)
+            {
+                IsBackground = true,
+            };
+            audthread.Start();
+        }
+
+        static void AudioThread()
+        {
+            while (running)
+            {
+                int t = tail;
+                int h = Volatile.Read(ref head);
+                if (t == h)
+                {
+                    Thread.Yield();
+                    continue;
+                }
+                uint ev = buf[t];
+                sendTo(ev);
+                tail = (t + 1) & BufferMask;
+            }
+        }
+
+
         public static void Reload()
         {
             Close();
@@ -103,38 +143,20 @@ namespace SharpMIDI
                     return;
             }
         }
-
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private static void AudioThread()
-        {
-            int localTail = tail;
-            while (isrunning)
-            {
-                if (localTail != head)
-                {
-                    sendTo(buffer[localTail & (BufferSize - 1)]);
-                    localTail++;
-                    tail = localTail;
-                }
-            }
-        }
-
         
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static void Submit(uint ev)
-        {
-            int currentHead = head;
-            // Check if buffer is full (simplified)
-            if (((currentHead + 1) & (BufferSize - 1)) == (tail & (BufferSize - 1))) return;
-            buffer[currentHead & (BufferSize - 1)] = ev;
-            head = currentHead + 1; // Single write
-        }
-
         public static void Close()
         {
-            isrunning = false;
-            worker?.Join();
-            worker = null;
+            running = false;
+            if (audthread != null)
+            {
+                audthread.Join(100);
+                audthread = null;
+            }
+            if (buf != null)
+            {
+                Marshal.FreeHGlobal((IntPtr)buf);
+                buf = null;
+            }
             switch(engine){
                 case 1:
                     KDMAPI.TerminateKDMAPIStream();

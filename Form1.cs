@@ -3,14 +3,18 @@
 using SharpMIDI;
 using System;
 using System.Runtime.InteropServices;
+using System.Runtime.CompilerServices;
+using System.Collections.Concurrent;
 using System.Threading;
 using System.Windows.Forms;
 using static System.Net.Mime.MediaTypeNames;
+using System.Diagnostics.CodeAnalysis;
 
 namespace SharpMIDI
 {
     public partial class Form1 : Form
     {
+        private static Thread? worker;
         public static string toMemoryText(long bytes)
         {
             switch (bytes)
@@ -32,8 +36,29 @@ namespace SharpMIDI
                 comboBox1.Items.Add(i);
             }
             Renderer.MIDIRenderer.StartRenderer();
-            Task.Run(() => MIDIPlayer.UpdateUI());
+            Task.Run(() => UpdateUI());
         }
+
+        public static Task UpdateUI()
+        {
+            System.Diagnostics.Stopwatch? watch = System.Diagnostics.Stopwatch.StartNew();
+            double totalDelay = 0;
+            while (true)
+            {
+                totalDelay += watch.ElapsedTicks;
+                watch.Restart();
+                Starter.form.label12.Text = "FPS \u2248 " + Math.Round(MIDIPlayer.totalFrames / (double)(totalDelay / TimeSpan.TicksPerSecond), 5);
+                Starter.form.label7.Text = "Memory Usage: " + Form1.toMemoryText(GC.GetTotalMemory(false)) + " (May be inaccurate)";
+                Starter.form.label14.Text = "Tick: " + MIDIPlayer.clock + " / " + MIDILoader.maxTick;
+                Starter.form.label16.Text = "TPS: " + Math.Round(1 / MIDIClock.ticklen, 5);
+                Starter.form.label17.Text = "BPM: " + Math.Round(MIDIClock.bpm, 5);
+                Starter.form.label3.Text = "Played events: " + Sound.playedEvents + " / " + MIDILoader.eventCount;
+                MIDIPlayer.totalFrames = 0;
+                totalDelay = 0;
+                Thread.Sleep(1000/60);
+            }
+        }
+
 
         void ToggleSynthSettings(bool t)
         {
@@ -74,27 +99,25 @@ namespace SharpMIDI
             button1.Enabled = Sound.Init(soundEngine, winMMdev) && !Starter.midiLoaded;
             label13.Visible = !button1.Enabled && !Starter.midiLoaded;
             ToggleSynthSettings(true);
-            //Renderer.StreamlinedRenderer.StartRenderer();
-        }
-
-        private async Task PlayMIDI()
-        {
-            await MIDIPlayer.StartPlayback();
-            button2.Enabled = true;
         }
 
         private async void button4_Click(object sender, EventArgs e)
         {
-            if (Renderer.MIDIRenderer.ready)
+            button2.Enabled = true;
+            button4.Enabled = false;
+            button6.Enabled = true;
+            button5.Enabled = true;
+            StartPlaybackThread();
+            //await Task.Run(() => MIDIPlayer.StartPlayback());
+        }
+
+        private static void StartPlaybackThread()
+        {
+            worker = new Thread(MIDIPlayer.StartPlayback)
             {
-                button2.Enabled = false;
-                button4.Enabled = false;
-                button4.Update();
-                button6.Enabled = true;
-                button5.Enabled = true;
-                button5.Update();
-                Task.Run(() => PlayMIDI());
-            }
+                Priority = ThreadPriority.Highest
+            };
+            worker.Start();
         }
 
         private void button7_Click(object sender, EventArgs e)
@@ -114,26 +137,21 @@ namespace SharpMIDI
             {
                 MIDIClock.Stop();
                 button6.Text = "Play";
-                button6.Update();
             } else
             {
                 MIDIClock.Resume();
                 button6.Text = "Pause";
-                button6.Update();
             }
             paused = !paused;
             MIDIPlayer.paused = paused;
             button5.Enabled = !paused;
-            button5.Update();
         }
 
         private void button5_Click(object sender, EventArgs e)
         {
-            button5.Enabled = false;
-            button5.Update();
-            button6.Enabled = false;
-            button6.Update();
             MIDIPlayer.stopping = true;
+            button5.Enabled = false;
+            button6.Enabled = false;
         }
 
         private void checkBox1_CheckedChanged(object sender, EventArgs e)
@@ -165,7 +183,7 @@ namespace SharpMIDI
                 button6.Update();
                 button2.Update();
                 Renderer.MIDIRenderer.Cleanup();
-                MIDIPlayer.ClearEntries();
+                MIDILoader.ClearEntries();
                 MIDILoader.ResetVariables();
                 Starter.midiLoaded = false;
                 button1.Enabled = true;

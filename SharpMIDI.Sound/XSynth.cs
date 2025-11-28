@@ -3,7 +3,7 @@ using System.Runtime.InteropServices;
 
 namespace SharpMIDI
 {
-    static partial class XSynth
+    static unsafe class XSynth
     {
         public enum OMSettingMode
         {
@@ -68,10 +68,15 @@ namespace SharpMIDI
         [DllImport("XSynth.dll")]
         public static extern uint SendCustomEvent(uint eventtype, uint chan, uint param);
 
-        [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvSuppressGCTransition), typeof(DisableRuntimeMarshallingAttribute) })]
-        [LibraryImport("XSynth.dll")]
-        public static partial uint SendDirectData(uint dwMsg);
-
+        public static delegate* unmanaged[SuppressGCTransition]<uint, uint> _sendDirectData;
+        
+        public static void InitializeFunctionPointer()
+        {
+            IntPtr module = NativeLibrary.Load("XSynth.dll");
+            IntPtr funcPtr = NativeLibrary.GetExport(module, "SendDirectData");
+            _sendDirectData = (delegate* unmanaged[SuppressGCTransition]<uint, uint>)funcPtr;
+        }
+        
         [DllImport("XSynth.dll")]
         public static extern uint SendDirectDataNoBuf(uint dwMsg);
 

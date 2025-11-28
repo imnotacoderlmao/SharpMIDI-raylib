@@ -12,9 +12,11 @@ namespace SharpMIDI
         static uint totalSize = 0;
         public static long totalNotes = 0;
         public static long loadedNotes = 0;
+        public static long eventCount = 0;
+        public static int maxTick = 0;
         public static int tks = 0;
         public static uint loadedTracks = 0;
-        static uint gcRequirement = 134217728;
+        //static uint gcRequirement = 134217728;
 
         static Stream? midi;
 
@@ -46,8 +48,8 @@ namespace SharpMIDI
                     if (found)
                     {
                         tk++;
-                        if (MIDITrack.finished)
-                            realtk++;
+                        //if (MIDI.finished) no idea how to make it work
+                        //    realtk++;
                         Starter.form.label10.Text = "Loaded tracks: " + realtk + " / " + MIDILoader.tks;
                         Starter.form.label10.Update();
                         //await Task.Delay(1);
@@ -76,6 +78,7 @@ namespace SharpMIDI
             uint fmt = ReadInt16();
             uint tracks = ReadInt16();
             tks = (int)tracks;
+            int totaltracks = 0;
             int ppq = ReadInt16();
             MIDIClock.ppq = ppq;
             MIDIPlayer.ppq = ppq;
@@ -101,43 +104,62 @@ namespace SharpMIDI
                     Starter.form.label10.Text = "Loaded tracks: 0 / "+tks+" (" + tracks + ")";
                     if (!success) { break; }
                 }
-                MIDIPlayer.SubmitTrackCount(tks);
                 Starter.form.label10.Text = "Loaded tracks: 0 / " + tks;
+                List<SynthEvent>[] trackEvents = new List<SynthEvent>[tks];
                 midiStream.Position++;
                 int loops = 0;
                 Parallel.For(0, tks, (i) =>
                 {
+                    if (Interlocked.Increment(ref loops) <= tracklimit)
                     {
-                        if (loops <= tracklimit)
-                        {
-                            int bufSize = 2147483647;
-                            if (bufSize > trackSizes[i])
-                            {
-                                bufSize = (int)trackSizes[i];
-                            }
-                            FastTrack temp = new FastTrack(new BufferByteReader(midiStream, bufSize, trackLocations[i], trackSizes[i]));
-                            Console.WriteLine("Loading track #" + (i + 1) + " | Size " + trackSizes[i]);
-                            totalSize += trackSizes[i];
-                            temp.ParseTrackEvents(threshold);
-                            temp.Dispose();
-                            MIDIPlayer.SubmitTrackForPlayback(i, temp.track);
-                            loops++;
-                            Starter.form.label10.Text = "Loaded tracks: " + loops + " / " + MIDILoader.tks;
-                            if (totalSize >= gcRequirement)
-                            {
-                                totalSize = 0;
-                                GC.Collect();
-                            }
-                        } else
-                        {
-                            Console.WriteLine("Ignoring track #" + (i + 1) + " | Size " + trackSizes[i]);
-                            MIDIPlayer.SubmitTrackForPlayback(i, new MIDITrack());
-                        }
+                        Console.WriteLine("Loading track #" + (i + 1) + " | Size " + trackSizes[i]);
+                        int bufSize = (int)Math.Min(2147483647, trackSizes[i]);
+                        int estimatedEventsPerTrack = (int)(trackSizes[i] / 4);
+
+                        FastTrack temp = new FastTrack(
+                            new BufferByteReader(midiStream, bufSize, trackLocations[i], trackSizes[i])
+                        );
+
+                        temp.ParseTrackEvents(thres);
+
+                        // store each track’s events locally
+                        trackEvents[i] = temp.localEvents;
+
+                        // update counters
+                        Interlocked.Add(ref loadedNotes, temp.loadedNotes);
+                        Interlocked.Add(ref totalNotes, temp.totalNotes);
+                        Interlocked.Add(ref eventCount, temp.eventAmount);
+                        totaltracks++;
+                        Starter.form.label10.Text = "Loaded tracks: " + loops + " / " + tks;
+                        Starter.form.label5.Text = "Notes: " + loadedNotes + " / " + totalNotes;
+                        temp.Dispose();
                     }
                 });
-                Starter.form.label10.Text = "Loaded tracks: " + MIDIPlayer.tracks.Length + " / " + MIDILoader.tks;
                 midiStream.Close();
+                Starter.form.label10.Text = "Loaded tracks: " + totaltracks + " / " + MIDILoader.tks;
+                int totalEvents = 0;
+                for (int i = 0; i < tks; i++)
+                {
+                    if (trackEvents[i] != null)
+                        totalEvents += trackEvents[i].Count;
+                }
+
+                MIDI.synthEvents = new SynthEvent[totalEvents];
+
+                int offset = 0;
+                for (int i = 0; i < tks; i++)
+                {
+                    var list = trackEvents[i];
+                    if (list == null) continue;
+
+                    list.CopyTo(MIDI.synthEvents, offset);
+                    offset += list.Count;
+                }
+                Console.WriteLine("sorting events by time");
+                Array.Sort(MIDI.synthEvents, (a, b) => a.pos.CompareTo(b.pos));
             }
+            MIDI.tempos.Sort((a, b) => a.pos.CompareTo(b.pos));
+            MIDI.tempos.TrimExcess();
             Console.WriteLine("Calling MIDIRenderer.EnhanceTracksForRendering()...");
             await Task.Run(() => Renderer.MIDIRenderer.EnhanceTracksForRendering());
             Starter.form.label2.Text = "Status: Loaded";
@@ -146,6 +168,18 @@ namespace SharpMIDI
             Starter.form.button4.Update();
             Console.WriteLine("MIDI Loaded");
             midi.Close();
+        }
+        
+        public static void ClearEntries()
+        {
+            MIDIPlayer.ppq = 0;
+            totalNotes = 0;
+            loadedNotes = 0;
+            eventCount = 0;
+            maxTick = 0;
+            MIDI.synthEvents = null;
+            MIDI.tempos.Clear();
+            GC.Collect();
         }
 
         static uint VerifyHeader()

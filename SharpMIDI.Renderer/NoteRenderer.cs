@@ -34,6 +34,14 @@ namespace SharpMIDI.Renderer
 
         // Constants for optimization
         private const uint BLACK_ALPHA = 0xFF000000u;
+        
+        // Bit unpacking constants (must match NoteProcessor)
+        private const uint RELSTART_MASK = 0x1FFu;        // 9 bits
+        private const int NOTENUMBER_SHIFT = 9;
+        private const uint NOTENUMBER_MASK = 0x7Fu;       // 7 bits
+        private const int DURATION_SHIFT = 16;
+        private const uint DURATION_MASK = 0xFFu;         // 8 bits
+        private const int COLORINDEX_SHIFT = 24;
 
         static NoteRenderer()
         {
@@ -116,19 +124,18 @@ namespace SharpMIDI.Renderer
             if (pixels <= 0) return;
 
             int keepPixels = textureWidth - pixels;
+            int bytesToCopy = keepPixels * sizeof(uint);
             
-            // Optimized scrolling using pointer arithmetic
+            // Optimized scrolling using pointer arithmetic and bulk copy
             for (int y = 0; y < TEXTURE_HEIGHT; y++)
             {
                 uint* row = pixelPtr + (y * textureWidth);
                 
-                // Use memmove equivalent for better performance
-                Buffer.MemoryCopy(row + pixels, row, keepPixels * sizeof(uint), keepPixels * sizeof(uint));
+                // Bulk memory move
+                Buffer.MemoryCopy(row + pixels, row, bytesToCopy, bytesToCopy);
                 
-                // Clear right portion
-                uint* clearStart = row + keepPixels;
-                for (int x = 0; x < pixels; x++)
-                    clearStart[x] = BLACK_ALPHA;
+                // Fast clear of right portion using Span
+                new Span<uint>(row + keepPixels, pixels).Fill(BLACK_ALPHA);
             }
         }
 
@@ -139,12 +146,10 @@ namespace SharpMIDI.Renderer
 
             NotesDrawnLastFrame = 0;
 
-            // Clear region to black - optimized bulk clear
+            // Clear region to black using spans for better performance
             for (int y = 0; y < TEXTURE_HEIGHT; y++)
             {
-                uint* row = pixelPtr + (y * textureWidth + startX);
-                for (int x = 0; x < width; x++)
-                    row[x] = BLACK_ALPHA;
+                new Span<uint>(pixelPtr + (y * textureWidth + startX), width).Fill(BLACK_ALPHA);
             }
 
             var buckets = NoteProcessor.SortedBuckets;
@@ -152,34 +157,36 @@ namespace SharpMIDI.Renderer
 
             float endTick = startTick + width * ticksPerPixel;
             int bucketSize = NoteProcessor.BucketSize;
-
-            // Find bucket range with bounds checking
-            int startBucket = Math.Max(0, (int)(startTick / bucketSize) - 1);
-            int endBucket = Math.Min(buckets.Length - 1, (int)(endTick / bucketSize) + 1);
+            
+            // Calculate exact bucket range
+            int startBucket = Math.Max(0, (int)(startTick / bucketSize));
+            int endBucket = Math.Min(buckets.Length - 1, (int)(endTick / bucketSize));
 
             if (startBucket >= buckets.Length) return;
 
-            // Render notes from buckets - optimized unpacking
+            // Precompute reciprocal for division optimization
+            float invTicksPerPixel = 1f / ticksPerPixel;
+
+            // Render notes from buckets using spans
             for (int bucketIdx = startBucket; bucketIdx <= endBucket; bucketIdx++)
             {
                 var bucket = buckets[bucketIdx];
-                if (bucket == null || bucket.Count == 0) continue;
+                if (bucket == null || bucket.Length == 0) continue;
 
                 int bucketStartTick = bucketIdx * bucketSize;
 
-                // Direct access to List<uint> with optimized unpacking
-                var bucketArray = bucket;
-                int count = bucketArray.Count;
+                // Use ReadOnlySpan for zero-copy iteration
+                ReadOnlySpan<uint> notes = bucket;
                 
-                for (int noteIdx = 0; noteIdx < count; noteIdx++)
+                for (int noteIdx = 0; noteIdx < notes.Length; noteIdx++)
                 {
-                    uint packed = bucketArray[noteIdx];
-
-                    // Inline unpacking for maximum performance - updated for new bit layout
-                    int relStart = (int)(packed & 0x3FFu);        // 10-bit relStart (updated)
-                    int duration = (int)((packed >> 10) & 0x1FFu); // 9-bit duration (updated shift)
-                    int noteNumber = (int)((packed >> 19) & 0x7Fu); // 7-bit noteNumber (updated shift)
-                    int colorIndex = (int)((packed >> 26) & 0x3Fu); // 6-bit color (updated shift and mask)
+                    uint packed = notes[noteIdx];
+                    
+                    // Inline unpacking for maximum performance
+                    int relStart = (int)(packed & RELSTART_MASK);
+                    int noteNumber = (int)((packed >> NOTENUMBER_SHIFT) & NOTENUMBER_MASK);
+                    int duration = (int)((packed >> DURATION_SHIFT) & DURATION_MASK);
+                    int colorIndex = (int)(packed >> COLORINDEX_SHIFT);
                     
                     int absStart = bucketStartTick + relStart;
                     int absEnd = absStart + duration;
@@ -188,39 +195,35 @@ namespace SharpMIDI.Renderer
                     if (absEnd < startTick || absStart > endTick) 
                         continue;
 
-                    // Calculate pixel coordinates with single division
-                    float startPx = (absStart - startTick) / ticksPerPixel;
-                    float endPx = (absEnd - startTick) / ticksPerPixel;
+                    // Calculate pixel coordinates using multiplication instead of division
+                    float startPx = (absStart - startTick) * invTicksPerPixel;
+                    float endPx = (absEnd - startTick) * invTicksPerPixel;
 
                     int x1 = Math.Max(0, (int)startPx);
                     int x2 = Math.Min(width, (int)endPx + 1);
 
                     if (x2 <= x1) continue;
 
-                    // Get precomputed RGBA color (now 64 colors available)
+                    // Get precomputed RGBA color
                     uint rgbaColor = BLACK_ALPHA | NoteProcessor.trackColors[colorIndex];
 
-                    // Optimized drawing - direct pointer access
+                    // Optimized drawing - direct pointer access with span
                     int y = noteToY[noteNumber];
                     uint* rowPtr = pixelPtr + (y * textureWidth + startX + x1);
 
                     int noteWidth = x2 - x1;
                     
-                    // Unrolled loop for small widths, regular loop for larger ones
-                    if (noteWidth <= 4)
+                    // Use span fill for better performance on longer notes
+                    if (noteWidth <= 8)
                     {
-                        switch (noteWidth)
-                        {
-                            case 4: rowPtr[3] = rgbaColor; goto case 3;
-                            case 3: rowPtr[2] = rgbaColor; goto case 2;
-                            case 2: rowPtr[1] = rgbaColor; goto case 1;
-                            case 1: rowPtr[0] = rgbaColor; break;
-                        }
+                        // Unrolled for small widths
+                        for (int x = 0; x < noteWidth; x++)
+                            rowPtr[x] = rgbaColor;
                     }
                     else
                     {
-                        for (int x = 0; x < noteWidth; x++)
-                            rowPtr[x] = rgbaColor;
+                        // Use Span.Fill for larger widths
+                        new Span<uint>(rowPtr, noteWidth).Fill(rgbaColor);
                     }
                     
                     NotesDrawnLastFrame++;
@@ -231,9 +234,7 @@ namespace SharpMIDI.Renderer
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private static void ClearBuffer()
         {
-            int total = textureWidth * TEXTURE_HEIGHT;
-            for (int i = 0; i < total; i++)
-                pixelPtr[i] = BLACK_ALPHA;
+            new Span<uint>(pixelPtr, textureWidth * TEXTURE_HEIGHT).Fill(BLACK_ALPHA);
         }
 
         public static void Render(int screenWidth, int screenHeight, int pad)

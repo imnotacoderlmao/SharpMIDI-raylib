@@ -46,7 +46,7 @@ namespace SharpMIDI.Renderer
 
                 // grab tick from clock
                 tick = (float)MIDIPlayer.clock;
-                if (MIDIPlayer.stopping || MIDIPlayer.clock > MIDIPlayer.maxTick) 
+                if (MIDIPlayer.stopping) 
                 {
                     tick = 0;
                     NoteRenderer.lastTick = 0;
@@ -169,7 +169,7 @@ namespace SharpMIDI.Renderer
             tickStr.Append("Tick: ").Append((int)tick)
                    .Append(" | Tempo: ").Append(MIDIClock.bpm.ToString("F1"))
                    .Append(" | Zoom: ").Append((int)NoteRenderer.Window)
-                   //.Append(" | Glow: ").Append("broken") // keep parity with existing code
+                   //.Append(" | Glow: ").Append("broken")
                    .Append(" | FPS: ").Append(Raylib.GetFPS());
             Raylib.DrawText(tickStr.ToString(), 12, 4, 16, Raylib_cs.Color.Green);
             if (Debug)

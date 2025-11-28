@@ -19,7 +19,7 @@ namespace SharpMIDI
         public UInt16 wChannelMask;
         public UInt32 dwSupport;
     }
-    partial class WinMM
+    unsafe class WinMM
     {
         [DllImport("winmm.dll")]
         private static extern int midiOutGetNumDevs();
@@ -29,10 +29,15 @@ namespace SharpMIDI
         static extern uint midiOutOpen(out IntPtr lphMidiOut, uint uDeviceID, IntPtr dwCallback, IntPtr dwInstance, uint dwFlags);
         [DllImport("winmm.dll")]
         public static extern UInt32 midiOutClose(IntPtr hMidiOut);
-        [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvSuppressGCTransition), typeof(DisableRuntimeMarshallingAttribute) })]
-        [LibraryImport("winmm.dll")]
-        public static partial uint midiOutShortMsg(IntPtr hMidiOut, uint dwMsg);
-
+        public static delegate* unmanaged[SuppressGCTransition]<uint, uint> _midiOutShortMsg;
+        
+        public static void InitializeFunctionPointer()
+        {
+            IntPtr module = NativeLibrary.Load("winmm.dll");
+            IntPtr funcPtr = NativeLibrary.GetExport(module, "midiOutShortMsg");
+            _midiOutShortMsg = (delegate* unmanaged[SuppressGCTransition]<uint, uint>)funcPtr;
+        }
+        
         public static List<String> GetDevices()
         {
             List<String> list = new List<String>();

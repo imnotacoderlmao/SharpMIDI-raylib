@@ -9,8 +9,7 @@ namespace SharpMIDI
         public static double ppq = 0;
         public static double ticklen;
         static Stopwatch test = new Stopwatch();
-        static double last = 0;
-        public static double elapsed = 0;
+        public static double elapsed = 0, last = 0;
         public static bool throttle = true;
         static double timeLost = 0;
         public static void Start()
@@ -31,14 +30,12 @@ namespace SharpMIDI
         {
             elapsed = (double)test.ElapsedTicks * 0.0000001;
             if (!throttle) return elapsed;
-            if (elapsed - last > 0.0166666d)
-            {
-                timeLost += (elapsed - last) - 0.0166666d;
-                last = elapsed;
-            }
+            if (elapsed - last > 0.0166666d) timeLost += elapsed - last - 0.0166666d;
             last = elapsed;
             return elapsed-timeLost;
         }
+
+        public static double GetTick() => time + (GetElapsed() / ticklen);
 
         public static void SubmitBPM(double pos, double tempo)
         {
@@ -51,8 +48,6 @@ namespace SharpMIDI
             time += remainder;
             test.Restart();
         }
-
-        public static double GetTick() => time + (GetElapsed() / ticklen);
 
         public static void Stop()
         {

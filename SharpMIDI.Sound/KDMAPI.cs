@@ -1,11 +1,9 @@
 #pragma warning disable 169
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
-using System.Security;
-
 namespace SharpMIDI
 {
-    static partial class KDMAPI
+    static unsafe class KDMAPI
     {
         public struct MIDIHDR
         {
@@ -91,11 +89,21 @@ namespace SharpMIDI
 
         [DllImport("OmniMIDI.dll")]
         public static extern uint SendCustomEvent(uint eventtype, uint chan, uint param);
+        
+        public static delegate* unmanaged[SuppressGCTransition]<uint, uint> _sendDirectData;
 
-        //idk how to reduce overhead more
-        [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvSuppressGCTransition), typeof(DisableRuntimeMarshallingAttribute)})]
-        [LibraryImport("OmniMIDI.dll", EntryPoint = "SendDirectData")]
-        public static partial uint SendDirectData(uint dwMsg);
+        public static void InitializeFunctionPointer()
+        {
+            IntPtr module = NativeLibrary.Load("OmniMIDI.dll");
+            IntPtr funcPtr = NativeLibrary.GetExport(module, "SendDirectData");
+            _sendDirectData = (delegate* unmanaged[SuppressGCTransition]<uint, uint>)funcPtr;
+        }
+
+        /*[MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static uint SendDirectData(uint dwMsg)
+        {
+            return _sendDirectDataPtr(dwMsg);
+        }*/
 
         [DllImport("OmniMIDI.dll")]
         public static extern uint SendDirectDataNoBuf(uint dwMsg);
