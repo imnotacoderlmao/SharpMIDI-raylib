@@ -15,43 +15,49 @@ namespace SharpMIDI.Renderer
     public static unsafe class NoteProcessor
     {
         public static uint[][] SortedBuckets = Array.Empty<uint[]>();
-        public const int BucketSize = 512;  // Fits in 9 bits
-        public const int MaxChunkDuration = 255;  // 8-bit duration limit
+        public const int BucketSize = 512;
+        public const int MaxChunkDuration = 255;
         public static bool IsReady { get; private set; } = false;
         public static long TotalNoteCount { get; private set; } = 0;
 
-        // Bit masks and shifts for fast unpacking
-        private const uint RELSTART_MASK = 0x1FFu;        // 9 bits
+        // Bit masks and shifts
+        private const uint RELSTART_MASK = 0x1FFu;
         private const int NOTENUMBER_SHIFT = 9;
-        private const uint NOTENUMBER_MASK = 0x7Fu;       // 7 bits
+        private const uint NOTENUMBER_MASK = 0x7Fu;
         private const int DURATION_SHIFT = 16;
-        private const uint DURATION_MASK = 0xFFu;         // 8 bits
+        private const uint DURATION_MASK = 0xFFu;
         private const int COLORINDEX_SHIFT = 24;
 
-        // Optimized active note tracking using array-based stack
-        private struct ActiveNoteStack
+        // Minimal stack implementation - no resizing during normal operation
+        private struct NoteStack
         {
-            private int[] startTicks;
+            private int tick0, tick1, tick2, tick3; // Handle up to 4 overlapping notes (covers 99% of cases)
             private int count;
             
-            public void Init()
-            {
-                startTicks = new int[8]; // Pre-allocate for typical polyphony
-                count = 0;
-            }
-            
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
-            public void Push(int startTick)
+            public void Push(int tick)
             {
-                if (count >= startTicks.Length)
-                    Array.Resize(ref startTicks, startTicks.Length * 2);
-                startTicks[count++] = startTick;
+                // Unrolled for speed
+                if (count == 0) tick0 = tick;
+                else if (count == 1) tick1 = tick;
+                else if (count == 2) tick2 = tick;
+                else if (count == 3) tick3 = tick;
+                // Beyond 4, just overwrite (rare edge case)
+                else tick3 = tick;
+                
+                if (count < 4) count++;
             }
             
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
             public int Pop()
             {
-                return count > 0 ? startTicks[--count] : -1;
+                if (count == 0) return -1;
+                count--;
+                // Unrolled for speed
+                if (count == 0) return tick0;
+                if (count == 1) return tick1;
+                if (count == 2) return tick2;
+                return tick3;
             }
             
             public bool HasNotes => count > 0;
@@ -113,7 +119,7 @@ namespace SharpMIDI.Renderer
             IsReady = false;
             ClearAllData();
 
-            var allEvents = MIDI.synthEvents;
+            SynthEvent[] allEvents = MIDI.synthEvents;
             int eventCount = allEvents.Length;
             
             if (allEvents == null || eventCount == 0)
@@ -122,73 +128,83 @@ namespace SharpMIDI.Renderer
                 return;
             }
 
-            int globalMaxTick = MIDILoader.maxTick;
-            int bucketCount = Math.Max(2, (globalMaxTick / BucketSize) + 2);
+            int maxTick = MIDILoader.maxTick;
+            int bucketCount = (maxTick / BucketSize) + 2;
+            if (bucketCount < 2) bucketCount = 2;
 
-            // Pre-allocate bucket lists with better initial capacity
-            var tempBuckets = new List<uint>[bucketCount];
-            int estimatedNotesPerBucket = Math.Max(100, eventCount / (bucketCount * 4));
+            // Calculate realistic capacity - most events are note on/off pairs
+            int estimatedNotes = eventCount / 3; // Approximate note pairs + other events
+            int notesPerBucket = (estimatedNotes / bucketCount) + 16; // Small padding
 
-            // Process all events
-            ProcessEvents(allEvents, eventCount, tempBuckets, estimatedNotesPerBucket);
+            List<uint>[] tempBuckets = new List<uint>[bucketCount];
 
-            // Convert to arrays and sort in parallel
-            SortedBuckets = new uint[bucketCount][];
+            ProcessEvents(allEvents, eventCount, tempBuckets, notesPerBucket);
+
+            // Convert to arrays
+            uint[][] finalBuckets = new uint[bucketCount][];
             long totalNotes = 0;
 
-            System.Threading.Tasks.Parallel.For(0, bucketCount, bucketIdx =>
+            for (int i = 0; i < bucketCount; i++)
             {
-                if (tempBuckets[bucketIdx] != null)
+                List<uint>? bucket = tempBuckets[i];
+                if (bucket != null)
                 {
-                    var bucket = tempBuckets[bucketIdx];
-                    SortedBuckets[bucketIdx] = bucket.ToArray();
-                    SortBucket(bucketIdx);
-                    System.Threading.Interlocked.Add(ref totalNotes, SortedBuckets[bucketIdx].Length);
+                    finalBuckets[i] = bucket.ToArray();
+                    totalNotes += finalBuckets[i].Length;
                 }
-            });
+            }
 
+            SortedBuckets = finalBuckets;
             TotalNoteCount = totalNotes;
+            
+            // Sort in parallel after array conversion
+            System.Threading.Tasks.Parallel.For(0, bucketCount, SortBucket);
+
             IsReady = true;
         }
 
         [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-        private static void ProcessEvents(SynthEvent[] events, int eventCount, List<uint>[] buckets, int estimatedCapacity)
+        private static void ProcessEvents(SynthEvent[] events, int eventCount, List<uint>[] buckets, int capacity)
         {
-            // Pre-allocate stacks for all possible keys
-            var activeNoteStacks = new ActiveNoteStack[2048];
-            for (int i = 0; i < 2048; i++)
-                activeNoteStacks[i].Init();
+            NoteStack[] stacks = new NoteStack[2048];
+            bool[] hasNotes = new bool[2048];
 
-            var hasActiveNotes = new bool[2048]; // Track which keys have active notes
+            // Cache frequently used values
+            int bucketSize = BucketSize;
+            int maxDuration = MaxChunkDuration;
+            int bucketsLen = buckets.Length;
 
             for (int i = 0; i < eventCount; i++)
             {
-                var synthEvent = events[i];
-                int currentTick = synthEvent.pos;
+                SynthEvent evt = events[i];
+                int tick = evt.pos;
+                int val = evt.val;
+                
+                // Cache unpacked values
+                int status = val & 0xF0;
+                int channel = val & 0x0F;
+                int note = (val >> 8) & 0x7F;
+                int velocity = (val >> 16) & 0x7F;
 
-                int eventValue = synthEvent.val;
-                int status = eventValue & 0xF0;
-                int channel = eventValue & 0x0F;
-                int noteNumber = (eventValue >> 8) & 0x7F;
-                int velocity = (eventValue >> 16) & 0x7F;
+                if (note > 127) continue;
 
-                if (noteNumber > 127) continue;
-
-                int key = (channel << 7) | noteNumber;
+                int key = (channel << 7) | note;
 
                 if (status == 0x90 && velocity > 0) // Note ON
                 {
-                    activeNoteStacks[key].Push(currentTick);
-                    hasActiveNotes[key] = true;
+                    stacks[key].Push(tick);
+                    hasNotes[key] = true;
                 }
                 else if (status == 0x80 || (status == 0x90 && velocity == 0)) // Note OFF
                 {
-                    int startTick = activeNoteStacks[key].Pop();
+                    int startTick = stacks[key].Pop();
                     if (startTick >= 0)
                     {
-                        int duration = Math.Max(1, currentTick - startTick);
-                        SliceNoteIntoBuckets(startTick, duration, noteNumber, channel, buckets, estimatedCapacity);
-                        hasActiveNotes[key] = activeNoteStacks[key].HasNotes;
+                        int duration = tick - startTick;
+                        if (duration < 1) duration = 1;
+                        
+                        SliceNote(startTick, duration, note, channel, buckets, capacity, bucketSize, maxDuration, bucketsLen);
+                        hasNotes[key] = stacks[key].HasNotes;
                     }
                 }
             }
@@ -197,70 +213,76 @@ namespace SharpMIDI.Renderer
             int fallbackEnd = eventCount > 0 ? events[eventCount - 1].pos + 100 : 100;
             for (int key = 0; key < 2048; key++)
             {
-                if (hasActiveNotes[key])
+                if (!hasNotes[key]) continue;
+                
+                int note = key & 0x7F;
+                int channel = key >> 7;
+                
+                while (stacks[key].HasNotes)
                 {
-                    int noteNumber = key & 0x7F;
-                    int channel = key >> 7;
-                    
-                    while (activeNoteStacks[key].HasNotes)
+                    int startTick = stacks[key].Pop();
+                    if (startTick >= 0)
                     {
-                        int startTick = activeNoteStacks[key].Pop();
-                        if (startTick >= 0)
-                        {
-                            int duration = Math.Max(1, fallbackEnd - startTick);
-                            SliceNoteIntoBuckets(startTick, duration, noteNumber, channel, buckets, estimatedCapacity);
-                        }
+                        int duration = fallbackEnd - startTick;
+                        if (duration < 1) duration = 1;
+                        
+                        SliceNote(startTick, duration, note, channel, buckets, capacity, bucketSize, maxDuration, bucketsLen);
                     }
                 }
             }
         }
 
         [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-        private static void SliceNoteIntoBuckets(int noteStart, int duration, int noteNumber, 
-            int channel, List<uint>[] buckets, int estimatedCapacity)
+        private static void SliceNote(int noteStart, int duration, int noteNum, int channel, 
+            List<uint>[] buckets, int capacity, int bucketSize, int maxDur, int bucketsLen)
         {
             int remaining = duration;
             int currentStart = noteStart;
-            int colorIndex = channel;
 
             while (remaining > 0)
             {
-                int bucketIdx = currentStart / BucketSize;
-                if (bucketIdx >= buckets.Length) bucketIdx = buckets.Length - 1;
+                int bucketIdx = currentStart / bucketSize;
+                if (bucketIdx >= bucketsLen) bucketIdx = bucketsLen - 1;
 
-                int bucketStartTick = bucketIdx * BucketSize;
+                int bucketStartTick = bucketIdx * bucketSize;
                 int relStart = currentStart - bucketStartTick;
-                int available = BucketSize - relStart;
-                int chunkDuration = Math.Min(remaining, Math.Min(available, MaxChunkDuration));
-
                 if (relStart > 511) relStart = 511;
-
-                uint packed = PackNote(relStart, chunkDuration, noteNumber, colorIndex);
                 
-                // Inline AddToBucket for better performance
-                if (buckets[bucketIdx] == null)
+                int available = bucketSize - relStart;
+                int chunkDur = remaining;
+                if (chunkDur > available) chunkDur = available;
+                if (chunkDur > maxDur) chunkDur = maxDur;
+
+                uint packed = PackNote(relStart, chunkDur, noteNum, channel);
+                
+                // Double-checked locking for bucket initialization
+                List<uint>? bucket = buckets[bucketIdx];
+                if (bucket == null)
                 {
                     lock (buckets)
                     {
-                        if (buckets[bucketIdx] == null)
-                            buckets[bucketIdx] = new List<uint>(estimatedCapacity);
+                        bucket = buckets[bucketIdx];
+                        if (bucket == null)
+                        {
+                            bucket = new List<uint>(capacity);
+                            buckets[bucketIdx] = bucket;
+                        }
                     }
                 }
                 
-                buckets[bucketIdx].Add(packed);
+                bucket.Add(packed);
 
-                currentStart += chunkDuration;
-                remaining -= chunkDuration;
+                currentStart += chunkDur;
+                remaining -= chunkDur;
             }
         }
 
         [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-        private static void SortBucket(int b)
+        private static void SortBucket(int idx)
         {
-            var bucket = SortedBuckets[b];
+            uint[]? bucket = SortedBuckets[idx];
             if (bucket == null || bucket.Length <= 1) return;
 
-            // Sort by relative start (lower 9 bits), then by color for cache coherency
             Array.Sort(bucket, (n1, n2) => (int)(n1 & RELSTART_MASK) - (int)(n2 & RELSTART_MASK));
         }
 

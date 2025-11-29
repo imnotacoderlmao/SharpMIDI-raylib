@@ -55,7 +55,11 @@ namespace SharpMIDI
                 if (!success) { break; }
             }
             Starter.form.label10.Text = "Loaded tracks: 0 / " + tks;
-            List<SynthEvent>[] trackEvents = new List<SynthEvent>[tks];
+            List<SynthEvent>[] tempLists = new List<SynthEvent>[tks];
+            for(int i = 0; i < tks; i++)
+            {
+                tempLists[i] = new List<SynthEvent>();
+            }
             midi.Position++;
             int loops = 0;
             Parallel.For(0, tks, (i) =>
@@ -63,14 +67,11 @@ namespace SharpMIDI
                 if (Interlocked.Increment(ref loops) <= tracklimit)
                 {
                     Console.WriteLine("Loading track #" + (i + 1) + " | Size " + trackSizes[i]);
-                    int bufSize = (int)Math.Min(2147483647, trackSizes[i]);
-                    int estimatedEventsPerTrack = (int)(trackSizes[i] / 4);
+                    int bufSize = (int)Math.Min(2147483647, trackSizes[i]/4);
                     FastTrack temp = new FastTrack(
                         new BufferByteReader(midi, bufSize, trackLocations[i], trackSizes[i])
                     );
-                    temp.ParseTrackEvents(thres);
-                    // store each track’s events locally
-                    trackEvents[i] = temp.localEvents;
+                    temp.ParseTrackEvents(thres, tempLists[i]);
                     // update counters
                     Interlocked.Add(ref loadedNotes, temp.loadedNotes);
                     Interlocked.Add(ref totalNotes, temp.totalNotes);
@@ -86,18 +87,19 @@ namespace SharpMIDI
             int totalEvents = 0;
             for (int i = 0; i < tks; i++)
             {
-                trackEvents[i].TrimExcess();
-                if (trackEvents[i] != null)
-                    totalEvents += trackEvents[i].Count;
+                if (tempLists[i] != null)
+                    totalEvents += tempLists[i].Count;
             }
+
             MIDI.synthEvents = new SynthEvent[totalEvents];
             int offset = 0;
             for (int i = 0; i < tks; i++)
             {
-                var list = trackEvents[i];
+                var list = tempLists[i];
                 if (list == null) continue;
                 list.CopyTo(MIDI.synthEvents, offset);
                 offset += list.Count;
+                tempLists[i] = null!; // Free immediately!
             }
             Console.WriteLine("sorting events by time");
             Array.Sort(MIDI.synthEvents, (a, b) => a.pos.CompareTo(b.pos));
@@ -106,7 +108,6 @@ namespace SharpMIDI
             Console.WriteLine("Calling MIDIRenderer.EnhanceTracksForRendering()...");
             await Task.Run(() => Renderer.MIDIRenderer.EnhanceTracksForRendering());
             Starter.form.label2.Text = "Status: Loaded";
-            GC.Collect();
             Starter.form.button4.Enabled = true;
             Starter.form.button4.Update();
             Console.WriteLine("MIDI Loaded");

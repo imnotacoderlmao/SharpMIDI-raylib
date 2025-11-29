@@ -1,33 +1,12 @@
 #pragma warning disable 8625
-using System.Runtime.InteropServices;
-using System.Runtime.CompilerServices;
 namespace SharpMIDI
 {
-    // genuinely do not know why its taking up more than 8 bytes/note
-    [StructLayout(LayoutKind.Sequential, Pack = 1)]
-    public struct SynthEvent
-    {
-        public int pos;
-        public int val;
-    }
-    [StructLayout(LayoutKind.Sequential)]
-    public struct Tempo
-    {
-        public int pos;
-        public int tempo;
-    }
-    static class MIDI
-    {
-        public static SynthEvent[] synthEvents = new SynthEvent[1024];
-        public static List<Tempo> tempos = new List<Tempo>();
-    }
-
     public unsafe class FastTrack : IDisposable
     {
         public long eventAmount = 0;
         public long loadedNotes = 0;
         public long totalNotes = 0;
-        public List<SynthEvent> localEvents = new List<SynthEvent>(4096);
+        public List<SynthEvent>? localEvents;
         public List<int[]> skippedNotes = new List<int[]>();
         public int trackTime = 0;
         BufferByteReader stupid;
@@ -36,8 +15,9 @@ namespace SharpMIDI
             stupid = reader;
         }
         byte prevEvent = 0;
-        public void ParseTrackEvents(byte thres)
+        public void ParseTrackEvents(byte thres, List<SynthEvent> eventsList)
         {
+            localEvents = eventsList;
             int localtracktime = 0;
             for (int i = 0; i < 16; i++)
             {
@@ -225,11 +205,10 @@ namespace SharpMIDI
                 }
                 catch (IndexOutOfRangeException)
                 {
+                    localEvents.TrimExcess();
                     break;
                 }
             }
-            //localEvents.TrimExcess();
-            //MIDI.AddEvents(events, eventCount);
         }
         
         int ReadVariableLen()

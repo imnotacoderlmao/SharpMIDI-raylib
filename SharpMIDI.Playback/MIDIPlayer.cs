@@ -1,13 +1,9 @@
-﻿using System.Runtime.CompilerServices;
-using System.Security.Cryptography.X509Certificates;
-
-namespace SharpMIDI
+﻿namespace SharpMIDI
 {
-    static class MIDIPlayer
+    static unsafe class MIDIPlayer
     {
         public static int ppq = 0, totalFrames = 0, clock = 0;
         public static bool stopping = false , paused = false;
-
         public static void StartPlayback()
         {
             stopping = false;
@@ -15,28 +11,35 @@ namespace SharpMIDI
             var tev = MIDI.tempos;
             int localclock = 0, tempoProgress = 0, eventProgress = 0, evcount = ev.Length, tevcount = tev.Count, maxTick = MIDILoader.maxTick;
             MIDIClock.Start();
-            while (!stopping)
+            fixed (SynthEvent* p0 = ev)
             {
-                clock = localclock = (int)MIDIClock.GetTick();
-                while (eventProgress < evcount)
+                SynthEvent* evs = p0 + eventProgress;
+                SynthEvent* end = p0 + evcount;
+                while (!stopping)
                 {
-                    int pos = ev[eventProgress].pos;
-                    if(pos > localclock) break;
-                    uint val = (uint)ev[eventProgress].val;
-                    Sound.Submit(val);
-                    ++eventProgress;
+                    ++totalFrames;
+                    localclock = (int)MIDIClock.GetTick();
+                    clock = localclock;
+                    while (evs < end)
+                    {
+                        int pos = evs->pos;
+                        if (pos > localclock) break;
+                        uint val = (uint)evs->val;
+                        Sound.Submit(val);
+                        ++evs;
+                        ++eventProgress;
+                    }
+                    while (tempoProgress < tevcount)
+                    {
+                        int pos = tev[tempoProgress].pos;
+                        if (pos > localclock) break;
+                        int tempo = tev[tempoProgress].tempo;
+                        MIDIClock.SubmitBPM(pos, tempo);
+                        ++tempoProgress;
+                    }
+                    Sound.playedEvents = eventProgress;
+                    if (localclock > maxTick) stopping = true;
                 }
-                while (tempoProgress < tevcount)
-                {
-                    int pos = tev[tempoProgress].pos;
-                    if(pos > localclock) break;
-                    int tempo = tev[tempoProgress].tempo;
-                    MIDIClock.SubmitBPM(pos, tempo);
-                    ++tempoProgress;
-                }
-                ++totalFrames;
-                Sound.playedEvents = eventProgress;
-                if (localclock > maxTick) stopping = true;
             }
             MIDIClock.Reset();
             Console.WriteLine("Playback finished...");
