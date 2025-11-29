@@ -14,7 +14,7 @@ namespace SharpMIDI.Renderer
         private static Texture2D streamingTexture;
         
         // Direct RGBA32 buffer for Raylib
-        private static uint[] pixelBuffer;
+        private static uint[]? pixelBuffer;
         private static GCHandle bufferHandle;
         private static uint* pixelPtr;
 

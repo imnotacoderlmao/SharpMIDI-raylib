@@ -2,13 +2,13 @@ using System.Diagnostics;
 
 namespace SharpMIDI
 {
-    class MIDIClock
+    static class MIDIClock
     {
         public static double time = 0f;
         public static double bpm = 120d;
         public static double ppq = 0;
         public static double ticklen;
-        static Stopwatch test = new Stopwatch();
+        readonly static Stopwatch test = new Stopwatch();
         public static double elapsed = 0, last = 0;
         public static bool throttle = true;
         static double timeLost = 0;

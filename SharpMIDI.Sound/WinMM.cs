@@ -19,7 +19,7 @@ namespace SharpMIDI
         public UInt16 wChannelMask;
         public UInt32 dwSupport;
     }
-    unsafe class WinMM
+    static unsafe class WinMM
     {
         [DllImport("winmm.dll")]
         private static extern int midiOutGetNumDevs();

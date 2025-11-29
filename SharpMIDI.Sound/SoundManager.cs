@@ -10,9 +10,9 @@ namespace SharpMIDI
         const int BufferSize = 1 << BufferBits;
         const int BufferMask = BufferSize - 1;
         static uint* buf = null;
-        static volatile int head = 0, tail = 0;
+        static int head = 0, tail = 0;
         static bool running = false;
-        static Thread audthread;
+        static Thread? audthread;
         
         private static int engine = 0;
         public static long playedEvents = 0;

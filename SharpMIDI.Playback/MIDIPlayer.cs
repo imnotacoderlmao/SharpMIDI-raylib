@@ -7,8 +7,8 @@ namespace SharpMIDI
     {
         public static int ppq = 0, totalFrames = 0, clock = 0;
         public static bool stopping = false , paused = false;
-        //[MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static unsafe void StartPlayback()
+
+        public static void StartPlayback()
         {
             stopping = false;
             var ev = MIDI.synthEvents;
@@ -28,8 +28,10 @@ namespace SharpMIDI
                 }
                 while (tempoProgress < tevcount)
                 {
-                    if(tev[tempoProgress].pos > localclock) break;
-                    MIDIClock.SubmitBPM(tev[tempoProgress].pos, tev[tempoProgress].tempo);
+                    int pos = tev[tempoProgress].pos;
+                    if(pos > localclock) break;
+                    int tempo = tev[tempoProgress].tempo;
+                    MIDIClock.SubmitBPM(pos, tempo);
                     tempoProgress++;
                 }
                 totalFrames++;

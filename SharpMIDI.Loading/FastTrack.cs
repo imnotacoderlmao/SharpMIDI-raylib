@@ -16,7 +16,7 @@ namespace SharpMIDI
         public int pos;
         public int tempo;
     }
-    class MIDI
+    static class MIDI
     {
         public static SynthEvent[] synthEvents = new SynthEvent[1024];
         public static List<Tempo> tempos = new List<Tempo>();
@@ -228,7 +228,7 @@ namespace SharpMIDI
                     break;
                 }
             }
-            localEvents.TrimExcess();
+            //localEvents.TrimExcess();
             //MIDI.AddEvents(events, eventCount);
         }
         

@@ -1,14 +1,5 @@
 #pragma warning disable 8622
-
-using SharpMIDI;
-using System;
 using System.Runtime.InteropServices;
-using System.Runtime.CompilerServices;
-using System.Collections.Concurrent;
-using System.Threading;
-using System.Windows.Forms;
-using static System.Net.Mime.MediaTypeNames;
-using System.Diagnostics.CodeAnalysis;
 
 namespace SharpMIDI
 {
@@ -92,16 +83,16 @@ namespace SharpMIDI
         private void button3_Click(object sender, EventArgs e)
         {
             int soundEngine = 1;
-            string winMMdev = (string)comboBox1.SelectedItem;
+            string? winMMdev = (string?)comboBox1.SelectedItem;
             if (radioButton2.Checked) { soundEngine = 2; } else if (radioButton3.Checked) { soundEngine = 3; }
             Console.WriteLine("Loading sound engine ID " + soundEngine);
             ToggleSynthSettings(false);
-            button1.Enabled = Sound.Init(soundEngine, winMMdev) && !Starter.midiLoaded;
+            button1.Enabled = Sound.Init(soundEngine, winMMdev!) && !Starter.midiLoaded;
             label13.Visible = !button1.Enabled && !Starter.midiLoaded;
             ToggleSynthSettings(true);
         }
 
-        private async void button4_Click(object sender, EventArgs e)
+        private void button4_Click(object sender, EventArgs e)
         {
             button2.Enabled = true;
             button4.Enabled = false;
