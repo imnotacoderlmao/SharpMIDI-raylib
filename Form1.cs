@@ -21,8 +21,7 @@ namespace SharpMIDI
         public Form1()
         {
             InitializeComponent();
-            List<string> devs = WinMM.GetDevices();
-            foreach(string i in devs)
+            foreach(string i in WinMM.GetDevices())
             {
                 comboBox1.Items.Add(i);
             }
@@ -38,12 +37,14 @@ namespace SharpMIDI
             {
                 totalDelay += watch.ElapsedTicks;
                 watch.Restart();
-                Starter.form.label12.Text = "FPS \u2248 " + Math.Round(MIDIPlayer.totalFrames / (double)(totalDelay / TimeSpan.TicksPerSecond), 5);
-                Starter.form.label7.Text = "Memory Usage: " + Form1.toMemoryText(GC.GetTotalMemory(false)) + " (May be inaccurate)";
+                double fps = MIDIPlayer.totalFrames / (totalDelay / TimeSpan.TicksPerSecond); // its a rough enough estimate alr :(
+                if (fps < 61) Starter.form.label12.Text = "FPS \u2248 <60";
+                else Starter.form.label12.Text = "FPS \u2248 " + Math.Round(fps,5);
+                Starter.form.label3.Text = "Played: " + Sound.playedEvents + " / " + MIDILoader.eventCount;
                 Starter.form.label14.Text = "Tick: " + MIDIPlayer.clock + " / " + MIDILoader.maxTick;
                 Starter.form.label16.Text = "TPS: " + Math.Round(1 / MIDIClock.ticklen, 5);
                 Starter.form.label17.Text = "BPM: " + Math.Round(MIDIClock.bpm, 5);
-                Starter.form.label3.Text = "Played events: " + Sound.playedEvents + " / " + MIDILoader.eventCount;
+                Starter.form.label7.Text = "GC Usage: " + Form1.toMemoryText(GC.GetTotalMemory(false)) + " (May be inaccurate)";
                 MIDIPlayer.totalFrames = 0;
                 totalDelay = 0;
                 Thread.Sleep(1000/60);
@@ -134,8 +135,7 @@ namespace SharpMIDI
                 button6.Text = "Pause";
             }
             paused = !paused;
-            MIDIPlayer.paused = paused;
-            button5.Enabled = !paused;
+            MIDIPlayer.paused = !paused;
         }
 
         private void button5_Click(object sender, EventArgs e)

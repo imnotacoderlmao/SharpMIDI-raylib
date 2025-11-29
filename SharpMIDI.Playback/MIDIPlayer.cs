@@ -24,7 +24,7 @@ namespace SharpMIDI
                     if(pos > localclock) break;
                     uint val = (uint)ev[eventProgress].val;
                     Sound.Submit(val);
-                    eventProgress++;
+                    ++eventProgress;
                 }
                 while (tempoProgress < tevcount)
                 {
@@ -32,9 +32,9 @@ namespace SharpMIDI
                     if(pos > localclock) break;
                     int tempo = tev[tempoProgress].tempo;
                     MIDIClock.SubmitBPM(pos, tempo);
-                    tempoProgress++;
+                    ++tempoProgress;
                 }
-                totalFrames++;
+                ++totalFrames;
                 Sound.playedEvents = eventProgress;
                 if (localclock > maxTick) stopping = true;
             }
