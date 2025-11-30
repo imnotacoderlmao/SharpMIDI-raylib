@@ -6,7 +6,7 @@ namespace SharpMIDI
 {
     static unsafe class Sound
     {
-        const int BufferBits = 17;
+        const int BufferBits = 16;
         const int BufferSize = 1 << BufferBits;
         const int BufferMask = BufferSize - 1;
         static uint* buf = null;

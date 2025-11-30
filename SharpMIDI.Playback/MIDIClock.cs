@@ -8,10 +8,10 @@ namespace SharpMIDI
         public static double bpm = 120d;
         public static double ppq = 0;
         public static double ticklen;
-        public readonly static Stopwatch test = new Stopwatch();
+        readonly static Stopwatch test = new Stopwatch();
         public static double elapsed = 0, last = 0;
         public static bool throttle = true;
-        public static double timeLost = 0;
+        static double timeLost = 0;
         public static void Start()
         {
             test.Start();

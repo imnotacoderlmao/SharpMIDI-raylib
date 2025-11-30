@@ -55,10 +55,10 @@ namespace SharpMIDI
                 if (!success) { break; }
             }
             Starter.form.label10.Text = "Loaded tracks: 0 / " + tks;
-            List<SynthEvent>[] tempLists = new List<SynthEvent>[tks];
+            List<long>[] tempLists = new List<long>[tks];
             for(int i = 0; i < tks; i++)
             {
-                tempLists[i] = new List<SynthEvent>();
+                tempLists[i] = new List<long>();
             }
             midi.Position++;
             int loops = 0;
@@ -91,19 +91,21 @@ namespace SharpMIDI
                     totalEvents += tempLists[i].Count;
             }
 
-            MIDI.synthEvents = new SynthEvent[totalEvents];
+            MIDI.synthEvents = new long[totalEvents];
             int offset = 0;
             for (int i = 0; i < tks; i++)
             {
                 var list = tempLists[i];
                 if (list == null) continue;
+
                 list.CopyTo(MIDI.synthEvents, offset);
                 offset += list.Count;
-                tempLists[i] = null!; // Free immediately!
+
+                tempLists[i] = null!; // null!!!111111111 
             }
             Console.WriteLine("sorting events by time");
-            Array.Sort(MIDI.synthEvents, (a, b) => a.pos.CompareTo(b.pos));
-            MIDI.tempos.Sort((a, b) => a.pos.CompareTo(b.pos));
+            Array.Sort(MIDI.synthEvents);
+            MIDI.tempos.Sort();
             MIDI.tempos.TrimExcess();
             Console.WriteLine("Calling MIDIRenderer.EnhanceTracksForRendering()...");
             await Task.Run(() => Renderer.MIDIRenderer.EnhanceTracksForRendering());

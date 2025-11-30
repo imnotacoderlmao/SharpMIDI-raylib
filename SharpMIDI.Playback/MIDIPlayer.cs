@@ -11,10 +11,10 @@
             var tev = MIDI.tempos;
             int localclock = 0, tempoProgress = 0, eventProgress = 0, evcount = ev.Length, tevcount = tev.Count, maxTick = MIDILoader.maxTick;
             MIDIClock.Start();
-            fixed (SynthEvent* p0 = ev)
+            fixed (long* p0 = ev)
             {
-                SynthEvent* evs = p0 + eventProgress;
-                SynthEvent* end = p0 + evcount;
+                long* evs = p0;
+                long* end = p0 + evcount;
                 while (!stopping)
                 {
                     ++totalFrames;
@@ -22,18 +22,18 @@
                     clock = localclock;
                     while (evs < end)
                     {
-                        int pos = evs->pos;
+                        int pos = (int)(*evs >> 32);
                         if (pos > localclock) break;
-                        uint val = (uint)evs->val;
+                        uint val = (uint)(*evs & 0xFFFFFFFF);
                         Sound.Submit(val);
                         ++evs;
                         ++eventProgress;
                     }
                     while (tempoProgress < tevcount)
                     {
-                        int pos = tev[tempoProgress].pos;
+                        int pos = (int)(tev[tempoProgress] >> 32);
                         if (pos > localclock) break;
-                        int tempo = tev[tempoProgress].tempo;
+                        uint tempo = (uint)(tev[tempoProgress] & 0xFFFFFFFF);
                         MIDIClock.SubmitBPM(pos, tempo);
                         ++tempoProgress;
                     }

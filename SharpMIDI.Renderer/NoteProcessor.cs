@@ -119,7 +119,7 @@ namespace SharpMIDI.Renderer
             IsReady = false;
             ClearAllData();
 
-            SynthEvent[] allEvents = MIDI.synthEvents;
+            long[] allEvents = MIDI.synthEvents;
             int eventCount = allEvents.Length;
             
             if (allEvents == null || eventCount == 0)
@@ -164,7 +164,7 @@ namespace SharpMIDI.Renderer
         }
 
         [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-        private static void ProcessEvents(SynthEvent[] events, int eventCount, List<uint>[] buckets, int capacity)
+        private static void ProcessEvents(long[] events, int eventCount, List<uint>[] buckets, int capacity)
         {
             NoteStack[] stacks = new NoteStack[2048];
             bool[] hasNotes = new bool[2048];
@@ -176,9 +176,9 @@ namespace SharpMIDI.Renderer
 
             for (int i = 0; i < eventCount; i++)
             {
-                SynthEvent evt = events[i];
-                int tick = evt.pos;
-                int val = evt.val;
+                long evt = events[i];
+                int tick = (int)(evt >> 32);
+                int val = (int)(evt & 0xFFFFFFFF);
                 
                 // Cache unpacked values
                 int status = val & 0xF0;
@@ -210,7 +210,7 @@ namespace SharpMIDI.Renderer
             }
 
             // Handle remaining notes
-            int fallbackEnd = eventCount > 0 ? events[eventCount - 1].pos + 100 : 100;
+            int fallbackEnd = eventCount > 0 ? (int)(events[eventCount - 1] & 0xFFFFFFFF) + 100 : 100;
             for (int key = 0; key < 2048; key++)
             {
                 if (!hasNotes[key]) continue;
