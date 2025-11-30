@@ -85,16 +85,13 @@ namespace SharpMIDI
             for (int i = 0; i < BufferSize; i++) buf[i] = 0;
         }
         
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static void Submit(uint ev)
         {
             int h = head;
             int next = (h + 1) & BufferMask;
-
             if (next == tail) return;
-
             buf[h] = ev;
-            Volatile.Write(ref head, next);
+            head = next;
         }
 
         static void StartAudioThread()
@@ -110,13 +107,14 @@ namespace SharpMIDI
 
         static void AudioThread()
         {
+            SpinWait spinWait = new SpinWait();
             while (running)
             {
                 int t = tail;
-                int h = Volatile.Read(ref head);
+                int h = head;
                 if (t == h)
                 {
-                    Thread.Yield();
+                    spinWait.SpinOnce();
                     continue;
                 }
                 uint ev = buf[t];

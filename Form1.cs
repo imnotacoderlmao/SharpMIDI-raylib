@@ -1,5 +1,4 @@
 #pragma warning disable 8622
-using System.Net;
 using System.Runtime.InteropServices;
 
 namespace SharpMIDI
@@ -38,7 +37,7 @@ namespace SharpMIDI
             {
                 totalDelay += watch.Elapsed.TotalSeconds;
                 watch.Restart();
-                fps = (fps * 0.3) + ((MIDIPlayer.totalFrames / totalDelay) * 0.7);
+                fps = (fps * 0.4) + ((MIDIPlayer.totalFrames / totalDelay) * 0.6);
                 if(fps < 60) Starter.form.label12.Text = "FPS \u2248 <60";
                 else Starter.form.label12.Text = "FPS \u2248 " + Math.Round(fps,5);
                 Starter.form.label3.Text = "Played: " + Sound.playedEvents + " / " + MIDILoader.eventCount;
