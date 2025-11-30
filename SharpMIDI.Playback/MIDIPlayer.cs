@@ -7,38 +7,42 @@
         public static void StartPlayback()
         {
             stopping = false;
-            var ev = MIDI.synthEvents;
-            var tev = MIDI.tempos;
-            int localclock = 0, tempoProgress = 0, eventProgress = 0, evcount = ev.Length, tevcount = tev.Count, maxTick = MIDILoader.maxTick;
+            long[] ev = MIDI.synthEvents;
+            long[] tev = MIDI.tempos.ToArray();
+            int localclock = 0, evcount = ev.Length, tevcount = tev.Length, maxTick = MIDILoader.maxTick;
             MIDIClock.Start();
             fixed (long* p0 = ev)
             {
-                long* evs = p0;
-                long* end = p0 + evcount;
-                while (!stopping)
+                fixed (long* t0 = tev)
                 {
-                    ++totalFrames;
-                    localclock = (int)MIDIClock.GetTick();
-                    clock = localclock;
-                    while (evs < end)
+                    long* evs = p0;
+                    long* evend = p0 + evcount;
+                    long* tevs = t0;
+                    long* tevend = t0 + tevcount;
+                    while (!stopping)
                     {
-                        int pos = (int)(*evs >> 32);
-                        if (pos > localclock) break;
-                        uint val = (uint)(*evs & 0xFFFFFFFF);
-                        Sound.Submit(val);
-                        ++evs;
-                        ++eventProgress;
+                        clock = localclock = (int)MIDIClock.GetTick();
+                        do
+                        {
+                            long e = *evs;
+                            if ((int)(e >> 32) > localclock) break;
+                            Sound.Submit((uint)e);
+                            ++evs;
+                        } while (evs < evend);
+                        if (tevs < tevend)
+                        {
+                            long t = *tevs;
+                            if ((int)(t >> 32) < localclock)
+                            {
+                                uint tempo = (uint)t;
+                                MIDIClock.SubmitBPM((int)(t >> 32), tempo);
+                                ++tevs;
+                            }
+                        }
+                        Sound.playedEvents = evs - p0;
+                        ++totalFrames;
+                        if (localclock > maxTick) stopping = true;
                     }
-                    while (tempoProgress < tevcount)
-                    {
-                        int pos = (int)(tev[tempoProgress] >> 32);
-                        if (pos > localclock) break;
-                        uint tempo = (uint)(tev[tempoProgress] & 0xFFFFFFFF);
-                        MIDIClock.SubmitBPM(pos, tempo);
-                        ++tempoProgress;
-                    }
-                    Sound.playedEvents = eventProgress;
-                    if (localclock > maxTick) stopping = true;
                 }
             }
             MIDIClock.Reset();
