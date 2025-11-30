@@ -210,7 +210,7 @@ namespace SharpMIDI.Renderer
             }
 
             // Handle remaining notes
-            int fallbackEnd = eventCount > 0 ? (int)(events[eventCount - 1] & 0xFFFFFFFF) + 100 : 100;
+            int fallbackEnd = eventCount > 0 ? (int)(events[eventCount - 1] >> 32) + 100 : 100;
             for (int key = 0; key < 2048; key++)
             {
                 if (!hasNotes[key]) continue;
