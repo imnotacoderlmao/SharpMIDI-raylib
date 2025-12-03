@@ -122,7 +122,7 @@ namespace SharpMIDI
             uint* h = headPtr;
             uint* start = bufStart;
             uint* end = bufEnd;
-            while (true)
+            while (running)
             {
                 var sendFn = sendTo;
                 if (t == h)
@@ -144,33 +144,19 @@ namespace SharpMIDI
                 tailPtr = t;
             }
         }
-
-
-        public static void Reload()
-        {
-            Close();
-            switch (engine)
-            {
-                case 1:
-                    KDMAPI.InitializeKDMAPIStream();
-                    return;
-                case 2:
-                    (bool, string, string, IntPtr?, MidiOutCaps?) result = WinMM.Setup(lastWinMMDevice);
-                    handle = result.Item4;
-                    return;
-                case 3:
-                    XSynth.InitializeKDMAPIStream();
-                    return;
-            }
-        }
         
         public static void Close()
         {
             running = false;
-            if (audthread != null)
+            audthread?.Join(100);
+            
+            if (bufStart != null)
             {
-                audthread.Join(100);
-                audthread = null;
+                NativeMemory.Free(bufStart);
+                bufStart = null;
+                bufEnd = null;
+                headPtr = null;
+                tailPtr = null;
             }
             switch(engine){
                 case 1:
