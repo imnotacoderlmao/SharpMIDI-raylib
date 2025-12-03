@@ -8,7 +8,7 @@
         {
             stopping = false;
             long[] ev = MIDI.synthEvents;
-            long[] tev = MIDI.tempos.ToArray();
+            long[] tev = MIDI.tempoEvents;
             int localclock = 0, evcount = ev.Length, tevcount = tev.Length, maxTick = MIDILoader.maxTick;
             MIDIClock.Start();
             fixed (long* p0 = ev)
@@ -19,24 +19,30 @@
                     long* evend = p0 + evcount;
                     long* tevs = t0;
                     long* tevend = t0 + tevcount;
+                    long evval = (evs < evend ? *evs : long.MaxValue);
+                    long tevval = (tevs < tevend ? *tevs : long.MaxValue);
                     while (!stopping)
                     {
                         clock = localclock = (int)MIDIClock.GetTick();
-                        do
+                        while (true)
                         {
-                            long e = *evs;
-                            if ((int)(e >> 32) > localclock) break;
-                            Sound.Submit((uint)e);
-                            ++evs;
-                        } while (evs < evend);
-                        if (tevs < tevend)
-                        {
-                            long t = *tevs;
-                            if ((int)(t >> 32) < localclock)
+                            int ePos = (int)(evval >> 32);
+                            int tPos = (int)(tevval >> 32);
+
+                            if (ePos > localclock & tPos > localclock)
+                                break;
+
+                            if (ePos <= tPos)
                             {
-                                uint tempo = (uint)t;
-                                MIDIClock.SubmitBPM((int)(t >> 32), tempo);
+                                Sound.Submit((uint)evval);
+                                ++evs;
+                                evval = (evs < evend ? *evs : long.MaxValue);
+                            }
+                            else
+                            {
+                                MIDIClock.SubmitBPM(tPos, (uint)tevval);
                                 ++tevs;
+                                tevval = (tevs < tevend ? *tevs : long.MaxValue);
                             }
                         }
                         Sound.playedEvents = evs - p0;

@@ -18,6 +18,7 @@ namespace SharpMIDI
     {
         //public static SynthEvent[] synthEvents = Array.Empty<SynthEvent>();
         public static long[] synthEvents = Array.Empty<long>();
-        public static List<long> tempos = new List<long>();
+        public static List<long> temppos = new List<long>(); // haha get it temppos caus temp... okay.....
+        public static long[] tempoEvents = Array.Empty<long>();
     }
 }

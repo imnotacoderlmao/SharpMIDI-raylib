@@ -90,23 +90,14 @@ namespace SharpMIDI
         [DllImport("OmniMIDI.dll")]
         public static extern uint SendCustomEvent(uint eventtype, uint chan, uint param);
         
-        public static delegate* unmanaged[Stdcall,SuppressGCTransition]<uint, uint> _sendDirectData;
+        public static delegate* unmanaged[SuppressGCTransition]<uint, uint> _sendDirectData;
 
         public static void InitializeFunctionPointer()
         {
             IntPtr module = NativeLibrary.Load("OmniMIDI.dll");
             IntPtr funcPtr = NativeLibrary.GetExport(module, "SendDirectData");
-            _sendDirectData = (delegate* unmanaged[Stdcall,SuppressGCTransition]<uint, uint>)funcPtr;
+            _sendDirectData = (delegate* unmanaged[SuppressGCTransition]<uint, uint>)funcPtr;
         }
-
-        /*[MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static uint SendDirectData(uint dwMsg)
-        {
-            return _sendDirectDataPtr(dwMsg);
-        }*/
-
-        [DllImport("OmniMIDI.dll")]
-        public static extern uint SendDirectDataNoBuf(uint dwMsg);
 
         [DllImport("OmniMIDI.dll")]
         public static extern uint SendDirectLongData(ref MIDIHDR IIMidiHdr);

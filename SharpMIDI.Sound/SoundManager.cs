@@ -9,8 +9,10 @@ namespace SharpMIDI
         const int BufferBits = 16;
         const int BufferSize = 1 << BufferBits;
         const int BufferMask = BufferSize - 1;
-        static uint* buf = null;
-        static int head = 0, tail = 0;
+        static uint* bufStart;
+        static uint* bufEnd;
+        static volatile uint* headPtr;
+        static volatile uint* tailPtr; 
         static bool running = false;
         static Thread? audthread;
         
@@ -18,7 +20,7 @@ namespace SharpMIDI
         public static long playedEvents = 0;
         static string lastWinMMDevice = "";
         private static IntPtr? handle;
-        public static delegate*<uint,uint> sendTo;
+        public static delegate* unmanaged[SuppressGCTransition]<uint,uint> sendTo;
         public static bool Init(int synth, string winMMdev)
         {
             Close();
@@ -36,7 +38,7 @@ namespace SharpMIDI
                         if (loaded == 1)
                         {
                             engine = 1;
-                            sendTo = (delegate*<uint,uint>)KDMAPI._sendDirectData;
+                            sendTo = KDMAPI._sendDirectData;
                             return true;
                         }
                         else { return false; }
@@ -52,7 +54,7 @@ namespace SharpMIDI
                     else
                     {
                         engine = 2;
-                        sendTo = (delegate*<uint,uint>)WinMM._midiOutShortMsg;
+                        sendTo = WinMM._midiOutShortMsg;
                         handle = result.Item4;
                         lastWinMMDevice = winMMdev;
                         return true;
@@ -67,7 +69,7 @@ namespace SharpMIDI
                         if (loaded == 1)
                         {
                             engine = 3;
-                            sendTo = (delegate*<uint,uint>)XSynth._sendDirectData;
+                            sendTo = XSynth._sendDirectData;
                             return true;
                         }
                         else { MessageBox.Show("KDMAPI is not available."); return false; }
@@ -79,19 +81,27 @@ namespace SharpMIDI
         }
 
         static void AllocateEvBuffer()
-        {
-            if (buf != null) return;
-            buf = (uint*)Marshal.AllocHGlobal(BufferSize * sizeof(uint));
-            for (int i = 0; i < BufferSize; i++) buf[i] = 0;
+        {    
+            uint* mem = (uint*)NativeMemory.Alloc(sizeof(uint) * BufferSize);
+
+            bufStart = mem;
+            bufEnd   = mem + BufferSize;
+    
+            headPtr = bufStart;
+            tailPtr = bufStart;
         }
         
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static void Submit(uint ev)
         {
-            int h = head;
-            int next = (h + 1) & BufferMask;
-            if (next == tail) return;
-            buf[h] = ev;
-            head = next;
+            uint* h = headPtr;
+            *h = ev;
+            h++;
+            
+            // pointer wrap
+            if (h == bufEnd) h = bufStart;
+
+            headPtr = h;
         }
 
         static void StartAudioThread()
@@ -108,18 +118,30 @@ namespace SharpMIDI
         static void AudioThread()
         {
             SpinWait spinWait = new SpinWait();
-            while (running)
+            uint* t = tailPtr;
+            uint* h = headPtr;
+            uint* start = bufStart;
+            uint* end = bufEnd;
+            while (true)
             {
-                int t = tail;
-                int h = head;
+                var sendFn = sendTo;
                 if (t == h)
                 {
                     spinWait.SpinOnce();
+                    h = headPtr;
                     continue;
                 }
-                uint ev = buf[t];
-                sendTo(ev);
-                tail = (t + 1) & BufferMask;
+                // prefetching stuff
+                _ = *(t + 1);
+                _ = *(t + 4);
+                _ = *(t + 8);
+                
+                uint ev = *t;
+                sendFn(ev);
+                t++;
+                if (t == end) t = start;
+
+                tailPtr = t;
             }
         }
 
@@ -149,11 +171,6 @@ namespace SharpMIDI
             {
                 audthread.Join(100);
                 audthread = null;
-            }
-            if (buf != null)
-            {
-                Marshal.FreeHGlobal((IntPtr)buf);
-                buf = null;
             }
             switch(engine){
                 case 1:

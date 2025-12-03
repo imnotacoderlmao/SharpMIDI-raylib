@@ -103,10 +103,11 @@ namespace SharpMIDI
 
                 tempLists[i] = null!; // null!!!111111111 
             }
+            MIDI.tempoEvents = MIDI.temppos.ToArray();
             Console.WriteLine("sorting events by time");
             Array.Sort(MIDI.synthEvents);
-            MIDI.tempos.Sort();
-            MIDI.tempos.TrimExcess();
+            Array.Sort(MIDI.tempoEvents);
+            MIDI.temppos.Clear();
             Console.WriteLine("Calling MIDIRenderer.EnhanceTracksForRendering()...");
             await Task.Run(() => Renderer.MIDIRenderer.EnhanceTracksForRendering());
             Starter.form.label2.Text = "Status: Loaded";
@@ -124,7 +125,7 @@ namespace SharpMIDI
             eventCount = 0;
             maxTick = 0;
             MIDI.synthEvents = null!;
-            MIDI.tempos.Clear();
+            MIDI.tempoEvents = null!;
             GC.Collect();
         }
 
