@@ -42,7 +42,7 @@ namespace SharpMIDI
                 else Starter.form.label12.Text = "FPS \u2248 " + Math.Round(fps,5);
                 Starter.form.label3.Text = "Played: " + Sound.playedEvents + " / " + MIDILoader.eventCount;
                 Starter.form.label14.Text = "Tick: " + MIDIPlayer.clock + " / " + MIDILoader.maxTick;
-                Starter.form.label16.Text = "TPS: " + Math.Round(1 / MIDIClock.ticklen, 5);
+                Starter.form.label16.Text = "TPS: " + Math.Round((1 / MIDIClock.rawticklen) * (double)Renderer.WindowManager.speed, 5);
                 Starter.form.label17.Text = "BPM: " + Math.Round(MIDIClock.bpm, 5);
                 Starter.form.label7.Text = "GC Usage: " + Form1.toMemoryText(GC.GetTotalMemory(false)) + " (May be inaccurate)";
                 MIDIPlayer.totalFrames = 0;
@@ -135,7 +135,6 @@ namespace SharpMIDI
                 button6.Text = "Pause";
             }
             paused = !paused;
-            MIDIPlayer.paused = !paused;
         }
 
         private void button5_Click(object sender, EventArgs e)

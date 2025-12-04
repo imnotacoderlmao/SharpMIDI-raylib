@@ -2,61 +2,98 @@ using System.Diagnostics;
 
 namespace SharpMIDI
 {
+    static class Timer
+    {
+        static readonly double tickToSeconds = 1.0 / Stopwatch.Frequency;
+
+        public static double Seconds()
+        {
+            return Stopwatch.GetTimestamp() * tickToSeconds;
+        }
+    }
+    
     static class MIDIClock
     {
-        public static double time = 0f;
-        public static double bpm = 120d;
-        public static double ppq = 0;
-        public static double ticklen;
-        readonly static Stopwatch test = new Stopwatch();
-        public static double elapsed = 0, last = 0;
+        // timing state
+        static double startRaw;
+        static double lastRaw;
+        static double elapsed;
+
+        // MIDI state
+        public static double tick;
+        public static double bpm = 120;
+        public static double ppq = 480;
+        public static double rawticklen;
+
         public static bool throttle = true;
-        static double timeLost = 0;
+        public static bool paused;
+
         public static void Start()
         {
-            test.Start();
-            ticklen = (1 / (double)ppq) * (60 / bpm);
+            double now = Timer.Seconds();
+            startRaw = now;
+            lastRaw = now;
+            elapsed = 0.0;
+            tick = 0.0;
+
+            rawticklen = 60.0 / (bpm * ppq);
+            paused = false;
         }
 
-        public static void Reset()
+        public static void Reset() => Start();
+
+        public static double GetTick()
         {
-            time = 0f;
-            last = 0;
-            timeLost = 0f;
-            test.Reset();
+            Update();
+            return tick;
         }
 
-        public static double GetElapsed()
+        static void Update()
         {
-            elapsed = (double)test.ElapsedTicks * 0.0000001;
-            if (!throttle) return elapsed;
-            if (elapsed - last > 0.0166666d) timeLost += elapsed - last - 0.0166666d;
-            last = elapsed;
-            return elapsed-timeLost;
+            if (paused) return;
+
+            double now = Timer.Seconds();
+            double rawDelta = now - lastRaw;
+            double ticklength = rawticklen / (double)Renderer.WindowManager.speed;
+            // apply throttle to delta only
+            double delta = throttle
+                ? Math.Min(rawDelta, 0.0166666)
+                : rawDelta;
+
+            elapsed += delta;
+            lastRaw = now;
+
+            // advance MIDI time
+            tick += delta / ticklength;
         }
 
-        public static double GetTick() => time + (GetElapsed() / ticklen);
-
-        public static void SubmitBPM(double pos, double tempo)
+        public static void SubmitBPM(double posTick, double microTempo)
         {
-            double remainder = (time - pos);
-            time = pos + (GetElapsed() / ticklen);
-            bpm = 60000000 / tempo;
-            timeLost = 0d;
-            //Console.WriteLine("New BPM: " + bpm + " Tick: " + pos); this mf was slowing down the playback thread when tempo changes occur :(
-            ticklen = 60.0 / (bpm * ppq);
-            time += remainder;
-            test.Restart();
+            Update();
+            bpm = 60000000.0 / microTempo;
+            rawticklen = 60.0 / (bpm * ppq);
+
+            // ensure tick never jumps backwards
+            if (tick < posTick)
+                tick = posTick;
         }
 
         public static void Stop()
         {
-            test.Stop();
+            if (!paused)
+            {
+                Update();
+                paused = true;
+            }
         }
 
         public static void Resume()
         {
-            test.Start();
+            if (paused)
+            {
+                lastRaw = Timer.Seconds();
+                paused = false;
+            }
         }
     }
 }

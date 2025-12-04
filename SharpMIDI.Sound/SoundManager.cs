@@ -1,18 +1,13 @@
 using System.Runtime.CompilerServices;
-using System.Runtime.InteropServices;
-using System.Threading;
 
 namespace SharpMIDI
 {
     static unsafe class Sound
     {
-        const int BufferBits = 16;
-        const int BufferSize = 1 << BufferBits;
-        const int BufferMask = BufferSize - 1;
-        static uint* bufStart;
-        static uint* bufEnd;
-        static volatile uint* headPtr;
-        static volatile uint* tailPtr; 
+        public static uint[] ring;      // buffer
+        public static int head;         // write index
+        public static int tail;         // read index
+        public static int mask;         // bufferSize - 1
         static bool running = false;
         static Thread? audthread;
         
@@ -82,26 +77,17 @@ namespace SharpMIDI
 
         static void AllocateEvBuffer()
         {    
-            uint* mem = (uint*)NativeMemory.Alloc(sizeof(uint) * BufferSize);
-
-            bufStart = mem;
-            bufEnd   = mem + BufferSize;
-    
-            headPtr = bufStart;
-            tailPtr = bufStart;
+            ring = new uint[65536];
+            mask = 65536 - 1;
+            head = 0;
+            tail = 0;
         }
         
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static void Submit(uint ev)
         {
-            uint* h = headPtr;
-            *h = ev;
-            h++;
-            
-            // pointer wrap
-            if (h == bufEnd) h = bufStart;
-
-            headPtr = h;
+            int h = head;
+            ring[h] = ev;
+            head = (h + 1) & mask; // wrap
         }
 
         static void StartAudioThread()
@@ -117,31 +103,26 @@ namespace SharpMIDI
 
         static void AudioThread()
         {
-            SpinWait spinWait = new SpinWait();
-            uint* t = tailPtr;
-            uint* h = headPtr;
-            uint* start = bufStart;
-            uint* end = bufEnd;
+            var buffer = ring;
+            ref uint start = ref buffer[0];
+            int m = mask;
+            int t = tail;
+            int hLocal = head;     
+            SpinWait sw = new SpinWait();
+        
             while (running)
             {
-                var sendFn = sendTo;
-                if (t == h)
+                if (t == hLocal)
                 {
-                    spinWait.SpinOnce();
-                    h = headPtr;
+                    sw.SpinOnce();
+                    hLocal = head;
                     continue;
                 }
-                // prefetching stuff
-                _ = *(t + 1);
-                _ = *(t + 4);
-                _ = *(t + 8);
-                
-                uint ev = *t;
-                sendFn(ev);
-                t++;
-                if (t == end) t = start;
-
-                tailPtr = t;
+                _ = Unsafe.Add(ref start, (t + 16) & m);
+                uint ev = buffer[t];
+                sendTo(ev);
+                t = (t + 1) & m;
+                tail = t;
             }
         }
         
@@ -149,15 +130,6 @@ namespace SharpMIDI
         {
             running = false;
             audthread?.Join(100);
-            
-            if (bufStart != null)
-            {
-                NativeMemory.Free(bufStart);
-                bufStart = null;
-                bufEnd = null;
-                headPtr = null;
-                tailPtr = null;
-            }
             switch(engine){
                 case 1:
                     KDMAPI.TerminateKDMAPIStream();

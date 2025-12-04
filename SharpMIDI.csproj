@@ -4,6 +4,7 @@
         <TargetFramework>net8.0-windows</TargetFramework>
         <Nullable>enable</Nullable>
         <UseWindowsForms>true</UseWindowsForms>
+        <gcAllowVeryLargeObjects>true</gcAllowVeryLargeObjects>
         <ImplicitUsings>enable</ImplicitUsings>
         <Optimize>true</Optimize>
         <DebugType>none</DebugType>
