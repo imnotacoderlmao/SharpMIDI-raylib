@@ -40,9 +40,9 @@ namespace SharpMIDI
                 fps = (fps * 0.4) + ((MIDIPlayer.totalFrames / totalDelay) * 0.6);
                 if(fps < 60) Starter.form.label12.Text = "FPS \u2248 <60";
                 else Starter.form.label12.Text = "FPS \u2248 " + Math.Round(fps,5);
-                Starter.form.label3.Text = "Played: " + Sound.playedEvents + " / " + MIDILoader.eventCount;
+                Starter.form.label3.Text = "Played: " + MIDIPlayer.playedEvents + " / " + MIDILoader.eventCount;
                 Starter.form.label14.Text = "Tick: " + MIDIPlayer.clock + " / " + MIDILoader.maxTick;
-                Starter.form.label16.Text = "TPS: " + Math.Round((1 / MIDIClock.rawticklen) * (double)Renderer.WindowManager.speed, 5);
+                Starter.form.label16.Text = "TPS: " + Math.Round((1 / MIDIClock.rawticklen) / (double)Renderer.WindowManager.speed, 5);
                 Starter.form.label17.Text = "BPM: " + Math.Round(MIDIClock.bpm, 5);
                 Starter.form.label7.Text = "GC Usage: " + Form1.toMemoryText(GC.GetTotalMemory(false)) + " (May be inaccurate)";
                 MIDIPlayer.totalFrames = 0;
@@ -153,7 +153,6 @@ namespace SharpMIDI
         {
             if (Starter.midiLoaded)
             {
-                //Sound.Reload();
                 label1.Text = "Selected MIDI: (none)";
                 label2.Text = "Status: Not Loaded";
                 label5.Text = "Notes: ??? / ???";
@@ -173,11 +172,11 @@ namespace SharpMIDI
                 button6.Update();
                 button2.Update();
                 Renderer.MIDIRenderer.Cleanup();
-                MIDILoader.ClearEntries();
-                MIDILoader.ResetVariables();
+                MIDILoader.Unload();
                 Starter.midiLoaded = false;
                 button1.Enabled = true;
                 button2.Enabled = false;
+                GC.Collect();
             } else
             {
                 button1.Enabled = true;

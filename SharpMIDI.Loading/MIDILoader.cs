@@ -1,5 +1,4 @@
 #pragma warning disable 8602
-
 namespace SharpMIDI
 {
     static class MIDILoader
@@ -18,14 +17,6 @@ namespace SharpMIDI
             MessageBox.Show(test);
             throw new Exception();
         }
-        public static void ResetVariables()
-        {
-            totalNotes = 0;
-            loadedNotes = 0;
-            tks = 0;
-            trackLocations = new List<long>();
-            trackSizes = new List<uint>();
-        }
 
         public static async void LoadPath(string path, byte thres, int tracklimit)
         {
@@ -41,7 +32,7 @@ namespace SharpMIDI
             if (size != 6) { Crash("Incorrect header size of " + size); }
             if (fmt == 2) { Crash("MIDI format 2 unsupported"); }
             if (ppq < 0) { Crash("PPQ is negative"); }
-            MIDIClock.ppq = MIDIPlayer.ppq = ppq;
+            MIDIClock.ppq = ppq;
             Starter.form.label6.Text = "PPQ: "+ppq;
             Starter.form.label10.Text = "Loaded tracks: 0 / ??? ("+tracks+")";
             midi = new StreamReader(path).BaseStream;
@@ -84,31 +75,24 @@ namespace SharpMIDI
             });
             midi.Close();
             Starter.form.label10.Text = "Loaded tracks: " + totaltracks + " / " + MIDILoader.tks;
-            int totalEvents = 0;
+            ulong totalEvents = 0;
             for (int i = 0; i < tks; i++)
             {
                 if (tempLists[i] != null)
-                    totalEvents += tempLists[i].Count;
+                    totalEvents += (ulong)tempLists[i].Count;
             }
-
-            MIDI.synthEvents = new long[totalEvents];
-            int offset = 0;
-            for (int i = 0; i < tks; i++)
+            Console.WriteLine("merging events to one array");
+            MIDI.synthEvents = new BigArray(totalEvents);
+            unsafe
             {
-                var list = tempLists[i];
-                if (list == null) continue;
-
-                list.CopyTo(MIDI.synthEvents, offset);
-                offset += list.Count;
-
-                tempLists[i] = null!; // null!!!111111111 
+                // this might be slower than traditional Array.Sort() but at least it works when events are over 2 billion
+                MergeAllTracks(tempLists, MIDI.synthEvents);
             }
+            for (int t = 0; t < tks; t++) tempLists[t] = null;
             MIDI.tempoEvents = MIDI.temppos.ToArray();
-            Console.WriteLine("sorting events by time");
-            Array.Sort(MIDI.synthEvents);
             Array.Sort(MIDI.tempoEvents);
             MIDI.temppos.Clear();
-            Console.WriteLine("Calling MIDIRenderer.EnhanceTracksForRendering()...");
+            Console.WriteLine("preprocessing stuff for the renderer");
             await Task.Run(() => Renderer.MIDIRenderer.EnhanceTracksForRendering());
             Starter.form.label2.Text = "Status: Loaded";
             Starter.form.button4.Enabled = true;
@@ -117,14 +101,16 @@ namespace SharpMIDI
             midi.Close();
         }
         
-        public static void ClearEntries()
+        public static void Unload()
         {
-            MIDIPlayer.ppq = 0;
             totalNotes = 0;
             loadedNotes = 0;
             eventCount = 0;
             maxTick = 0;
-            MIDI.synthEvents = null!;
+            tks = 0;
+            trackLocations = new List<long>();
+            trackSizes = new List<uint>();
+            MIDI.synthEvents.Dispose();
             MIDI.tempoEvents = null!;
             GC.Collect();
         }
@@ -165,6 +151,46 @@ namespace SharpMIDI
             else
             {
                 return false;
+            }
+        }
+
+        public static unsafe void MergeAllTracks(List<long>[] trackEvents, BigArray output)
+        {
+            int tks = trackEvents.Length;
+            ulong outPos = 0;
+
+            // Min-heap of (value, track index)
+            var heap = new PriorityQueue<(long value, int track), long>();
+
+            // Per-track index
+            int[] idx = new int[tks];
+
+            // Initialize heap with the first element of each non-empty list
+            for (int t = 0; t < tks; t++)
+            {
+                var list = trackEvents[t];
+                if (list != null && list.Count > 0)
+                {
+                    heap.Enqueue((list[0], t), list[0]);
+                }
+            }
+
+            while (heap.TryDequeue(out var entry, out long _))
+            {
+                long value = entry.value;
+                int t = entry.track;
+
+                // Store to output buffer
+                output.Pointer[outPos++] = value;
+
+                // Advance index & push next element
+                int next = ++idx[t];
+                var list = trackEvents[t];
+                if (next < list.Count)
+                {
+                    long val2 = list[next];
+                    heap.Enqueue((val2, t), val2);
+                }
             }
         }
 

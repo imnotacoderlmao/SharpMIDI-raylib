@@ -119,8 +119,8 @@ namespace SharpMIDI.Renderer
             IsReady = false;
             ClearAllData();
 
-            long[] allEvents = MIDI.synthEvents;
-            int eventCount = allEvents.Length;
+            BigArray allEvents = MIDI.synthEvents;
+            ulong eventCount = allEvents?.Length ?? 0;
             
             if (allEvents == null || eventCount == 0)
             {
@@ -133,8 +133,8 @@ namespace SharpMIDI.Renderer
             if (bucketCount < 2) bucketCount = 2;
 
             // Calculate realistic capacity - most events are note on/off pairs
-            int estimatedNotes = eventCount / 3; // Approximate note pairs + other events
-            int notesPerBucket = (estimatedNotes / bucketCount) + 16; // Small padding
+            ulong estimatedNotes = eventCount / 3; // Approximate note pairs + other events
+            int notesPerBucket = (int)(estimatedNotes / (ulong)bucketCount) + 16; // Small padding
 
             List<uint>[] tempBuckets = new List<uint>[bucketCount];
 
@@ -164,7 +164,7 @@ namespace SharpMIDI.Renderer
         }
 
         [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-        private static void ProcessEvents(long[] events, int eventCount, List<uint>[] buckets, int capacity)
+        private static void ProcessEvents(BigArray events, ulong eventCount, List<uint>[] buckets, int capacity)
         {
             NoteStack[] stacks = new NoteStack[2048];
             bool[] hasNotes = new bool[2048];
@@ -174,9 +174,12 @@ namespace SharpMIDI.Renderer
             int maxDuration = MaxChunkDuration;
             int bucketsLen = buckets.Length;
 
-            for (int i = 0; i < eventCount; i++)
+            // Direct pointer access for maximum speed
+            long* eventPtr = events.Pointer;
+
+            for (ulong i = 0; i < eventCount; i++)
             {
-                long evt = events[i];
+                long evt = eventPtr[i];
                 int tick = (int)(evt >> 32);
                 int val = (int)(evt & 0xFFFFFFFF);
                 
@@ -210,7 +213,7 @@ namespace SharpMIDI.Renderer
             }
 
             // Handle remaining notes
-            int fallbackEnd = eventCount > 0 ? (int)(events[eventCount - 1] >> 32) + 100 : 100;
+            int fallbackEnd = eventCount > 0 ? (int)(eventPtr[eventCount - 1] >> 32) + 100 : 100;
             for (int key = 0; key < 2048; key++)
             {
                 if (!hasNotes[key]) continue;
@@ -233,7 +236,7 @@ namespace SharpMIDI.Renderer
         }
 
         [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-        private static void SliceNote(int noteStart, int duration, int noteNum, int channel, 
+        private static void SliceNote(int noteStart, int duration, int noteNum, int colorIdx, 
             List<uint>[] buckets, int capacity, int bucketSize, int maxDur, int bucketsLen)
         {
             int remaining = duration;
@@ -253,7 +256,7 @@ namespace SharpMIDI.Renderer
                 if (chunkDur > available) chunkDur = available;
                 if (chunkDur > maxDur) chunkDur = maxDur;
 
-                uint packed = PackNote(relStart, chunkDur, noteNum, channel);
+                uint packed = PackNote(relStart, chunkDur, noteNum, colorIdx);
                 
                 // Double-checked locking for bucket initialization
                 List<uint>? bucket = buckets[bucketIdx];
@@ -270,7 +273,10 @@ namespace SharpMIDI.Renderer
                     }
                 }
                 
-                bucket.Add(packed);
+                lock (bucket)
+                {
+                    bucket.Add(packed);
+                }
 
                 currentStart += chunkDur;
                 remaining -= chunkDur;
@@ -283,6 +289,7 @@ namespace SharpMIDI.Renderer
             uint[]? bucket = SortedBuckets[idx];
             if (bucket == null || bucket.Length <= 1) return;
 
+            // Sort by relative start for temporal coherency
             Array.Sort(bucket, (n1, n2) => (int)(n1 & RELSTART_MASK) - (int)(n2 & RELSTART_MASK));
         }
 
@@ -296,7 +303,6 @@ namespace SharpMIDI.Renderer
         {
             IsReady = false;
             ClearAllData();
-            GC.Collect();
         }
     }
 }

@@ -12,7 +12,6 @@ namespace SharpMIDI
         static Thread? audthread;
         
         private static int engine = 0;
-        public static long playedEvents = 0;
         static string lastWinMMDevice = "";
         private static IntPtr? handle;
         public static delegate* unmanaged[SuppressGCTransition]<uint,uint> sendTo;

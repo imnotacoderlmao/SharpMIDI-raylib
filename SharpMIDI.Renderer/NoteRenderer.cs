@@ -118,7 +118,6 @@ namespace SharpMIDI.Renderer
             lastColumn = newColumn;
         }
 
-        [MethodImpl(MethodImplOptions.AggressiveOptimization)]
         private static void ScrollLeft(int pixels)
         {
             if (pixels <= 0) return;
@@ -139,7 +138,6 @@ namespace SharpMIDI.Renderer
             }
         }
 
-        [MethodImpl(MethodImplOptions.AggressiveOptimization)]
         private static void RenderRegion(int startX, int width, float startTick)
         {
             if (width <= 0) return;

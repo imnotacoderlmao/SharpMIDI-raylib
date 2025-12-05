@@ -30,7 +30,6 @@ namespace SharpMIDI.Renderer
         {
             NoteProcessor.Cleanup();
             NoteRenderer.Cleanup();
-            GC.Collect();
         }
     }
 }

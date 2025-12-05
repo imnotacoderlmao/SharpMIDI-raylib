@@ -1,24 +1,42 @@
 using System.Runtime.InteropServices;
 namespace SharpMIDI
 {
-    // genuinely do not know why its taking up more than 8 bytes/note
-    /*[StructLayout(LayoutKind.Sequential, Pack = 1)]
-    public struct SynthEvent
-    {
-        public int pos;
-        public int val;
-    }*/
-    [StructLayout(LayoutKind.Sequential)]
-    public struct Tempo
-    {
-        public int pos;
-        public int tempo;
-    }
     static class MIDI
     {
-        //public static SynthEvent[] synthEvents = Array.Empty<SynthEvent>();
-        public static long[] synthEvents = Array.Empty<long>();
-        public static List<long> temppos = new List<long>(); // haha get it temppos caus temp... okay.....
+        public static BigArray synthEvents;
+        public static List<long> temppos = new List<long>();
         public static long[] tempoEvents = Array.Empty<long>();
+    }
+    public unsafe class BigArray : IDisposable
+    {
+        public readonly ulong Length;
+        private long* ptr;
+
+        public BigArray(ulong length)
+        {
+            Length = length;
+
+            ulong bytes = length * (ulong)sizeof(long);
+
+            ptr = (long*)Marshal.AllocHGlobal((IntPtr)bytes);
+            Buffer.MemoryCopy(null, ptr, bytes, 0); // optional zeroing
+        }
+
+        public long this[ulong index]
+        {
+            get => ptr[index];
+            set => ptr[index] = value;
+        }
+
+        public long* Pointer => ptr;
+
+        public void Dispose()
+        {
+            if (ptr != null)
+            {
+                Marshal.FreeHGlobal((IntPtr)ptr);
+                ptr = null;
+            }
+        }
     }
 }

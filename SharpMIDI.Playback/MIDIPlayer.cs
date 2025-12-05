@@ -1,51 +1,58 @@
-﻿namespace SharpMIDI
+﻿using Microsoft.VisualBasic.Devices;
+
+namespace SharpMIDI
 {
     static unsafe class MIDIPlayer
     {
-        public static int ppq = 0, totalFrames = 0, clock = 0;
+        public volatile static int clock = 0, totalFrames = 0;
+        public static long playedEvents = 0;
         public static bool stopping = false;
         public static void StartPlayback()
         {
             stopping = false;
-            long[] ev = MIDI.synthEvents;
+            long* evs = MIDI.synthEvents.Pointer;
+            long* evend = evs + MIDI.synthEvents.Length;
+            long* p0 = evs;
             long[] tev = MIDI.tempoEvents;
-            int evcount = ev.Length;
-            int tevcount = tev.Length;
             int maxTick = MIDILoader.maxTick;
             MIDIClock.Start();
-            fixed (long* p0 = ev)
             fixed (long* t0 = tev)
             {
-                long* evs = p0;
-                long* evend = p0 + evcount;
                 long* tevs = t0;
-                long* tevend = t0 + tevcount;
+                long* tevend = t0 + tev.Length;
+                
                 long evval = (evs < evend ? *evs : long.MaxValue);
                 long tevval = (tevs < tevend ? *tevs : long.MaxValue);
+                
+                int ePos = (int)(evval >> 32);
+                int tPos = (int)(tevval >> 32);
                 while (!stopping)
                 {
                     int localclock = (int)MIDIClock.GetTick();
-                    clock = localclock;
                     while (true)
                     {
-                        int ePos = (int)(evval >> 32);
-                        int tPos = (int)(tevval >> 32);
-                        if (ePos > localclock & tPos > localclock)
+                        if(ePos > localclock && tPos > localclock) 
                             break;
                         if (ePos <= tPos)
                         {
                             Sound.Submit((uint)evval);
                             ++evs;
                             evval = (evs < evend ? *evs : long.MaxValue);
+                            ePos = (int)(evval >> 32);
                         }
                         else
                         {
                             MIDIClock.SubmitBPM(tPos, (uint)tevval);
                             ++tevs;
                             tevval = (tevs < tevend ? *tevs : long.MaxValue);
+                            tPos = (int)(tevval >> 32);
                         }
                     }
-                    Sound.playedEvents = evs - p0;
+                    if (localclock != clock)
+                    {
+                        playedEvents = (uint)(evs - p0);
+                        clock = localclock;
+                    }
                     ++totalFrames;
                     if (localclock > maxTick) stopping = true;
                 }

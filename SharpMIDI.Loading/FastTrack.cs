@@ -8,7 +8,6 @@ namespace SharpMIDI
         public long totalNotes = 0;
         public List<long> localEvents = new List<long>();
         public List<int[]> skippedNotes = new List<int[]>();
-        public int trackTime = 0;
         BufferByteReader stupid;
         public FastTrack(BufferByteReader reader)
         {
