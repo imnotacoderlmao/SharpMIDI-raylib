@@ -161,7 +161,7 @@ namespace SharpMIDI
                                         if (readEvent == 0x51)
                                         {
                                             stupid.Skip(1);
-                                            uint tempo = 0;
+                                            int tempo = 0;
                                             for (int i = 0; i != 3; i++)
                                                 tempo = (tempo << 8) | stupid.Read();
                                             long data = ((long)localtracktime << 32) | tempo;

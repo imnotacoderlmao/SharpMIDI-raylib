@@ -3,11 +3,11 @@ namespace SharpMIDI
 {
     static class MIDI
     {
-        public static BigArray synthEvents;
+        public static BigArray<long> synthEvents;
         public static List<long> temppos = new List<long>();
         public static long[] tempoEvents = Array.Empty<long>();
     }
-    public unsafe class BigArray : IDisposable
+    public unsafe class BigArray<T> : IDisposable
     {
         public readonly ulong Length;
         private long* ptr;

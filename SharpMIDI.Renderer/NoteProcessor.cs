@@ -119,7 +119,7 @@ namespace SharpMIDI.Renderer
             IsReady = false;
             ClearAllData();
 
-            BigArray allEvents = MIDI.synthEvents;
+            BigArray<long> allEvents = MIDI.synthEvents;
             ulong eventCount = allEvents?.Length ?? 0;
             
             if (allEvents == null || eventCount == 0)
@@ -164,7 +164,7 @@ namespace SharpMIDI.Renderer
         }
 
         [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-        private static void ProcessEvents(BigArray events, ulong eventCount, List<uint>[] buckets, int capacity)
+        private static void ProcessEvents(BigArray<long> events, ulong eventCount, List<uint>[] buckets, int capacity)
         {
             NoteStack[] stacks = new NoteStack[2048];
             bool[] hasNotes = new bool[2048];

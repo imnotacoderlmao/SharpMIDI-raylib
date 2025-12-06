@@ -4,7 +4,7 @@ namespace SharpMIDI
 {
     static unsafe class MIDIPlayer
     {
-        public volatile static int clock = 0, totalFrames = 0;
+        public static int clock = 0, totalFrames = 0;
         public static long playedEvents = 0;
         public static bool stopping = false;
         public static void StartPlayback()
@@ -42,15 +42,16 @@ namespace SharpMIDI
                         }
                         else
                         {
-                            MIDIClock.SubmitBPM(tPos, (uint)tevval);
+                            MIDIClock.SubmitBPM(tPos, tevval);
                             ++tevs;
                             tevval = (tevs < tevend ? *tevs : long.MaxValue);
                             tPos = (int)(tevval >> 32);
                         }
                     }
+                    // for the sake of less writes to ui stuff
                     if (localclock != clock)
                     {
-                        playedEvents = (uint)(evs - p0);
+                        playedEvents = evs - p0;
                         clock = localclock;
                     }
                     ++totalFrames;

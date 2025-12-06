@@ -82,14 +82,14 @@ namespace SharpMIDI
                     totalEvents += (ulong)tempLists[i].Count;
             }
             Console.WriteLine("merging events to one array");
-            MIDI.synthEvents = new BigArray(totalEvents);
+            MIDI.synthEvents = new BigArray<long>(totalEvents);
             unsafe
             {
                 // this might be slower than traditional Array.Sort() but at least it works when events are over 2 billion
                 MergeAllTracks(tempLists, MIDI.synthEvents);
             }
             for (int t = 0; t < tks; t++) tempLists[t] = null;
-            MIDI.tempoEvents = MIDI.temppos.ToArray();
+            MIDI.tempoEvents = [.. MIDI.temppos]; // idk wtf this does ngl
             Array.Sort(MIDI.tempoEvents);
             MIDI.temppos.Clear();
             Console.WriteLine("preprocessing stuff for the renderer");
@@ -154,7 +154,7 @@ namespace SharpMIDI
             }
         }
 
-        public static unsafe void MergeAllTracks(List<long>[] trackEvents, BigArray output)
+        public static unsafe void MergeAllTracks(List<long>[] trackEvents, BigArray<long> output)
         {
             int tks = trackEvents.Length;
             ulong outPos = 0;
