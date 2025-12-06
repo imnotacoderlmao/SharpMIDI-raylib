@@ -141,7 +141,7 @@ namespace SharpMIDI.Renderer
             if (Raylib.IsKeyPressed(KeyboardKey.Right) || Raylib.IsKeyPressedRepeat(KeyboardKey.Right))
             {
                 if(speed < 1) speed += 0.05M;
-                else MIDIClock.tick += 1 / MIDIClock.rawticklen;
+                else MIDIClock.tick += (int)(1 / MIDIClock.rawticklen);
             }
             
             if (Raylib.IsKeyPressed(KeyboardKey.Left) || Raylib.IsKeyPressedRepeat(KeyboardKey.Left))

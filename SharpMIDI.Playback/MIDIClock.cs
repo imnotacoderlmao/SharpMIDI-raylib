@@ -42,10 +42,10 @@ namespace SharpMIDI
 
         public static void Reset() => Start();
 
-        public static double GetTick()
+        public static int GetTick()
         {
             Update();
-            return tick;
+            return (int)tick;
         }
 
         static void Update()
@@ -67,7 +67,7 @@ namespace SharpMIDI
             tick += delta / ticklength;
         }
 
-        public static void SubmitBPM(double posTick, double microTempo)
+        public static void SubmitBPM(int posTick, double microTempo)
         {
             Update();
             bpm = 60000000.0 / microTempo;

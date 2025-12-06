@@ -1,6 +1,4 @@
-﻿using Microsoft.VisualBasic.Devices;
-
-namespace SharpMIDI
+﻿namespace SharpMIDI
 {
     static unsafe class MIDIPlayer
     {
@@ -28,7 +26,7 @@ namespace SharpMIDI
                 int tPos = (int)(tevval >> 32);
                 while (!stopping)
                 {
-                    int localclock = (int)MIDIClock.GetTick();
+                    int localclock = MIDIClock.GetTick();
                     while (true)
                     {
                         if(ePos > localclock && tPos > localclock) 
@@ -42,7 +40,7 @@ namespace SharpMIDI
                         }
                         else
                         {
-                            MIDIClock.SubmitBPM(tPos, tevval);
+                            MIDIClock.SubmitBPM(tPos, (uint)tevval);
                             ++tevs;
                             tevval = (tevs < tevend ? *tevs : long.MaxValue);
                             tPos = (int)(tevval >> 32);

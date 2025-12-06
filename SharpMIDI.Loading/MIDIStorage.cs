@@ -16,9 +16,9 @@ namespace SharpMIDI
         {
             Length = length;
 
-            ulong bytes = length * (ulong)sizeof(long);
+            ulong bytes = length * sizeof(long);
 
-            ptr = (long*)Marshal.AllocHGlobal((IntPtr)bytes);
+            ptr = (long*)NativeMemory.Alloc((nuint)bytes);
             Buffer.MemoryCopy(null, ptr, bytes, 0); // optional zeroing
         }
 
@@ -34,7 +34,7 @@ namespace SharpMIDI
         {
             if (ptr != null)
             {
-                Marshal.FreeHGlobal((IntPtr)ptr);
+                NativeMemory.Free(ptr);
                 ptr = null;
             }
         }

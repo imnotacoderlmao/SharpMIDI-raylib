@@ -6,17 +6,22 @@ namespace SharpMIDI
         public long eventAmount = 0;
         public long loadedNotes = 0;
         public long totalNotes = 0;
-        public List<long> localEvents = new List<long>();
+        private long* output;     // pointer to preallocated per-track buffer
+        private int outCount;   // event count
+        private long outCapacity;
+        public int EventCount => outCount;
         public List<int[]> skippedNotes = new List<int[]>();
         BufferByteReader stupid;
-        public FastTrack(BufferByteReader reader)
+        public FastTrack(BufferByteReader reader, long* outPtr, long capacity)
         {
             stupid = reader;
+            output = outPtr;
+            outCount = 0;
+            outCapacity = capacity;
         }
         byte prevEvent = 0;
-        public void ParseTrackEvents(byte thres, List<long> eventsList)
+        public void ParseTrackEvents(byte thres)
         {
-            localEvents = eventsList;
             int localtracktime = 0;
             for (int i = 0; i < 16; i++)
             {
@@ -55,7 +60,7 @@ namespace SharpMIDI
                                         loadedNotes++;
                                         eventAmount++;
                                         long data = ((long)localtracktime << 32) | (uint)(readEvent | (note << 8) | (vel << 16));
-                                        localEvents.Add(data);
+                                        WriteEvent(data);
                                     }
                                     else
                                     {
@@ -69,7 +74,7 @@ namespace SharpMIDI
                                         byte customEvent = (byte)(readEvent - 0b00010000);
                                         eventAmount++;
                                         long data = ((long)localtracktime << 32) | (uint)(customEvent | (note << 8) | (vel << 16));
-                                        localEvents.Add(data);
+                                        WriteEvent(data);
                                     }
                                     else
                                     {
@@ -87,7 +92,7 @@ namespace SharpMIDI
                                 {
                                     eventAmount++;
                                     long data = ((long)localtracktime << 32) | (uint)(readEvent | (note << 8) | (vel << 16));
-                                    localEvents.Add(data);
+                                    WriteEvent(data);
                                 }
                                 else
                                 {
@@ -102,7 +107,7 @@ namespace SharpMIDI
                                 byte vel = stupid.Read();
                                 eventAmount++;
                                 long data = ((long)localtracktime << 32) | (uint)(readEvent | (note << 8) | (vel << 16));
-                                localEvents.Add(data);
+                                WriteEvent(data);
                             }
                             break;
                         case 0b11000000:
@@ -111,7 +116,7 @@ namespace SharpMIDI
                                 byte program = stupid.Read();
                                 eventAmount++;
                                 long data = ((long)localtracktime << 32) | (uint)(readEvent | (program << 8));
-                                localEvents.Add(data);
+                                WriteEvent(data);
                             }
                             break;
                         case 0b11010000:
@@ -120,7 +125,7 @@ namespace SharpMIDI
                                 byte pressure = stupid.Read();
                                 eventAmount++;
                                 long data = ((long)localtracktime << 32) | (uint)(readEvent | (pressure << 8));
-                                localEvents.Add(data);
+                                WriteEvent(data);
                             }
                             break;
                         case 0b11100000:
@@ -130,7 +135,7 @@ namespace SharpMIDI
                                 byte m = stupid.Read();
                                 eventAmount++;
                                 long data = ((long)localtracktime << 32) | (uint)(readEvent | (l << 8) | (m << 16));
-                                localEvents.Add(data);
+                                WriteEvent(data);
                             }
                             break;
                         case 0b10110000:
@@ -140,7 +145,7 @@ namespace SharpMIDI
                                 byte vv = stupid.Read();
                                 eventAmount++;
                                 long data = ((long)localtracktime << 32) | (uint)(readEvent | (cc << 8) | (vv << 16));
-                                localEvents.Add(data);
+                                WriteEvent(data);
                             }
                             break;
                         default:
@@ -165,7 +170,11 @@ namespace SharpMIDI
                                             for (int i = 0; i != 3; i++)
                                                 tempo = (tempo << 8) | stupid.Read();
                                             long data = ((long)localtracktime << 32) | tempo;
-                                            MIDI.temppos.Add(data);
+                                            // playback kills itself if it wasnt for this lmao
+                                            lock(MIDI.temppos)
+                                            {
+                                                MIDI.temppos.Add(data);
+                                            }
                                         }
                                         else if (readEvent == 0x2F)
                                         {
@@ -183,12 +192,20 @@ namespace SharpMIDI
                 }
                 catch (IndexOutOfRangeException)
                 {
-                    localEvents.TrimExcess();
                     break;
                 }
             }
         }
         
+        private void WriteEvent(long data)
+        {
+            if (outCount >= outCapacity)
+            {
+                throw new InvalidOperationException($"Track buffer overflow: tried to write {outCount + 1} events but capacity is {outCapacity}");
+            }
+            output[outCount++] = data;
+        }
+
         int ReadVariableLen()
         {
             byte c;

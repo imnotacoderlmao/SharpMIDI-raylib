@@ -1,4 +1,6 @@
 #pragma warning disable 8602
+using System.Runtime.InteropServices;
+
 namespace SharpMIDI
 {
     static class MIDILoader
@@ -46,51 +48,65 @@ namespace SharpMIDI
                 if (!success) { break; }
             }
             Starter.form.label10.Text = "Loaded tracks: 0 / " + tks;
-            List<long>[] tempLists = new List<long>[tks];
-            for(int i = 0; i < tks; i++)
-            {
-                tempLists[i] = new List<long>();
-            }
-            midi.Position++;
-            int loops = 0;
-            Parallel.For(0, tks, (i) =>
-            {
-                if (Interlocked.Increment(ref loops) <= tracklimit)
-                {
-                    Console.WriteLine("Loading track #" + (i + 1) + " | Size " + trackSizes[i]);
-                    int bufSize = (int)Math.Min(2147483647, trackSizes[i]/4);
-                    FastTrack temp = new FastTrack(
-                        new BufferByteReader(midi, bufSize, trackLocations[i], trackSizes[i])
-                    );
-                    temp.ParseTrackEvents(thres, tempLists[i]);
-                    // update counters
-                    Interlocked.Add(ref loadedNotes, temp.loadedNotes);
-                    Interlocked.Add(ref totalNotes, temp.totalNotes);
-                    Interlocked.Add(ref eventCount, temp.eventAmount);
-                    totaltracks++;
-                    Starter.form.label10.Text = "Loaded tracks: " + loops + " / " + tks;
-                    Starter.form.label5.Text = "Notes: " + loadedNotes + " / " + totalNotes;
-                    temp.Dispose();
-                }
-            });
-            midi.Close();
-            Starter.form.label10.Text = "Loaded tracks: " + totaltracks + " / " + MIDILoader.tks;
-            ulong totalEvents = 0;
-            for (int i = 0; i < tks; i++)
-            {
-                if (tempLists[i] != null)
-                    totalEvents += (ulong)tempLists[i].Count;
-            }
-            Console.WriteLine("merging events to one array");
-            MIDI.synthEvents = new BigArray<long>(totalEvents);
             unsafe
             {
-                // this might be slower than traditional Array.Sort() but at least it works when events are over 2 billion
-                MergeAllTracks(tempLists, MIDI.synthEvents);
+                long*[] trackBuffers = new long*[tks];
+                long[] trackCapacitity = new long[tks];
+                int[] trackCounts = new int[tks];
+    
+                for (int i = 0; i < tks; i++)
+                {
+                    // systemaccessviolations occur if it gets divided by 4 unfortunately
+                    long estimatedEvents = trackSizes[i] / 3;
+                    trackCapacitity[i] = estimatedEvents;
+                    trackBuffers[i] = (long*)NativeMemory.Alloc((nuint)(estimatedEvents * sizeof(long)));
+                    trackCounts[i] = 0;
+                }
+    
+                midi.Position++;
+                int loops = 0;
+                Parallel.For(0, tks, (i) =>
+                {
+                    if (Interlocked.Increment(ref loops) <= tracklimit)
+                    {
+                        Console.WriteLine("Loading track #" + (i + 1) + " | Size " + trackSizes[i]);
+                        
+                        // this shouldnt have worked at all, but it somehow made >2gb track loadng possible
+                        int bufSize = (int)Math.Min(2147483647, trackSizes[i] / 3);
+                        // along with lower memory usage. i have no idea why, but if it works it works.
+                        
+                        FastTrack temp = new FastTrack(
+                            new BufferByteReader(midi, bufSize, trackLocations[i], trackSizes[i]), 
+                            trackBuffers[i], trackCapacitity[i]
+                        );
+                        temp.ParseTrackEvents(thres);
+                        
+                        // update counters
+                        trackCounts[i] = temp.EventCount;
+                        
+                        Interlocked.Add(ref loadedNotes, temp.loadedNotes);
+                        Interlocked.Add(ref totalNotes, temp.totalNotes);
+                        Interlocked.Add(ref eventCount, temp.eventAmount);
+                        totaltracks++;
+                        Starter.form.label10.Text = "Loaded tracks: " + loops + " / " + tks;
+                        Starter.form.label5.Text = "Notes: " + loadedNotes + " / " + totalNotes;
+                        temp.Dispose();
+                    }
+                });
+                midi.Close();
+                Starter.form.label10.Text = "Loaded tracks: " + totaltracks + " / " + MIDILoader.tks;
+                ulong totalEvents = 0;
+                for (int i = 0; i < tks; i++)
+                    totalEvents += (ulong)trackCounts[i];
+                Console.WriteLine("merging events to one array");
+                MIDI.synthEvents = new BigArray<long>(totalEvents);
+                unsafe
+                {
+                    MergeAllTracks(trackBuffers, trackCounts, MIDI.synthEvents);
+                }
             }
-            for (int t = 0; t < tks; t++) tempLists[t] = null;
             MIDI.tempoEvents = [.. MIDI.temppos]; // idk wtf this does ngl
-            Array.Sort(MIDI.tempoEvents);
+            //Array.Sort(MIDI.tempoEvents);
             MIDI.temppos.Clear();
             Console.WriteLine("preprocessing stuff for the renderer");
             await Task.Run(() => Renderer.MIDIRenderer.EnhanceTracksForRendering());
@@ -154,42 +170,57 @@ namespace SharpMIDI
             }
         }
 
-        public static unsafe void MergeAllTracks(List<long>[] trackEvents, BigArray<long> output)
+        public static unsafe void MergeAllTracks(long*[] buffers, int[] counts, BigArray<long> output)
         {
-            int tks = trackEvents.Length;
+            int tks = buffers.Length;
             ulong outPos = 0;
 
-            // Min-heap of (value, track index)
-            var heap = new PriorityQueue<(long value, int track), long>();
+            // priority queue of (value, track index)
+            var heap = new PriorityQueue<(long val, int t), long>();
 
-            // Per-track index
             int[] idx = new int[tks];
+            bool[] freed = new bool[tks];
 
-            // Initialize heap with the first element of each non-empty list
+            // push first item of each track into heap
             for (int t = 0; t < tks; t++)
             {
-                var list = trackEvents[t];
-                if (list != null && list.Count > 0)
+                if (counts[t] > 0)
+                    heap.Enqueue((buffers[t][0], t), buffers[t][0]);
+            }
+
+            while (heap.TryDequeue(out var entry, out _))
+            {
+                long val = entry.val;
+                int t = entry.t;
+
+                // output event
+                output.Pointer[outPos++] = val;
+
+                int next = ++idx[t];
+
+                if (next < counts[t])
                 {
-                    heap.Enqueue((list[0], t), list[0]);
+                    long nextVal = buffers[t][next];
+                    heap.Enqueue((nextVal, t), nextVal);
+                }
+                else
+                {
+                    if (!freed[t])
+                    {
+                        NativeMemory.Free(buffers[t]);
+                        buffers[t] = null;
+                        freed[t] = true;
+                    }
                 }
             }
 
-            while (heap.TryDequeue(out var entry, out long _))
+            // free any leftover buffers not freed (which shouldn't happen)
+            for (int t = 0; t < tks; t++)
             {
-                long value = entry.value;
-                int t = entry.track;
-
-                // Store to output buffer
-                output.Pointer[outPos++] = value;
-
-                // Advance index & push next element
-                int next = ++idx[t];
-                var list = trackEvents[t];
-                if (next < list.Count)
+                if (!freed[t] && buffers[t] != null)
                 {
-                    long val2 = list[next];
-                    heap.Enqueue((val2, t), val2);
+                    NativeMemory.Free(buffers[t]);
+                    buffers[t] = null;
                 }
             }
         }
