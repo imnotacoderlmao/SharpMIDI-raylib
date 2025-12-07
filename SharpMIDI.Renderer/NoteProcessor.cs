@@ -28,22 +28,20 @@ namespace SharpMIDI.Renderer
         private const uint DURATION_MASK = 0xFFu;
         private const int COLORINDEX_SHIFT = 24;
 
-        // Minimal stack implementation - no resizing during normal operation
+        // Minimal stack implementation
         private struct NoteStack
         {
-            private int tick0, tick1, tick2, tick3; // Handle up to 4 overlapping notes (covers 99% of cases)
+            private int tick0, tick1, tick2, tick3;
             private int count;
             
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
             public void Push(int tick)
             {
-                // Unrolled for speed
                 if (count == 0) tick0 = tick;
                 else if (count == 1) tick1 = tick;
                 else if (count == 2) tick2 = tick;
                 else if (count == 3) tick3 = tick;
-                // Beyond 4, just overwrite (rare edge case)
-                else tick3 = tick;
+                else tick3 = tick; // Overwrite if > 4
                 
                 if (count < 4) count++;
             }
@@ -53,7 +51,6 @@ namespace SharpMIDI.Renderer
             {
                 if (count == 0) return -1;
                 count--;
-                // Unrolled for speed
                 if (count == 0) return tick0;
                 if (count == 1) return tick1;
                 if (count == 2) return tick2;
@@ -64,6 +61,10 @@ namespace SharpMIDI.Renderer
         }
 
         public static readonly uint[] trackColors = new uint[256];
+        
+        // Shared bucket array - initialized once
+        private static List<uint>[]? sharedBuckets;
+        private static readonly object bucketsLock = new object();
 
         static NoteProcessor()
         {
@@ -113,77 +114,45 @@ namespace SharpMIDI.Renderer
             colorIndex = (int)(packed >> COLORINDEX_SHIFT);
         }
 
-        [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-        public static void EnhanceTracksForRendering()
+        /// <summary>
+        /// Initialize buckets before parallel track processing
+        /// </summary>
+        public static void InitializeBuckets(int maxTick)
         {
             IsReady = false;
             ClearAllData();
 
-            BigArray<long> allEvents = MIDI.synthEvents;
-            ulong eventCount = allEvents?.Length ?? 0;
-            
-            if (allEvents == null || eventCount == 0)
-            {
-                IsReady = true;
-                return;
-            }
-
-            int maxTick = MIDILoader.maxTick;
             int bucketCount = (maxTick / BucketSize) + 2;
             if (bucketCount < 2) bucketCount = 2;
 
-            // Calculate realistic capacity - most events are note on/off pairs
-            ulong estimatedNotes = eventCount / 3; // Approximate note pairs + other events
-            int notesPerBucket = (int)(estimatedNotes / (ulong)bucketCount) + 16; // Small padding
-
-            List<uint>[] tempBuckets = new List<uint>[bucketCount];
-
-            ProcessEvents(allEvents, eventCount, tempBuckets, notesPerBucket);
-
-            // Convert to arrays
-            uint[][] finalBuckets = new uint[bucketCount][];
-            long totalNotes = 0;
-
-            for (int i = 0; i < bucketCount; i++)
-            {
-                List<uint>? bucket = tempBuckets[i];
-                if (bucket != null)
-                {
-                    finalBuckets[i] = bucket.ToArray();
-                    totalNotes += finalBuckets[i].Length;
-                }
-            }
-
-            SortedBuckets = finalBuckets;
-            TotalNoteCount = totalNotes;
-            
-            // Sort in parallel after array conversion
-            System.Threading.Tasks.Parallel.For(0, bucketCount, SortBucket);
-
-            IsReady = true;
+            sharedBuckets = new List<uint>[bucketCount];
         }
 
-        [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-        private static void ProcessEvents(BigArray<long> events, ulong eventCount, List<uint>[] buckets, int capacity)
+        /// <summary>
+        /// Process a single track and add to shared buckets (called from parallel loop)
+        /// </summary>
+        public static void ProcessTrackForRendering(List<long> trackEvents, int trackIndex, int estimatedNotesPerBucket)
         {
+            if (trackEvents == null || trackEvents.Count == 0) return;
+            if (sharedBuckets == null) return;
+
             NoteStack[] stacks = new NoteStack[2048];
             bool[] hasNotes = new bool[2048];
 
-            // Cache frequently used values
             int bucketSize = BucketSize;
             int maxDuration = MaxChunkDuration;
-            int bucketsLen = buckets.Length;
+            int bucketsLen = sharedBuckets.Length;
+            int eventCount = trackEvents.Count;
 
-            // Direct pointer access for maximum speed
-            long* eventPtr = events.Pointer;
+            // Color based on track + channel for more variety
+            int trackColorBase = (trackIndex * 17) & 0xFF; // Use track for base color
 
-            for (ulong i = 0; i < eventCount; i++)
+            for (int i = 0; i < eventCount; i++)
             {
-                long evt = eventPtr[i];
+                long evt = trackEvents[i];
                 int tick = (int)(evt >> 32);
                 int val = (int)(evt & 0xFFFFFFFF);
                 
-                // Cache unpacked values
                 int status = val & 0xF0;
                 int channel = val & 0x0F;
                 int note = (val >> 8) & 0x7F;
@@ -206,20 +175,25 @@ namespace SharpMIDI.Renderer
                         int duration = tick - startTick;
                         if (duration < 1) duration = 1;
                         
-                        SliceNote(startTick, duration, note, channel, buckets, capacity, bucketSize, maxDuration, bucketsLen);
+                        // Combine track and channel for color variety
+                        int colorIndex = (trackColorBase + channel) & 0xFF;
+                        
+                        SliceNote(startTick, duration, note, colorIndex, sharedBuckets, 
+                                 estimatedNotesPerBucket, bucketSize, maxDuration, bucketsLen);
                         hasNotes[key] = stacks[key].HasNotes;
                     }
                 }
             }
 
             // Handle remaining notes
-            int fallbackEnd = eventCount > 0 ? (int)(eventPtr[eventCount - 1] >> 32) + 100 : 100;
+            int fallbackEnd = eventCount > 0 ? (int)(trackEvents[eventCount - 1] >> 32) + 100 : 100;
             for (int key = 0; key < 2048; key++)
             {
                 if (!hasNotes[key]) continue;
                 
                 int note = key & 0x7F;
                 int channel = key >> 7;
+                int colorIndex = (trackColorBase + channel) & 0xFF;
                 
                 while (stacks[key].HasNotes)
                 {
@@ -229,10 +203,45 @@ namespace SharpMIDI.Renderer
                         int duration = fallbackEnd - startTick;
                         if (duration < 1) duration = 1;
                         
-                        SliceNote(startTick, duration, note, channel, buckets, capacity, bucketSize, maxDuration, bucketsLen);
+                        SliceNote(startTick, duration, note, colorIndex, sharedBuckets, 
+                                 estimatedNotesPerBucket, bucketSize, maxDuration, bucketsLen);
                     }
                 }
             }
+        }
+
+        /// <summary>
+        /// Finalize buckets after all tracks processed
+        /// </summary>
+        public static void FinalizeBuckets()
+        {
+            if (sharedBuckets == null) return;
+
+            int bucketCount = sharedBuckets.Length;
+            uint[][] finalBuckets = new uint[bucketCount][];
+            long totalNotes = 0;
+
+            // Convert to arrays
+            for (int i = 0; i < bucketCount; i++)
+            {
+                List<uint>? bucket = sharedBuckets[i];
+                if (bucket != null)
+                {
+                    finalBuckets[i] = bucket.ToArray();
+                    totalNotes += finalBuckets[i].Length;
+                }
+            }
+
+            SortedBuckets = finalBuckets;
+            TotalNoteCount = totalNotes;
+            
+            // Sort in parallel
+            System.Threading.Tasks.Parallel.For(0, bucketCount, SortBucket);
+
+            // Clear temp buckets
+            sharedBuckets = null;
+            
+            IsReady = true;
         }
 
         [MethodImpl(MethodImplOptions.AggressiveOptimization)]
@@ -258,11 +267,11 @@ namespace SharpMIDI.Renderer
 
                 uint packed = PackNote(relStart, chunkDur, noteNum, colorIdx);
                 
-                // Double-checked locking for bucket initialization
+                // Thread-safe bucket access
                 List<uint>? bucket = buckets[bucketIdx];
                 if (bucket == null)
                 {
-                    lock (buckets)
+                    lock (bucketsLock)
                     {
                         bucket = buckets[bucketIdx];
                         if (bucket == null)
@@ -289,13 +298,13 @@ namespace SharpMIDI.Renderer
             uint[]? bucket = SortedBuckets[idx];
             if (bucket == null || bucket.Length <= 1) return;
 
-            // Sort by relative start for temporal coherency
             Array.Sort(bucket, (n1, n2) => (int)(n1 & RELSTART_MASK) - (int)(n2 & RELSTART_MASK));
         }
 
         private static void ClearAllData()
         {
             SortedBuckets = Array.Empty<uint[]>();
+            sharedBuckets = null;
             TotalNoteCount = 0;
         }
 

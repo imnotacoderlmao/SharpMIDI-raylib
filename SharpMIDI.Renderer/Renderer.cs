@@ -6,15 +6,6 @@ namespace SharpMIDI.Renderer
     {
         public static bool ready => NoteProcessor.IsReady;
         public static bool run => WindowManager.IsRunning;
-
-        /// <summary>
-        /// Processes MIDI tracks and prepares notes for rendering
-        /// </summary>
-        public static void EnhanceTracksForRendering()
-        {
-            NoteProcessor.EnhanceTracksForRendering();
-        }
-
         /// <summary>
         /// Starts the rendering window and main loop
         /// </summary>

@@ -76,6 +76,7 @@ namespace SharpMIDI
             // ensure tick never jumps backwards
             if (tick < posTick)
                 tick = posTick;
+            //Console.WriteLine($"Tempo in pos {posTick} with value {microTempo} ({bpm})");
         }
 
         public static void Stop()

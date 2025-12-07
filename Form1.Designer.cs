@@ -133,7 +133,7 @@
             label7.Name = "label7";
             label7.Size = new Size(496, 15);
             label7.TabIndex = 8;
-            label7.Text = "Memory Usage: 0 B";
+            label7.Text = "GC Heap: 0 B";
             // 
             // radioButton1
             // 
@@ -264,7 +264,7 @@
             label3.Name = "label3";
             label3.Size = new Size(302, 15);
             label3.TabIndex = 25;
-            label3.Text = "Played events: 0 / 0";
+            label3.Text = "Played: 0 / 0";
             // 
             // label12
             // 
@@ -370,7 +370,7 @@
             label16.Name = "label16";
             label16.Size = new Size(261, 15);
             label16.TabIndex = 37;
-            label16.Text = "TPS: N/A";
+            label16.Text = "Ticks/sec: N/A";
             // 
             // label17
             // 

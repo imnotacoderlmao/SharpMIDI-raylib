@@ -5,12 +5,12 @@ namespace SharpMIDI
     {
         private static List<long> trackLocations = new List<long>();
         private static List<uint> trackSizes = new List<uint>();
-        static Stream? midi;
+        static Stream? midistream;
         public static long totalNotes = 0;
         public static long loadedNotes = 0;
         public static long eventCount = 0;
         public static int maxTick = 0;
-        public static int tks = 0;
+        public static int trackAmount = 0;
 
         static void Crash(string test)
         {
@@ -20,85 +20,123 @@ namespace SharpMIDI
 
         public static async void LoadPath(string path, byte thres, int tracklimit)
         {
-            midi = File.OpenRead(path);
+            midistream = File.OpenRead(path);
+            
             bool find = FindText("MThd");
-            if (!find) { Crash("Unexpected EoF searching for MThd"); }
+            if (!find) 
+                Crash("Unexpected EoF searching for MThd"); 
+            
             uint size = ReadInt32();
             int fmt = ReadInt16();
             int tracks = ReadInt16();
             int ppq = ReadInt16();
+
+            if (size != 6)
+                Crash($"Incorrect header size of {size}");
+            if (fmt == 2)
+                Crash("MIDI format 2 unsupported");
+            if (ppq < 0)
+                Crash("PPQ is negative");
+
             int totaltracks = 0;
-            tks = tracks;
-            if (size != 6) { Crash("Incorrect header size of " + size); }
-            if (fmt == 2) { Crash("MIDI format 2 unsupported"); }
-            if (ppq < 0) { Crash("PPQ is negative"); }
+            trackAmount = tracks;
+            
             MIDIClock.ppq = ppq;
-            Starter.form.label6.Text = "PPQ: "+ppq;
-            Starter.form.label10.Text = "Loaded tracks: 0 / ??? ("+tracks+")";
-            midi = new StreamReader(path).BaseStream;
-            tks = 0;
-            VerifyHeader();
+            Starter.form.label6.Text = $"PPQ: {ppq}";
+            Starter.form.label10.Text = $"Loaded tracks: 0 / ??? ({tracks})";
+            
+            midistream = new StreamReader(path).BaseStream;
+            trackAmount = 0;
+            
             Console.WriteLine("Indexing MIDI tracks...");
-            while (midi.Position < midi.Length)
+            VerifyHeader();
+            while (midistream.Position < midistream.Length)
             {
                 bool success = IndexTrack();
-                Starter.form.label10.Text = "Loaded tracks: 0 / "+tks+" (" + tracks + ")";
-                if (!success) { break; }
+                Starter.form.label10.Text = $"Loaded tracks: 0 / {trackAmount} ( {tracks} )";
+                if (!success)
+                    break;
             }
-            Starter.form.label10.Text = "Loaded tracks: 0 / " + tks;
-            List<long>[] tempLists = new List<long>[tks];
-            for(int i = 0; i < tks; i++)
+            Starter.form.label10.Text = $"Loaded tracks: 0 / {trackAmount}";
+            
+            List<long>[] tempLists = new List<long>[trackAmount];
+            for(int i = 0; i < trackAmount; i++)
             {
                 tempLists[i] = new List<long>();
             }
-            midi.Position++;
+            
+            midistream.Position++;
             int loops = 0;
-            Parallel.For(0, tks, (i) =>
+            Parallel.For(0, trackAmount, (i) =>
             {
                 if (Interlocked.Increment(ref loops) <= tracklimit)
                 {
-                    Console.WriteLine("Loading track #" + (i + 1) + " | Size " + trackSizes[i]);
-                    int bufSize = (int)Math.Min(2147483647, trackSizes[i]/4);
+                    Console.WriteLine($"Loading track #{i + 1} | Size {trackSizes[i]}");
+                    
+                    // this shouldntve worked at all, but it deadass makes >2gb track loading possible
+                    int bufSize = (int)Math.Min(Int32.MaxValue, trackSizes[i]/4);
+                    // along with lower memory usage. which i mean if it works it works alr :sob:
+                    
                     FastTrack temp = new FastTrack(
-                        new BufferByteReader(midi, bufSize, trackLocations[i], trackSizes[i])
+                        new BufferByteReader(midistream, bufSize, trackLocations[i], trackSizes[i])
                     );
                     temp.ParseTrackEvents(thres, tempLists[i]);
+                    
                     // update counters
                     Interlocked.Add(ref loadedNotes, temp.loadedNotes);
                     Interlocked.Add(ref totalNotes, temp.totalNotes);
                     Interlocked.Add(ref eventCount, temp.eventAmount);
                     totaltracks++;
-                    Starter.form.label10.Text = "Loaded tracks: " + loops + " / " + tks;
-                    Starter.form.label5.Text = "Notes: " + loadedNotes + " / " + totalNotes;
+                    
+                    Starter.form.label10.Text = $"Loaded tracks: {loops} / {trackAmount}";
+                    Starter.form.label5.Text = $"Notes: {loadedNotes} / {totalNotes}";
                     temp.Dispose();
                 }
             });
-            midi.Close();
-            Starter.form.label10.Text = "Loaded tracks: " + totaltracks + " / " + MIDILoader.tks;
-            ulong totalEvents = 0;
-            for (int i = 0; i < tks; i++)
+            midistream.Close();
+            Starter.form.label10.Text = $"Loaded tracks: {totaltracks} / {MIDILoader.trackAmount}";
+            
+            Console.WriteLine("preprocessing stuff for the renderer");
+            Renderer.NoteProcessor.InitializeBuckets(maxTick);
+            int bucketCount = (maxTick / Renderer.NoteProcessor.BucketSize) + 2;
+            Parallel.For(0, trackAmount, (i) =>
             {
-                if (tempLists[i] != null)
-                    totalEvents += (ulong)tempLists[i].Count;
+                if (tempLists[i] != null && tempLists[i].Count > 0)
+                {
+                    // Estimate notes for this track (events / 2 for note on/off pairs)
+                    int thisTrackNotes = tempLists[i].Count / 2;
+                    int notesPerBucket = (thisTrackNotes / bucketCount) + 16;
+
+                    Renderer.NoteProcessor.ProcessTrackForRendering(tempLists[i], i, notesPerBucket);
+                }
+            });
+            Renderer.NoteProcessor.FinalizeBuckets();
+            
+            ulong totalEvents = 0;
+            for (int trk = 0; trk < trackAmount; trk++)
+            {
+                if (tempLists[trk] != null)
+                    totalEvents += (ulong)tempLists[trk].Count;
             }
+            
             Console.WriteLine("merging events to one array");
             MIDI.synthEvents = new BigArray<long>(totalEvents);
             unsafe
             {
-                // this might be slower than traditional Array.Sort() but at least it works when events are over 2 billion
                 MergeAllTracks(tempLists, MIDI.synthEvents);
             }
-            for (int t = 0; t < tks; t++) tempLists[t] = null;
-            MIDI.tempoEvents = [.. MIDI.temppos]; // idk wtf this does ngl
-            Array.Sort(MIDI.tempoEvents);
+            
+            for (int trk = 0; trk < trackAmount; trk++) 
+                tempLists[trk] = null;
+            
+            MIDI.tempoEvents = [.. MIDI.temppos];
             MIDI.temppos.Clear();
-            Console.WriteLine("preprocessing stuff for the renderer");
-            await Task.Run(() => Renderer.MIDIRenderer.EnhanceTracksForRendering());
+            
             Starter.form.label2.Text = "Status: Loaded";
             Starter.form.button4.Enabled = true;
-            Starter.form.button4.Update();
             Console.WriteLine("MIDI Loaded");
-            midi.Close();
+            
+            midistream.Close();
         }
         
         public static void Unload()
@@ -107,7 +145,7 @@ namespace SharpMIDI
             loadedNotes = 0;
             eventCount = 0;
             maxTick = 0;
-            tks = 0;
+            trackAmount = 0;
             trackLocations = new List<long>();
             trackSizes = new List<uint>();
             MIDI.synthEvents.Dispose();
@@ -122,11 +160,14 @@ namespace SharpMIDI
             {
                 uint size = ReadInt32();
                 int fmt = ReadInt16();
-                midi.Seek(midi.Position + 2, SeekOrigin.Begin);
+                midistream.Seek(midistream.Position + 2, SeekOrigin.Begin);
                 int ppq = ReadInt16();
-                if (fmt == 2) { Crash("MIDI format 2 unsupported"); }
-                if (ppq < 0) { Crash("PPQ is negative"); }
-                if (size != 6) { Crash("Incorrect header size of " + size); }
+                if (fmt == 2)
+                    Crash("MIDI format 2 unsupported");
+                if (ppq < 0)
+                    Crash("PPQ is negative");
+                if (size != 6)
+                    Crash($"Incorrect header size of {size}");
                 return size;
             }
             else
@@ -142,10 +183,10 @@ namespace SharpMIDI
             if (success)
             {
                 uint size = ReadInt32();
-                trackLocations.Add(midi.Position);
+                trackLocations.Add(midistream.Position);
                 trackSizes.Add(size);
-                midi.Position += size;
-                tks++;
+                midistream.Position += size;
+                trackAmount++;
                 return true;
             }
             else
@@ -156,17 +197,17 @@ namespace SharpMIDI
 
         public static unsafe void MergeAllTracks(List<long>[] trackEvents, BigArray<long> output)
         {
-            int tks = trackEvents.Length;
+            int trackAmount = trackEvents.Length;
             ulong outPos = 0;
 
             // Min-heap of (value, track index)
             var heap = new PriorityQueue<(long value, int track), long>();
 
             // Per-track index
-            int[] idx = new int[tks];
+            int[] idx = new int[trackAmount];
 
             // Initialize heap with the first element of each non-empty list
-            for (int t = 0; t < tks; t++)
+            for (int t = 0; t < trackAmount; t++)
             {
                 var list = trackEvents[t];
                 if (list != null && list.Count > 0)
@@ -191,6 +232,10 @@ namespace SharpMIDI
                     long val2 = list[next];
                     heap.Enqueue((val2, t), val2);
                 }
+                else
+                {
+                    trackEvents[t] = null;
+                }
             }
         }
 
@@ -198,7 +243,7 @@ namespace SharpMIDI
         {
             uint length = 0;
             for (int i = 0; i != 4; i++)
-                length = (uint)((length << 8) | (byte)midi.ReadByte());
+                length = (uint)((length << 8) | (byte)midistream.ReadByte());
             return length;
         }
 
@@ -206,7 +251,7 @@ namespace SharpMIDI
         {
             ushort length = 0;
             for (int i = 0; i != 2; i++)
-                length = (ushort)((length << 8) | (byte)midi.ReadByte());
+                length = (ushort)((length << 8) | (byte)midistream.ReadByte());
             return length;
         }
 
@@ -214,13 +259,13 @@ namespace SharpMIDI
         {
             foreach (char l in text)
             {
-                int test = midi.ReadByte();
+                int test = midistream.ReadByte();
                 if (test != l)
                 {
                     if(test == -1){
                         return false;
                     } else {
-                        Crash("Header issue searching for " + text);
+                        Crash($"Header issue searching for {text}");
                     }
                 }
             }

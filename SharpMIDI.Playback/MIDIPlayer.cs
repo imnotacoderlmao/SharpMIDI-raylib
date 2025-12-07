@@ -1,18 +1,19 @@
-﻿using Microsoft.VisualBasic.Devices;
-
-namespace SharpMIDI
+﻿namespace SharpMIDI
 {
     static unsafe class MIDIPlayer
     {
         public static int clock = 0, totalFrames = 0;
         public static long playedEvents = 0;
-        public static bool stopping = false;
+        public static bool stopping;
         public static void StartPlayback()
         {
             stopping = false;
-            long* evs = MIDI.synthEvents.Pointer;
-            long* evend = evs + MIDI.synthEvents.Length;
-            long* p0 = evs;
+            // this could be done better but whatever
+            var synthev = MIDI.synthEvents;
+            long* evend = synthev.Pointer + synthev.Length;
+            long* evs = synthev.Pointer;
+            long* ev = evs;
+            
             long[] tev = MIDI.tempoEvents;
             int maxTick = MIDILoader.maxTick;
             MIDIClock.Start();
@@ -21,11 +22,8 @@ namespace SharpMIDI
                 long* tevs = t0;
                 long* tevend = t0 + tev.Length;
                 
-                long evval = (evs < evend ? *evs : long.MaxValue);
-                long tevval = (tevs < tevend ? *tevs : long.MaxValue);
-                
-                int ePos = (int)(evval >> 32);
-                int tPos = (int)(tevval >> 32);
+                int ePos = (int)(*ev >> 32);
+                int tPos = (int)(*ev >> 32);
                 while (!stopping)
                 {
                     int localclock = (int)MIDIClock.GetTick();
@@ -35,23 +33,36 @@ namespace SharpMIDI
                             break;
                         if (ePos <= tPos)
                         {
-                            Sound.Submit((uint)evval);
-                            ++evs;
-                            evval = (evs < evend ? *evs : long.MaxValue);
-                            ePos = (int)(evval >> 32);
+                            Sound.Submit((uint)*ev);
+                            ++ev;
+                            if (ev < evend) 
+                            {
+                                ePos = (int)(*ev >> 32);
+                            } 
+                            else 
+                            {
+                                ePos = int.MaxValue;
+                            }
                         }
                         else
                         {
-                            MIDIClock.SubmitBPM(tPos, tevval);
+                            // playack kills itself when a tempo event happens cause it was also reading the upper 32 bits lmao
+                            MIDIClock.SubmitBPM(tPos, *tevs & 0xFFFFFF);
                             ++tevs;
-                            tevval = (tevs < tevend ? *tevs : long.MaxValue);
-                            tPos = (int)(tevval >> 32);
+                            if (tevs < tevend) 
+                            {
+                                tPos = (int)(*tevs >> 32);
+                            } 
+                            else 
+                            {
+                                tPos = int.MaxValue;
+                            }
                         }
                     }
                     // for the sake of less writes to ui stuff
                     if (localclock != clock)
                     {
-                        playedEvents = evs - p0;
+                        playedEvents = ev - evs;
                         clock = localclock;
                     }
                     ++totalFrames;

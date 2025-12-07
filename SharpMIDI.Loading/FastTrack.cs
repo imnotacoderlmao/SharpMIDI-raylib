@@ -6,7 +6,7 @@ namespace SharpMIDI
         public long eventAmount = 0;
         public long loadedNotes = 0;
         public long totalNotes = 0;
-        public List<long> localEvents = new List<long>();
+        public List<long> localEvents;
         public List<int[]> skippedNotes = new List<int[]>();
         BufferByteReader stupid;
         public FastTrack(BufferByteReader reader)
@@ -161,9 +161,9 @@ namespace SharpMIDI
                                         if (readEvent == 0x51)
                                         {
                                             stupid.Skip(1);
-                                            int tempo = 0;
+                                            uint tempo = 0;
                                             for (int i = 0; i != 3; i++)
-                                                tempo = (tempo << 8) | stupid.Read();
+                                                tempo = (uint)((tempo << 8) | stupid.Read());
                                             long data = ((long)localtracktime << 32) | tempo;
                                             MIDI.temppos.Add(data);
                                         }
