@@ -13,7 +13,7 @@ namespace SharpMIDI
             ApplicationConfiguration.Initialize();
             Application.Run(form);
         }
-        public static void SubmitMIDIPath(string path)
+        public static async Task SubmitMIDIPath(string path)
         {
             Console.WriteLine("Loading MIDI file: " + path);
             midiLoaded = true;
@@ -22,7 +22,7 @@ namespace SharpMIDI
             filename = Path.GetFileName(path);
             byte veltreshold = (byte)form.numericUpDown1.Value;
             ushort tracklimit = (ushort)form.numericUpDown3.Value;
-            MIDILoader.LoadPath(path, veltreshold, tracklimit);
+            await Task.Run(()=>MIDILoader.LoadPath(path, veltreshold, tracklimit));
         }
     }
 }

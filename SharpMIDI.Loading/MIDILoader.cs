@@ -37,9 +37,6 @@ namespace SharpMIDI
                 Crash("MIDI format 2 unsupported");
             if (ppq < 0)
                 Crash("PPQ is negative");
-
-            int totaltracks = 0;
-            trackAmount = tracks;
             
             MIDIClock.ppq = ppq;
             Starter.form.label6.Text = $"PPQ: {ppq}";
@@ -67,6 +64,7 @@ namespace SharpMIDI
             
             midistream.Position++;
             int loops = 0;
+            int totaltracks = 0;
             Parallel.For(0, trackAmount, (i) =>
             {
                 if (Interlocked.Increment(ref loops) <= tracklimit)
@@ -74,7 +72,7 @@ namespace SharpMIDI
                     Console.WriteLine($"Loading track #{i + 1} | Size {trackSizes[i]}");
                     
                     // this shouldntve worked at all, but it deadass makes >2gb track loading possible
-                    int bufSize = (int)Math.Min(Int32.MaxValue, trackSizes[i]/4);
+                    int bufSize = (int)Math.Min(int.MaxValue, trackSizes[i]/4);
                     // along with lower memory usage. which i mean if it works it works alr :sob:
                     
                     FastTrack temp = new FastTrack(
@@ -94,7 +92,7 @@ namespace SharpMIDI
                 }
             });
             midistream.Close();
-            Starter.form.label10.Text = $"Loaded tracks: {totaltracks} / {MIDILoader.trackAmount}";
+            Starter.form.label10.Text = $"Loaded tracks: {totaltracks} / {trackAmount}";
             
             Console.WriteLine("preprocessing stuff for the renderer");
             Renderer.NoteProcessor.InitializeBuckets(maxTick);

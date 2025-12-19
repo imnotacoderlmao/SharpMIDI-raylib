@@ -84,9 +84,8 @@ namespace SharpMIDI
         
         public static void Submit(uint ev)
         {
-            int h = head;
-            ring[h] = ev;
-            head = (h + 1) & mask; // wrap
+            ring[head] = ev;
+            head = (head + 1) & mask; // wrap
         }
 
         static void StartAudioThread()

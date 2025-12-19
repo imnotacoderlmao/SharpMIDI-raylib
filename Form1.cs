@@ -86,7 +86,7 @@ namespace SharpMIDI
             int soundEngine = 1;
             string? winMMdev = (string?)comboBox1.SelectedItem;
             if (radioButton2.Checked) { soundEngine = 2; } else if (radioButton3.Checked) { soundEngine = 3; }
-            Console.WriteLine("Loading sound engine ID " + soundEngine);
+            Console.WriteLine($"Loading sound engine ID {soundEngine}");
             ToggleSynthSettings(false);
             button1.Enabled = Sound.Init(soundEngine, winMMdev!) && !Starter.midiLoaded;
             label13.Visible = !button1.Enabled && !Starter.midiLoaded;
