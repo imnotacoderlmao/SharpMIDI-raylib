@@ -38,11 +38,11 @@ namespace SharpMIDI
                 totalDelay += watch.Elapsed.TotalSeconds;
                 watch.Restart();
                 fps = (fps * 0.4) + ((MIDIPlayer.totalFrames / totalDelay) * 0.6);
-                if(fps > 60)  Starter.form.label12.Text = $"FPS \u2248 {Math.Round(fps,5)}";
+                if (fps > 60) Starter.form.label12.Text = $"FPS \u2248 {Math.Round(fps,5)}";
                 else Starter.form.label12.Text = "FPS \u2248 <60";
                 Starter.form.label3.Text = $"Played: {MIDIPlayer.playedEvents} / {MIDILoader.eventCount}";
-                Starter.form.label14.Text = $"Tick: {MIDIPlayer.clock} / {MIDILoader.maxTick}";
-                Starter.form.label16.Text = $"Ticks/sec: {Math.Round((1 / MIDIClock.rawticklen) / (double)Renderer.WindowManager.speed, 5)}";
+                Starter.form.label14.Text = $"Tick: {(int)MIDIClock.tick} / {MIDILoader.maxTick}";
+                Starter.form.label16.Text = $"Ticks/sec: {Math.Round(MIDIClock.tickscale, 5)}";
                 Starter.form.label17.Text = $"BPM: {Math.Round(MIDIClock.bpm, 5)}";
                 Starter.form.label7.Text = $"GC Heap: {Form1.toMemoryText(GC.GetTotalMemory(false))} (May be inaccurate)";
                 MIDIPlayer.totalFrames = 0;

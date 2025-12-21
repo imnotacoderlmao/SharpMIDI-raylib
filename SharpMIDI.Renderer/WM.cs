@@ -7,7 +7,6 @@ namespace SharpMIDI.Renderer
         public const int PAD = 20;
         private static float scrollfactor = 1f;
         public static float tick = 0f;
-        public static decimal speed = 1;
         // Dynamic window dimensions
         private static int currentWidth = 1280;
         private static int currentHeight = 720;
@@ -46,7 +45,7 @@ namespace SharpMIDI.Renderer
                 // this WILL set the last elapsed time in getelapsed(), which makes throttling useless
                 //tick = (float)MIDIClock.GetTick();
                 
-                tick = (float)MIDIPlayer.clock;
+                tick = (float)MIDIClock.tick;
                 if (MIDIPlayer.stopping) 
                 {
                     tick = 0;
@@ -55,8 +54,8 @@ namespace SharpMIDI.Renderer
                 }
 
                 //performance intensive since this forces a full rebuild every bpm change so hmmmm
-                if (dynascroll && NoteRenderer.Window != 1 / MIDIClock.rawticklen) 
-                    NoteRenderer.SetWindow((float)(1 / MIDIClock.rawticklen) * scrollfactor); 
+                if (dynascroll && NoteRenderer.Window != MIDIClock.tickscale) 
+                    NoteRenderer.SetWindow((float)MIDIClock.tickscale * scrollfactor); 
 
                 // Update the streaming texture using NoteProcessor data.
                 // Lock around NoteProcessor to avoid racing with EnhanceTracksForRendering().
@@ -139,14 +138,8 @@ namespace SharpMIDI.Renderer
 
             // Seeking controls
             if (Raylib.IsKeyPressed(KeyboardKey.Right) || Raylib.IsKeyPressedRepeat(KeyboardKey.Right))
-            {
-                if(speed < 1) speed += 0.05M;
-                else MIDIClock.tick += 1 / MIDIClock.rawticklen;
-            }
-            
-            if (Raylib.IsKeyPressed(KeyboardKey.Left) || Raylib.IsKeyPressedRepeat(KeyboardKey.Left))
-            {
-                speed -= 0.05M;
+            { 
+                MIDIClock.tick += MIDIClock.tickscale;
             }
             // Toggle controls
             if (Raylib.IsKeyPressed(KeyboardKey.S)) dynascroll = !dynascroll;
@@ -174,7 +167,6 @@ namespace SharpMIDI.Renderer
                    .Append(" | Zoom: ").Append((int)NoteRenderer.Window)
                    //.Append(" | Glow: ").Append("broken")
                    .Append(" | FPS: ").Append(Raylib.GetFPS());
-                   if(speed > 1 || speed < 1)tickStr.Append(" | Speed: ").Append(speed).Append('x');   
             Raylib.DrawText(tickStr.ToString(), 12, 4, 16, Raylib_cs.Color.Green);
             if (Debug)
             {

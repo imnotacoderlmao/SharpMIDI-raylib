@@ -4,22 +4,21 @@ namespace SharpMIDI
 {
     static unsafe class Sound
     {
-        public static uint[] ring;      // buffer
-        public static int head;         // write index
-        public static int tail;         // read index
-        public static int mask;         // bufferSize - 1
+        static uint[] ring;      // buffer
+        static ushort write;
+        //static ushort read;
+        const int bufferSize = ushort.MaxValue + 1;
         static bool running = false;
         static Thread? audthread;
         
         private static int engine = 0;
-        static string lastWinMMDevice = "";
         private static IntPtr? handle;
-        public static delegate* unmanaged[SuppressGCTransition]<uint,uint> sendTo;
+        static delegate* unmanaged[SuppressGCTransition]<uint,uint> sendTo;
         public static bool Init(int synth, string winMMdev)
         {
             Close();
             AllocateEvBuffer();
-            StartAudioThread();
+            // idk how to start the audio thread in a better way without having sendfn being declared inside the while loop
             switch (synth)
             {
                 case 1:
@@ -29,13 +28,11 @@ namespace SharpMIDI
                     {
                         KDMAPI.InitializeFunctionPointer();
                         int loaded = KDMAPI.InitializeKDMAPIStream();
-                        if (loaded == 1)
-                        {
-                            engine = 1;
-                            sendTo = KDMAPI._sendDirectData;
-                            return true;
-                        }
-                        else { return false; }
+                        if (loaded != 1) return false;
+                        engine = 1;
+                        sendTo = KDMAPI._sendDirectData;
+                        StartAudioThread();
+                        return true;
                     }
                     else { MessageBox.Show("KDMAPI is not available."); return false; }
                 case 2:
@@ -50,7 +47,7 @@ namespace SharpMIDI
                         engine = 2;
                         sendTo = WinMM._midiOutShortMsg;
                         handle = result.Item4;
-                        lastWinMMDevice = winMMdev;
+                        StartAudioThread();
                         return true;
                     }
                 case 3:
@@ -60,15 +57,13 @@ namespace SharpMIDI
                     {
                         XSynth.InitializeFunctionPointer();
                         int loaded = XSynth.InitializeKDMAPIStream();
-                        if (loaded == 1)
-                        {
-                            engine = 3;
-                            sendTo = XSynth._sendDirectData;
-                            return true;
-                        }
-                        else { MessageBox.Show("KDMAPI is not available."); return false; }
+                        if (loaded != 1) return false;
+                        engine = 3;
+                        sendTo = XSynth._sendDirectData;
+                        StartAudioThread();
+                        return true;
                     }
-                    else { return false; }
+                    else { MessageBox.Show("XSynth is not available."); return false; }
                 default:
                     return false;
             }
@@ -76,16 +71,14 @@ namespace SharpMIDI
 
         static void AllocateEvBuffer()
         {    
-            ring = new uint[65536];
-            mask = 65536 - 1;
-            head = 0;
-            tail = 0;
+            ring = new uint[bufferSize];
+            write = 0;
         }
         
         public static void Submit(uint ev)
         {
-            ring[head] = ev;
-            head = (head + 1) & mask; // wrap
+            ring[write] = ev;
+            write++;
         }
 
         static void StartAudioThread()
@@ -101,30 +94,28 @@ namespace SharpMIDI
 
         static void AudioThread()
         {
-            var buffer = ring;
-            ref uint start = ref buffer[0];
-            int m = mask;
-            int t = tail;
-            int hLocal = head;     
+            uint[] buffer = ring;
+            ushort readidx = 0;   
+            ushort writeidx;
+            var sendfn = sendTo;
             SpinWait sw = new SpinWait();
-        
             while (running)
-            {
-                if (t == hLocal)
+            {         
+                writeidx = write;
+                while (readidx != writeidx)
+                {
+                    sendfn(buffer[readidx]);
+                    readidx++;
+                }
+                if (readidx == writeidx)
                 {
                     sw.SpinOnce();
-                    hLocal = head;
                     continue;
-                }
-                _ = Unsafe.Add(ref start, (t + 16) & m);
-                uint ev = buffer[t];
-                sendTo(ev);
-                t = (t + 1) & m;
-                tail = t;
+                }  
             }
         }
         
-        public static void Close()
+        static void Close()
         {
             running = false;
             audthread?.Join(100);

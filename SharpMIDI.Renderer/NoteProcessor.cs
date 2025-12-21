@@ -298,7 +298,7 @@ namespace SharpMIDI.Renderer
             uint[]? bucket = SortedBuckets[idx];
             if (bucket == null || bucket.Length <= 1) return;
 
-            Array.Sort(bucket, (n1, n2) => (int)(n1 & RELSTART_MASK) - (int)(n2 & RELSTART_MASK));
+            Array.Sort(bucket, (pos1, pos2) => (int)(pos1 & RELSTART_MASK) - (int)(pos2 & RELSTART_MASK));
         }
 
         private static void ClearAllData()

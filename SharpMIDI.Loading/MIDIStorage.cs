@@ -15,11 +15,8 @@ namespace SharpMIDI
         public BigArray(ulong length)
         {
             Length = length;
-
             ulong bytes = length * sizeof(long);
-
             ptr = (long*)NativeMemory.Alloc((nuint)bytes);
-            Buffer.MemoryCopy(null, ptr, bytes, 0); // optional zeroing
         }
 
         public long this[ulong index]

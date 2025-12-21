@@ -183,7 +183,6 @@ namespace SharpMIDI
                 }
                 catch (IndexOutOfRangeException)
                 {
-                    localEvents.TrimExcess();
                     break;
                 }
             }
