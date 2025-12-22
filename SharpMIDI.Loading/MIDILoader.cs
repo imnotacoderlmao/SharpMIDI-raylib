@@ -1,4 +1,6 @@
 #pragma warning disable 8602
+using SharpMIDI.Renderer;
+
 namespace SharpMIDI
 {
     static class MIDILoader
@@ -11,6 +13,7 @@ namespace SharpMIDI
         public static long eventCount = 0;
         public static int maxTick = 0;
         public static int trackAmount = 0;
+        public static bool loaded = false;
         static uint headersize = 0; 
         static uint fmt = 0;
         static uint ppq = 0;
@@ -24,6 +27,7 @@ namespace SharpMIDI
 
         public static async Task LoadPath(string path, byte thres, int tracklimit)
         {   
+            loaded = false;
             midistream = File.OpenRead(path);
             VerifyHeader();
 
@@ -73,36 +77,25 @@ namespace SharpMIDI
                 temp.Dispose();
             });
             midistream.Close();
-            
-            Console.WriteLine("preprocessing stuff for the renderer");
-            Renderer.NoteProcessor.InitializeBuckets(maxTick);
-            int bucketCount = (maxTick / Renderer.NoteProcessor.BucketSize) + 2;
-            Parallel.For(0, trackAmount, (i) =>
-            {
-                if (tempLists[i] != null && tempLists[i].Count > 0)
-                {
-                    // Estimate notes for this track (events / 2 for note on/off pairs)
-                    int thisTrackNotes = tempLists[i].Count / 2;
-                    int notesPerBucket = (thisTrackNotes / bucketCount) + 16;
 
-                    Renderer.NoteProcessor.ProcessTrackForRendering(tempLists[i], i, notesPerBucket);
-                }
-            });
-            Renderer.NoteProcessor.FinalizeBuckets();
-            
             Console.WriteLine("merging events to one array");
             MIDI.synthEvents = new BigArray<long>((ulong)eventCount);
             unsafe
             {
                 MergeAllTracks(tempLists, MIDI.synthEvents);
             }
+            MIDIRenderer.InitializeForMIDI();
+            for (int i = 0; i < tempLists.Length; i++)
+                tempLists[i] = null;
             
             MIDI.tempoEvents = [.. MIDI.temppos];
             MIDI.temppos.Clear();
             
             Starter.form.label2.Text = "Status: Loaded";
+            
             Starter.form.button4.Enabled = true;
             Console.WriteLine("MIDI Loaded");
+            loaded = true;
         }
         
         public static void Unload()
@@ -114,6 +107,7 @@ namespace SharpMIDI
             trackAmount = 0;
             trackLocations.Clear();
             trackSizes.Clear();
+            MIDIRenderer.ResetForUnload();
             MIDI.synthEvents.Dispose();
             MIDI.tempoEvents = null;
             GC.Collect();
