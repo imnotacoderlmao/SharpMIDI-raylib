@@ -1,19 +1,21 @@
-using System.Runtime.CompilerServices;
+
+using System.Runtime.InteropServices;
 
 namespace SharpMIDI
 {
     static unsafe class Sound
     {
-        static uint[] ring;      // buffer
-        static ushort write;
+        static uint* ring;      // buffer
+        static uint write;
         //static ushort read;
-        const int bufferSize = ushort.MaxValue + 1;
+        const int bufferSize = 2097152;
+        const int bufferMask = 2097151;
         static bool running = false;
         static Thread? audthread;
         
         private static int engine = 0;
         private static IntPtr? handle;
-        static delegate* unmanaged[SuppressGCTransition]<uint,uint> sendTo;
+        static delegate* unmanaged[SuppressGCTransition]<uint,void> sendTo;
         public static bool Init(int synth, string winMMdev)
         {
             Close();
@@ -71,13 +73,13 @@ namespace SharpMIDI
 
         static void AllocateEvBuffer()
         {    
-            ring = new uint[bufferSize];
+            ring = (uint*)NativeMemory.AlignedAlloc(bufferSize * sizeof(uint), 64);
             write = 0;
         }
         
         public static void Submit(uint ev)
         {
-            ring[write] = ev;
+            ring[write & bufferMask] = ev;
             write++;
         }
 
@@ -94,24 +96,25 @@ namespace SharpMIDI
 
         static void AudioThread()
         {
-            uint[] buffer = ring;
-            ushort readidx = 0;   
-            ushort writeidx;
+            uint* buffer = ring;
+            uint readidx = 0;
             var sendfn = sendTo;
-            SpinWait sw = new SpinWait();
+            
             while (running)
-            {         
-                writeidx = write;
-                while (readidx != writeidx)
+            {
+                uint writeidx = write;
+                
+                while (readidx <= write)
                 {
-                    sendfn(buffer[readidx]);
+                    sendfn(buffer[readidx & bufferMask]);
                     readidx++;
                 }
-                if (readidx == writeidx)
+                
+                if (readidx == writeidx) 
                 {
-                    sw.SpinOnce();
+                    Thread.Sleep(0);
                     continue;
-                }  
+                }
             }
         }
         

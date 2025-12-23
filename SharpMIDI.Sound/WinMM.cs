@@ -29,13 +29,13 @@ namespace SharpMIDI
         static extern uint midiOutOpen(out IntPtr lphMidiOut, uint uDeviceID, IntPtr dwCallback, IntPtr dwInstance, uint dwFlags);
         [DllImport("winmm.dll")]
         public static extern UInt32 midiOutClose(IntPtr hMidiOut);
-        public static delegate* unmanaged[SuppressGCTransition]<uint, uint> _midiOutShortMsg;
+        public static delegate* unmanaged[SuppressGCTransition]<uint, void> _midiOutShortMsg;
         
         public static void InitializeFunctionPointer()
         {
             IntPtr module = NativeLibrary.Load("winmm.dll");
             IntPtr funcPtr = NativeLibrary.GetExport(module, "midiOutShortMsg");
-            _midiOutShortMsg = (delegate* unmanaged[SuppressGCTransition]<uint, uint>)funcPtr;
+            _midiOutShortMsg = (delegate* unmanaged[SuppressGCTransition]<uint, void>)funcPtr;
         }
         
         public static List<String> GetDevices()

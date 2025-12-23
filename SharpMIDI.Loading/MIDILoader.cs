@@ -5,6 +5,11 @@ namespace SharpMIDI
 {
     static class MIDILoader
     {
+        struct TrackQueueHeap
+        {
+            public long value;
+            public int track;
+        }
         private static List<long> trackLocations = new List<long>();
         private static List<uint> trackSizes = new List<uint>();
         static Stream? midistream;
@@ -27,7 +32,6 @@ namespace SharpMIDI
 
         public static async Task LoadPath(string path, byte thres, int tracklimit)
         {   
-            loaded = false;
             midistream = File.OpenRead(path);
             VerifyHeader();
 
@@ -84,9 +88,6 @@ namespace SharpMIDI
             {
                 MergeAllTracks(tempLists, MIDI.synthEvents);
             }
-            MIDIRenderer.InitializeForMIDI();
-            for (int i = 0; i < tempLists.Length; i++)
-                tempLists[i] = null;
             
             MIDI.tempoEvents = [.. MIDI.temppos];
             MIDI.temppos.Clear();
@@ -95,11 +96,13 @@ namespace SharpMIDI
             
             Starter.form.button4.Enabled = true;
             Console.WriteLine("MIDI Loaded");
+            MIDIRenderer.InitializeForMIDI();
             loaded = true;
         }
         
         public static void Unload()
         {
+            loaded = false;
             totalNotes = 0;
             loadedNotes = 0;
             eventCount = 0;
@@ -157,44 +160,83 @@ namespace SharpMIDI
 
         public static unsafe void MergeAllTracks(List<long>[] trackEvents, BigArray<long> output)
         {
-            int trackAmount = trackEvents.Length;
+            int trackCount = trackEvents.Length;
             ulong outPos = 0;
 
-            // Min-heap of (value, track index)
-            var heap = new PriorityQueue<(long value, int track), long>();
-
             // Per-track index
-            int[] idx = new int[trackAmount];
+            int[] idx = new int[trackCount];
 
-            // Initialize heap with the first element of each non-empty list
-            for (int t = 0; t < trackAmount; t++)
+            // Heap (max tracks is small)
+            TrackQueueHeap[] heap = new TrackQueueHeap[trackCount];
+            int heapSize = 0;
+
+            // Build initial heap
+            for (int t = 0; t < trackCount; t++)
             {
                 var list = trackEvents[t];
-                if (list != null && list.Count > 0)
+                if (list != null && list.Count != 0)
                 {
-                    heap.Enqueue((list[0], t), list[0]);
+                    heap[heapSize++] = new TrackQueueHeap
+                    {
+                        value = list[0],
+                        track = t
+                    };
                 }
             }
 
-            while (heap.TryDequeue(out var entry, out long _))
+            // Heapify
+            for (int i = (heapSize >> 1) - 1; i >= 0; i--)
+                SiftDown(heap, heapSize, i);
+
+            long* outPtr = output.Pointer;
+
+            while (heapSize > 0)
             {
-                long value = entry.value;
-                int t = entry.track;
+                // Pop smallest
+                var top = heap[0];
+                outPtr[outPos++] = top.value;
 
-                // Store to output buffer
-                output.Pointer[outPos++] = value;
-
-                // Advance index & push next element
+                int t = top.track;
                 int next = ++idx[t];
+
                 var list = trackEvents[t];
                 if (next < list.Count)
                 {
-                    long val2 = list[next];
-                    heap.Enqueue((val2, t), val2);
+                    heap[0].value = list[next];
+                    heap[0].track = t;
                 }
+                else
+                {
+                    heap[0] = heap[--heapSize];
+                    trackEvents[t] = null;
+                }
+
+                if (heapSize > 0)
+                    SiftDown(heap, heapSize, 0);
             }
         }
+        
+        static void SiftDown(TrackQueueHeap[] heap, int size, int i)
+        {
+            while (true)
+            {
+                int left = (i << 1) + 1;
+                if (left >= size) return;
 
+                int right = left + 1;
+                int smallest = left;
+
+                if (right < size && heap[right].value < heap[left].value)
+                    smallest = right;
+
+                if (heap[i].value <= heap[smallest].value)
+                    return;
+
+                (heap[i], heap[smallest]) = (heap[smallest], heap[i]);
+                i = smallest;
+            }
+        }
+        
         static uint ReadUInt32()
         {
             uint length = 0;

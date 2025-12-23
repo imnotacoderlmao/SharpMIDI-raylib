@@ -22,7 +22,7 @@ namespace SharpMIDI.Renderer
         {
             if (IsRunning) return;
             IsRunning = true;
-            Task.Run(RenderLoop);
+            RenderLoop();
         }
 
         private static void RenderLoop()
@@ -32,7 +32,6 @@ namespace SharpMIDI.Renderer
 
             int targetFPS = Raylib.GetMonitorRefreshRate(Raylib.GetCurrentMonitor());
             Raylib.SetTargetFPS(vsync ? targetFPS : 0);
-
             while (IsRunning)
             {
                 CheckResize();

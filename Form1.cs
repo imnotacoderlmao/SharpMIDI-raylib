@@ -1,5 +1,7 @@
 #pragma warning disable 8622
 using System.Runtime.InteropServices;
+using System.Threading.Tasks;
+using SharpMIDI.Renderer;
 
 namespace SharpMIDI
 {
@@ -25,7 +27,8 @@ namespace SharpMIDI
             {
                 comboBox1.Items.Add(i);
             }
-            Renderer.WindowManager.StartRenderer();
+            worker = new Thread(WindowManager.StartRenderer){ IsBackground = true };
+            worker.Start();
             Task.Run(() => UpdateUI());
         }
 
@@ -61,7 +64,7 @@ namespace SharpMIDI
             button3.Enabled = t;
         }
 
-        private void button1_Click(object sender, EventArgs e)
+        private async void button1_Click(object sender, EventArgs e)
         {
             using (OpenFileDialog openFileDialog = new OpenFileDialog())
             {
@@ -71,7 +74,7 @@ namespace SharpMIDI
                 openFileDialog.RestoreDirectory = true;
                 if (openFileDialog.ShowDialog() == DialogResult.OK)
                 {
-                    Starter.SubmitMIDIPath(openFileDialog.FileName);
+                    await Starter.SubmitMIDIPath(openFileDialog.FileName);
                     button2.Enabled = true;
                 }
                 else

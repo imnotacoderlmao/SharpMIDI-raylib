@@ -22,7 +22,7 @@ namespace SharpMIDI
             filename = Path.GetFileName(path);
             byte veltreshold = (byte)form.numericUpDown1.Value;
             ushort tracklimit = (ushort)form.numericUpDown3.Value;
-            await Task.Run(()=>MIDILoader.LoadPath(path, veltreshold, tracklimit));
+            await MIDILoader.LoadPath(path, veltreshold, tracklimit);
         }
     }
 }

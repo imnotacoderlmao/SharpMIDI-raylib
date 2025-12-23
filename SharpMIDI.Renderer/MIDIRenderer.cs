@@ -28,10 +28,9 @@ namespace SharpMIDI.Renderer
             0xFF00FA92, 0xFF00FFFF, 0xFFF7DB05, 0xFF4040FF,
         };
 
-        private static ulong searchCursor;
         private static ulong playbackCursor;
 
-        public static float WindowTicks { get; private set; } = 1000f;
+        public static float WindowTicks { get; private set; } = 2000f;
         public static int NotesDrawnLastFrame;
 
         // Texture buffer
@@ -40,10 +39,11 @@ namespace SharpMIDI.Renderer
         private static int texWidth;
         private static int texHeight;
         private static int texSize;
+
         public static void Initialize(int width)
         {
             if (renderTex.Id != 0)
-            Raylib.UnloadTexture(renderTex);
+                Raylib.UnloadTexture(renderTex);
         
             if (texPtr != null)
             {
@@ -66,7 +66,6 @@ namespace SharpMIDI.Renderer
         {
             activeNoteStart = (uint*)NativeMemory.AlignedAlloc((nuint)(TOTAL_KEYS * sizeof(uint)), 32);
             
-            // Fast memset using Vector256 if available
             if (Avx2.IsSupported)
             {
                 Vector256<uint> inactiveVec = Vector256.Create(INACTIVE);
@@ -84,9 +83,9 @@ namespace SharpMIDI.Renderer
                     activeNoteStart[i] = INACTIVE;
             }
             
-            searchCursor = 0;
             playbackCursor = 0;
             isInitialized = true;
+            Console.WriteLine("Renderer initialized");
         }
 
         public static void ResetForUnload()
@@ -96,7 +95,6 @@ namespace SharpMIDI.Renderer
                 NativeMemory.AlignedFree(activeNoteStart);
                 activeNoteStart = null;
             }
-            searchCursor = 0;
             playbackCursor = 0;
             isInitialized = false;
         }
@@ -175,7 +173,6 @@ namespace SharpMIDI.Renderer
             if (!isInitialized || MIDI.synthEvents == null) return;
 
             playbackCursor = 0;
-            searchCursor = 0;
             
             if (Avx2.IsSupported)
             {
@@ -229,6 +226,47 @@ namespace SharpMIDI.Renderer
         }
 
         [MethodImpl(MethodImplOptions.AggressiveOptimization)]
+        private static void DrawHorizontalLine(int x1, int x2, int y, uint color)
+        {
+            if (y < 0 || y >= texHeight) return;
+            if (x2 < 0 || x1 >= texWidth) return;
+            
+            x1 = Math.Max(0, x1);
+            x2 = Math.Min(texWidth - 1, x2);
+            
+            int width = x2 - x1 + 1;
+            if (width <= 0) return;
+            
+            uint* rowStart = texPtr + y * texWidth + x1;
+            
+            // SIMD-accelerated horizontal line
+            if (Avx2.IsSupported && width >= 8)
+            {
+                Vector256<uint> colorVec = Vector256.Create(color);
+                int vecCount = width / 8;
+                
+                for (int i = 0; i < vecCount; i++)
+                {
+                    Avx.Store(rowStart + i * 8, colorVec);
+                }
+                
+                // Remainder
+                int remaining = width - (vecCount * 8);
+                if (remaining > 0)
+                {
+                    uint* rem = rowStart + vecCount * 8;
+                    for (int i = 0; i < remaining; i++)
+                        rem[i] = color;
+                }
+            }
+            else
+            {
+                for (int i = 0; i < width; i++)
+                    rowStart[i] = color;
+            }
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveOptimization)]
         public static void Render(int width, int height, int pad)
         {
             ClearFast();
@@ -236,13 +274,16 @@ namespace SharpMIDI.Renderer
             if (!isInitialized || MIDI.synthEvents == null)
                 return;
 
-            // Reset on stop
             if (MIDIPlayer.stopping)
             {
                 ResetToTick(0);
-                searchCursor = 0;
                 Raylib.UpdateTexture(renderTex, (void*)texPtr);
-                Raylib.DrawTexture(renderTex, 0, 0, Raylib_cs.Color.White);
+                Raylib.DrawTexturePro(
+                    renderTex,
+                    new Raylib_cs.Rectangle(0, 0, texWidth, 128),
+                    new Raylib_cs.Rectangle(0, pad, width, height - pad * 2),
+                    new Vector2(0, 0), 0.0f, Raylib_cs.Color.White
+                );
                 return;
             }
 
@@ -255,116 +296,177 @@ namespace SharpMIDI.Renderer
             long* events = MIDI.synthEvents.Pointer;
             ulong len = MIDI.synthEvents.Length;
 
-            // Binary search for optimal cursor position
-            if (searchCursor > 0 && searchCursor < len)
+            // Binary search to find first visible event
+            ulong searchStart = 0;
             {
-                int searchTick = (int)(events[searchCursor] >> 32);
-                int targetTick = (int)(viewStart - WindowTicks);
+                int targetTick = Math.Max(0, (int)(viewStart - WindowTicks));
+                ulong left = 0, right = len > 0 ? len - 1 : 0;
                 
-                if (Math.Abs(searchTick - targetTick) > WindowTicks)
+                while (left < right)
                 {
-                    ulong left = 0, right = len - 1;
-                    while (left < right)
-                    {
-                        ulong mid = (left + right) >> 1;
-                        if ((events[mid] >> 32) < targetTick)
-                            left = mid + 1;
-                        else
-                            right = mid;
-                    }
-                    searchCursor = left;
+                    ulong mid = (left + right) >> 1;
+                    if ((int)(events[mid] >> 32) < targetTick)
+                        left = mid + 1;
+                    else
+                        right = mid;
                 }
+                searchStart = left;
             }
 
-            while (searchCursor > 0 && (events[searchCursor] >> 32) > viewStart - WindowTicks)
-                searchCursor--;
-            
-            while (searchCursor < len && (events[searchCursor] >> 32) < viewStart - WindowTicks)
-                searchCursor++;
-
-            // Stack-allocated render state
-            uint* renderActiveNotes = stackalloc uint[TOTAL_KEYS];
-            Buffer.MemoryCopy(activeNoteStart, renderActiveNotes, TOTAL_KEYS * sizeof(uint), TOTAL_KEYS * sizeof(uint));
-
-            // Precompute tick-to-pixel conversion
-            float ticksPerPixel = WindowTicks / width;
+            // Precompute conversion factors
+            float ticksPerPixel = WindowTicks / texWidth;
+            float invTicksPerPixel = texWidth / WindowTicks;
             float centerOffset = WindowTicks * 0.5f;
 
-            // **COLUMN-BY-COLUMN RENDERING**
-            // Process events and render one column at a time
-            ulong eventCursor = searchCursor;
-            
-            // Track which notes should be active based on event scanning
-            // We need to look ahead to find note-off events
-            for (int x = 0; x < width; x++)
+            // Build active state at viewport start by scanning backwards from searchStart
+            uint* renderActive = stackalloc uint[TOTAL_KEYS];
+            for (int i = 0; i < TOTAL_KEYS; i++)
+                renderActive[i] = INACTIVE;
+
+            // Scan backwards to find notes that are already active at viewStart
+            for (ulong i = searchStart; i > 0 && i < len; i--)
             {
-                // Calculate which tick this column represents
-                int columnTick = (int)(currentTick - centerOffset + x * ticksPerPixel);
+                int eventTick = (int)(events[i] >> 32);
+                if (eventTick < viewStart - WindowTicks) break;
                 
-                // Process all events up to this column's tick
-                while (eventCursor < len)
+                long raw = events[i];
+                uint msg = (uint)raw;
+                byte statusType = (byte)(msg & 0xF0);
+                
+                if (statusType == 0x90 || statusType == 0x80)
                 {
-                    long raw = events[eventCursor];
-                    int eventTick = (int)(raw >> 32);
+                    byte channel = (byte)(msg & 0xF);
+                    byte note = (byte)((msg >> 8) & 0x7F);
+                    int key = (channel << 7) | note;
                     
-                    if (eventTick > columnTick) break;
-                    if (eventTick > viewEnd + WindowTicks) goto EndRender;
-                    
-                    uint msg = (uint)raw;
-                    byte statusType = (byte)(msg & 0xF0);
-                    
-                    if (statusType == 0x90 || statusType == 0x80)
+                    if (statusType == 0x90)
                     {
-                        byte channel = (byte)(msg & 0xF);
-                        byte note = (byte)((msg >> 8) & 0x7F);
-                        int key = (channel << 7) | note;
+                        byte vel = (byte)((msg >> 16) & 0x7F);
+                        if (vel > 0 && renderActive[key] == INACTIVE)
+                            renderActive[key] = (uint)eventTick;
+                    }
+                    else
+                    {
+                        if (renderActive[key] != INACTIVE)
+                            renderActive[key] = INACTIVE;
+                    }
+                }
+            }
+            ulong cursor = searchStart;
+            
+            while (cursor < len)
+            {
+                long raw = events[cursor];
+                int eventTick = (int)(raw >> 32);
+                
+                // Stop if way past visible area
+                if (eventTick > viewEnd + WindowTicks) break;
+                
+                uint msg = (uint)raw;
+                byte statusType = (byte)(msg & 0xF0);
+                
+                if (statusType == 0x90 || statusType == 0x80)
+                {
+                    byte channel = (byte)(msg & 0xF);
+                    byte note = (byte)((msg >> 8) & 0x7F);
+                    int key = (channel << 7) | note;
+                    uint color = MIDIColors[channel];
+                    int y = 127 - note;
+                    
+                    if (statusType == 0x90)
+                    {
+                        byte vel = (byte)((msg >> 16) & 0x7F);
                         
-                        if (statusType == 0x90)
+                        if (vel > 0)
                         {
-                            byte vel = (byte)((msg >> 16) & 0x7F);
-                            renderActiveNotes[key] = vel > 0 ? (uint)eventTick : INACTIVE;
+                            // Note On - if there was a previous note, draw it now
+                            if (renderActive[key] != INACTIVE)
+                            {
+                                int noteStart = (int)renderActive[key];
+                                int noteEnd = eventTick;
+                                
+                                // Convert to screen coordinates
+                                int x1 = (int)((noteStart - currentTick + centerOffset) * invTicksPerPixel);
+                                int x2 = (int)((noteEnd - currentTick + centerOffset) * invTicksPerPixel);
+                                
+                                if (x2 >= 0 && x1 < texWidth)
+                                {
+                                    DrawHorizontalLine(x1, x2, y, color);
+                                    NotesDrawnLastFrame++;
+                                }
+                            }
+                            
+                            renderActive[key] = (uint)eventTick;
                         }
                         else
                         {
-                            renderActiveNotes[key] = INACTIVE;
+                            // Note on with vel=0 is note off
+                            if (renderActive[key] != INACTIVE)
+                            {
+                                int noteStart = (int)renderActive[key];
+                                int x1 = (int)((noteStart - currentTick + centerOffset) * invTicksPerPixel);
+                                int x2 = (int)((eventTick - currentTick + centerOffset) * invTicksPerPixel);
+                                
+                                if (x2 >= 0 && x1 < texWidth)
+                                {
+                                    DrawHorizontalLine(x1, x2, y, color);
+                                    NotesDrawnLastFrame++;
+                                }
+                                
+                                renderActive[key] = INACTIVE;
+                            }
                         }
                     }
-                    
-                    eventCursor++;
+                    else // Note Off
+                    {
+                        if (renderActive[key] != INACTIVE)
+                        {
+                            int noteStart = (int)renderActive[key];
+                            int x1 = (int)((noteStart - currentTick + centerOffset) * invTicksPerPixel);
+                            int x2 = (int)((eventTick - currentTick + centerOffset) * invTicksPerPixel);
+                            
+                            if (x2 >= 0 && x1 < texWidth)
+                            {
+                                DrawHorizontalLine(x1, x2, y, color);
+                                NotesDrawnLastFrame++;
+                            }
+                            
+                            renderActive[key] = INACTIVE;
+                        }
+                    }
                 }
                 
-                // Draw all active notes in this column
-                // Only draw notes that started before or at this tick
-                uint* column = texPtr + x;
-                
-                for (int key = 0; key < TOTAL_KEYS; key++)
+                cursor++;
+            }
+
+            // Draw notes that extend past viewport end
+            for (int key = 0; key < TOTAL_KEYS; key++)
+            {
+                if (renderActive[key] != INACTIVE)
                 {
-                    uint noteStart = renderActiveNotes[key];
-                    if (noteStart == INACTIVE) continue;
-                    
-                    // FIX: Only draw if the note started before or at this column's tick
-                    if (noteStart > columnTick) continue;
-                    
+                    int noteStart = (int)renderActive[key];
                     int note = key & 0x7F;
                     int channel = key >> 7;
                     uint color = MIDIColors[channel];
-                    int y = 127 - note; 
+                    int y = 127 - note;
                     
-                    column[y * texWidth] = color;
+                    int x1 = (int)((noteStart - currentTick + centerOffset) * invTicksPerPixel);
+                    int x2 = texWidth - 1;
                     
-                    NotesDrawnLastFrame++;
+                    if (x1 < texWidth)
+                    {
+                        DrawHorizontalLine(x1, x2, y, color);
+                        NotesDrawnLastFrame++;
+                    }
                 }
             }
             
-            EndRender:
             Raylib.UpdateTexture(renderTex, (void*)texPtr);
             Raylib.DrawTexturePro(
                 renderTex,
-                new Raylib_cs.Rectangle(0, 0, texWidth, 128),          // source: logical note space
-                new Raylib_cs.Rectangle(0, pad, width, height - pad * 2),          // destination: window
-                new Vector2(0, 0),
-                0.0f,
-                Raylib_cs.Color.White
+                new Raylib_cs.Rectangle(0, 0, texWidth, 128),
+                new Raylib_cs.Rectangle(0, pad, width, height - pad * 2),
+                new Vector2(0, 0), 0.0f, Raylib_cs.Color.White
             );
         }
 
