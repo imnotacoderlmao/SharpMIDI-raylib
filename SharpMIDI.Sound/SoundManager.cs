@@ -24,19 +24,20 @@ namespace SharpMIDI
             switch (synth)
             {
                 case 1:
-                    bool KDMAPIAvailable = false;
-                    try { KDMAPIAvailable = KDMAPI.IsKDMAPIAvailable(); } catch (DllNotFoundException) { }
-                    if (KDMAPIAvailable)
-                    {
+                    try 
+                    { 
+                        if(!KDMAPI.IsKDMAPIAvailable()) return false;
                         KDMAPI.InitializeFunctionPointer();
-                        int loaded = KDMAPI.InitializeKDMAPIStream();
-                        if (loaded != 1) return false;
+                        KDMAPI.InitializeKDMAPIStream();
                         engine = 1;
                         sendTo = KDMAPI._sendDirectData;
                         StartAudioThread();
                         return true;
+                    } catch (DllNotFoundException) 
+                    { 
+                        MessageBox.Show("KDMAPI is not available.");
+                        return false; 
                     }
-                    else { MessageBox.Show("KDMAPI is not available."); return false; }
                 case 2:
                     (bool, string, string, IntPtr?, MidiOutCaps?) result = WinMM.Setup(winMMdev);
                     if (!result.Item1)
@@ -53,19 +54,20 @@ namespace SharpMIDI
                         return true;
                     }
                 case 3:
-                    bool XSynthAvailable = false;
-                    try { XSynthAvailable = XSynth.IsKDMAPIAvailable(); } catch (DllNotFoundException) { }
-                    if (XSynthAvailable)
+                    try 
                     {
+                        if(!XSynth.IsKDMAPIAvailable()) return false;
                         XSynth.InitializeFunctionPointer();
                         int loaded = XSynth.InitializeKDMAPIStream();
-                        if (loaded != 1) return false;
                         engine = 3;
                         sendTo = XSynth._sendDirectData;
                         StartAudioThread();
                         return true;
+                    } catch (DllNotFoundException) 
+                    { 
+                        MessageBox.Show("XSynth is not available."); 
+                        return false; 
                     }
-                    else { MessageBox.Show("XSynth is not available."); return false; }
                 default:
                     return false;
             }
@@ -79,8 +81,11 @@ namespace SharpMIDI
         
         public static void Submit(uint ev)
         {
-            ring[write & bufferMask] = ev;
-            write++;
+            uint* buf = ring;
+            uint wr = write;
+            uint mask = bufferMask;
+            buf[wr] = ev;
+            write = (wr + 1) & mask;
         }
 
         static void StartAudioThread()
@@ -98,22 +103,16 @@ namespace SharpMIDI
         {
             uint* buffer = ring;
             uint readidx = 0;
+            uint mask = bufferMask;
             var sendfn = sendTo;
             
             while (running)
             {
                 uint writeidx = write;
-                
-                while (readidx <= write)
+                while (readidx != writeidx)
                 {
-                    sendfn(buffer[readidx & bufferMask]);
-                    readidx++;
-                }
-                
-                if (readidx == writeidx) 
-                {
-                    Thread.Sleep(0);
-                    continue;
+                    sendfn(buffer[readidx]);
+                    readidx = (readidx + 1) & mask;
                 }
             }
         }
