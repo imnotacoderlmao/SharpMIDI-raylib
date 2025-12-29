@@ -13,10 +13,11 @@
             long* evptr = synthev.Pointer;
             long* evend = evptr + synthev.Length;
             long* currev = evptr;
-            
             long[] tevs = MIDI.tempoEvents;
             int maxTick = MIDILoader.maxTick;
-            MIDIClock.Start();
+            uint localwrite = 0;
+            uint localbuffermask = Sound.bufferMask;
+            uint* buffer = Sound.ringbuffer;
             fixed (long* t0 = tevs)
             {
                 long* currtev = t0;
@@ -24,6 +25,7 @@
                 
                 int evPos = (int)(*currev >> 32);
                 int tevPos = (int)(*currtev >> 32);
+                MIDIClock.Start();
                 while (!stopping)
                 {
                     int localclock = (int)MIDIClock.Update();
@@ -33,7 +35,10 @@
                             break;
                         if (evPos <= tevPos)
                         {
-                            Sound.Submit((uint)*currev);
+                            // why is this faster. dotent explaisn oyur self 
+                            buffer[localwrite] = (uint)*currev;
+                            localwrite = (localwrite + 1) & localbuffermask;
+                            Sound.write = localwrite;
                             ++currev;
                             evPos = (int)(*currev >> 32);
                             if (currev >= evend) 

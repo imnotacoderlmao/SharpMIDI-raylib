@@ -1,19 +1,21 @@
-using System.Runtime.CompilerServices;
+
+using System.Runtime.InteropServices;
 
 namespace SharpMIDI
 {
     static unsafe class Sound
     {
-        static uint[] ring;      // buffer
-        static ushort write;
-        //static ushort read;
-        const int bufferSize = ushort.MaxValue + 1;
+        public static uint* ringbuffer;      // buffer
+        public static uint write;
+        //static uint read;
+        public const int bufferSize = 16777216;
+        public const int bufferMask = 16777215;
         static bool running = false;
         static Thread? audthread;
         
         private static int engine = 0;
         private static IntPtr? handle;
-        static delegate* unmanaged[SuppressGCTransition]<uint,uint> sendTo;
+        static delegate* unmanaged[SuppressGCTransition]<uint,void> sendTo;
         public static bool Init(int synth, string winMMdev)
         {
             Close();
@@ -22,19 +24,20 @@ namespace SharpMIDI
             switch (synth)
             {
                 case 1:
-                    bool KDMAPIAvailable = false;
-                    try { KDMAPIAvailable = KDMAPI.IsKDMAPIAvailable(); } catch (DllNotFoundException) { }
-                    if (KDMAPIAvailable)
-                    {
+                    try 
+                    { 
+                        if(!KDMAPI.IsKDMAPIAvailable()) return false;
                         KDMAPI.InitializeFunctionPointer();
-                        int loaded = KDMAPI.InitializeKDMAPIStream();
-                        if (loaded != 1) return false;
+                        KDMAPI.InitializeKDMAPIStream();
                         engine = 1;
                         sendTo = KDMAPI._sendDirectData;
                         StartAudioThread();
                         return true;
+                    } catch (DllNotFoundException) 
+                    { 
+                        MessageBox.Show("KDMAPI is not available.");
+                        return false; 
                     }
-                    else { MessageBox.Show("KDMAPI is not available."); return false; }
                 case 2:
                     (bool, string, string, IntPtr?, MidiOutCaps?) result = WinMM.Setup(winMMdev);
                     if (!result.Item1)
@@ -51,19 +54,20 @@ namespace SharpMIDI
                         return true;
                     }
                 case 3:
-                    bool XSynthAvailable = false;
-                    try { XSynthAvailable = XSynth.IsKDMAPIAvailable(); } catch (DllNotFoundException) { }
-                    if (XSynthAvailable)
+                    try 
                     {
+                        if(!XSynth.IsKDMAPIAvailable()) return false;
                         XSynth.InitializeFunctionPointer();
                         int loaded = XSynth.InitializeKDMAPIStream();
-                        if (loaded != 1) return false;
                         engine = 3;
                         sendTo = XSynth._sendDirectData;
                         StartAudioThread();
                         return true;
+                    } catch (DllNotFoundException) 
+                    { 
+                        MessageBox.Show("XSynth is not available."); 
+                        return false; 
                     }
-                    else { MessageBox.Show("XSynth is not available."); return false; }
                 default:
                     return false;
             }
@@ -71,15 +75,18 @@ namespace SharpMIDI
 
         static void AllocateEvBuffer()
         {    
-            ring = new uint[bufferSize];
+            ringbuffer = (uint*)NativeMemory.AlignedAlloc(bufferSize * sizeof(uint), 64);
             write = 0;
         }
         
+        /* 
+        middle finger
         public static void Submit(uint ev)
         {
-            ring[write] = ev;
-            write++;
-        }
+            uint wr = write;
+            ringbuffer[wr] = ev;
+            write = (wr + 1) & bufferMask;;
+        }*/
 
         static void StartAudioThread()
         {
@@ -94,24 +101,20 @@ namespace SharpMIDI
 
         static void AudioThread()
         {
-            uint[] buffer = ring;
-            ushort readidx = 0;   
-            ushort writeidx;
+            uint* buffer = ringbuffer;
+            uint readidx = 0;
+            uint mask = bufferMask;
             var sendfn = sendTo;
-            SpinWait sw = new SpinWait();
+            
             while (running)
-            {         
-                writeidx = write;
+            {
+                uint writeidx = write;
                 while (readidx != writeidx)
                 {
                     sendfn(buffer[readidx]);
-                    readidx++;
+                    readidx = (readidx + 1) & mask;
                 }
-                if (readidx == writeidx)
-                {
-                    sw.SpinOnce();
-                    continue;
-                }  
+                //read = readidx;
             }
         }
         
