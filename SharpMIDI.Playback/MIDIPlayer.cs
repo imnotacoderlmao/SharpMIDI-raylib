@@ -11,53 +11,33 @@
             // this could be done better but whatever
             var synthev = MIDI.synthEvents;
             long* evptr = synthev.Pointer;
-            long* evend = evptr + synthev.Length;
             long* currev = evptr;
             long[] tevs = MIDI.tempoEvents;
             int maxTick = MIDILoader.maxTick;
-            uint localwrite = 0;
+            uint localwrite = Sound.write;
             uint localbuffermask = Sound.bufferMask;
             uint* buffer = Sound.ringbuffer;
             fixed (long* t0 = tevs)
             {
                 long* currtev = t0;
-                long* tevend = t0 + tevs.Length;
-                
-                int evPos = (int)(*currev >> 32);
-                int tevPos = (int)(*currtev >> 32);
                 MIDIClock.Start();
                 while (!stopping)
                 {
                     int localclock = (int)MIDIClock.Update();
-                    while (true)
+                    bool skipping = MIDIClock.skipping;
+                    while ((int)(*currev >> 32) <= localclock)
                     {
-                        if(evPos > localclock && tevPos > localclock) 
-                            break;
-                        if (evPos <= tevPos)
-                        {
-                            // why is this faster. dotent explaisn oyur self 
-                            buffer[localwrite] = (uint)*currev;
-                            localwrite = (localwrite + 1) & localbuffermask;
-                            Sound.write = localwrite;
-                            ++currev;
-                            evPos = (int)(*currev >> 32);
-                            if (currev >= evend) 
-                            {
-                                evPos = int.MaxValue;
-                            }
-                        }
-                        else
-                        {
-                            // playack kills itself when a tempo event happens cause it was also reading the upper 32 bits lmao
-                            MIDIClock.SubmitBPM(tevPos, *currtev & 0xFFFFFF);
-                            ++currtev;
-                            tevPos = (int)(*currtev >> 32);
-                            if (currtev >= tevend) 
-                            {
-                                tevPos = int.MaxValue;
-                            }
-                        }
+                        long ev = *currev++;
+                        if (skipping) continue;
+                        buffer[localwrite] = (uint)ev;
+                        localwrite = (localwrite + 1) & localbuffermask;
                     }
+                    while ((int)(*currtev >> 32) <= localclock)
+                    {
+                        long tev = *currtev++;
+                        MIDIClock.SubmitBPM((int)(tev >> 32), tev & 0xFFFFFF);
+                    }
+                    Sound.write = localwrite;
                     playedEvents = currev - evptr;
                     ++totalFrames;
                     if (localclock > maxTick) stopping = true;

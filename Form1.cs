@@ -40,6 +40,8 @@ namespace SharpMIDI
                 fps = (fps * 0.4) + ((MIDIPlayer.totalFrames / totalDelay) * 0.6);
                 if (fps > 60) Starter.form.label12.Text = $"FPS \u2248 {Math.Round(fps,5)}";
                 else Starter.form.label12.Text = "FPS \u2248 <60";
+                Starter.form.label10.Text = $"Loaded tracks: {MIDILoader.loadedtracks} / {MIDILoader.trackAmount}";
+                Starter.form.label5.Text = $"Notes: {MIDILoader.loadedNotes} / {MIDILoader.totalNotes}";
                 Starter.form.label3.Text = $"Played: {MIDIPlayer.playedEvents} / {MIDILoader.eventCount}";
                 Starter.form.label14.Text = $"Tick: {(int)MIDIClock.tick} / {MIDILoader.maxTick}";
                 Starter.form.label16.Text = $"Ticks/sec: {Math.Round(MIDIClock.tickscale, 5)}";
@@ -146,7 +148,9 @@ namespace SharpMIDI
 
         private void checkBox1_CheckedChanged(object sender, EventArgs e)
         {
-            MIDIClock.throttle = checkBox1.Checked;
+            MIDIClock.skipevents = checkBox1.Checked;
+            MIDIClock.throttle = !MIDIClock.skipevents;
+            //Console.WriteLine($"skipping is set to {MIDIClock.skipevents}, throttle set to {MIDIClock.throttle}");
         }
 
         private void button2_Click(object sender, EventArgs e)

@@ -7,6 +7,7 @@ namespace SharpMIDI.Renderer
         public const int PAD = 20;
         private static float scrollfactor = 1f;
         public static float tick = 0f;
+        public static double lastrendernow;
         // Dynamic window dimensions
         private static int currentWidth = 1280;
         private static int currentHeight = 720;
@@ -43,9 +44,9 @@ namespace SharpMIDI.Renderer
                 HandleInput();
 
                 // this WILL set the last elapsed time in getelapsed(), which makes throttling useless
-                //tick = (float)MIDIClock.GetTick();
+                tick = UpdateRenderTick();
                 
-                tick = (float)MIDIClock.tick;
+                //tick = (float)MIDIClock.tick;
                 if (MIDIPlayer.stopping) 
                 {
                     tick = 0;
@@ -110,6 +111,23 @@ namespace SharpMIDI.Renderer
                 // Reinitialize streaming renderer with new dimensions
                 NoteRenderer.Initialize(currentWidth, currentHeight);
             }
+        }
+
+        public static float UpdateRenderTick()
+        {
+            if (MIDIClock.paused || MIDIPlayer.stopping) return tick;
+            double localnow = Timer.Seconds();
+            double advancetime = localnow - lastrendernow;
+            if(!MIDIClock.stalled) 
+            {
+                tick = (float)MIDIClock.tick;
+            }
+            else
+            {
+                tick += (float)(advancetime * MIDIClock.tickscale);
+            }
+            lastrendernow = localnow;
+            return tick;
         }
 
         private static void HandleInput()

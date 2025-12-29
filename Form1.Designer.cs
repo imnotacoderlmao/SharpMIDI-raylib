@@ -202,7 +202,7 @@
             label10.Name = "label10";
             label10.Size = new Size(211, 15);
             label10.TabIndex = 16;
-            label10.Text = "Loaded tracks: 0 / ?????";
+            label10.Text = "Loaded tracks: 0 / 0";
             // 
             // comboBox1
             // 
@@ -350,7 +350,7 @@
             checkBox1.Name = "checkBox1";
             checkBox1.Size = new Size(154, 19);
             checkBox1.TabIndex = 35;
-            checkBox1.Text = "Throttle playback on lag";
+            checkBox1.Text = "Skip events instead of throttling playback on lag";
             checkBox1.UseVisualStyleBackColor = true;
             checkBox1.CheckedChanged += checkBox1_CheckedChanged;
             // 

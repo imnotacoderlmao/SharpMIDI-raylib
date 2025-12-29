@@ -5,12 +5,15 @@ namespace SharpMIDI
     {
         private static List<long> trackLocations = new List<long>();
         private static List<uint> trackSizes = new List<uint>();
+        static ulong[]? tickOffsets;
+        static int   tickOffsetCapacity;
         static Stream? midistream;
         public static long totalNotes = 0;
         public static long loadedNotes = 0;
         public static long eventCount = 0;
         public static int maxTick = 0;
         public static int trackAmount = 0;
+        public static int loadedtracks = 0;
         static uint headersize = 0; 
         static uint fmt = 0;
         static uint ppq = 0;
@@ -29,14 +32,12 @@ namespace SharpMIDI
 
             MIDIClock.ppq = ppq;
             Starter.form.label6.Text = $"PPQ: {ppq}";
-            Starter.form.label10.Text = $"Loaded tracks: 0 / ???";
 
             Console.WriteLine("Indexing MIDI tracks...");
             trackAmount = 0;
             while (midistream.Position < midistream.Length)
             {
                 bool success = IndexTrack();
-                Starter.form.label10.Text = $"Loaded tracks: 0 / {trackAmount}";
                 if (!success)
                     break;
             }
@@ -48,7 +49,7 @@ namespace SharpMIDI
             }
             
             midistream.Position++;
-            int totaltracks = 0;
+            loadedtracks = 1;
             Parallel.For(0, trackAmount, (i) =>
             {
                 if (i > tracklimit) return;
@@ -66,10 +67,8 @@ namespace SharpMIDI
                 Interlocked.Add(ref loadedNotes, temp.loadedNotes);
                 Interlocked.Add(ref totalNotes, temp.totalNotes);
                 Interlocked.Add(ref eventCount, temp.eventAmount);
-                totaltracks++;
+                loadedtracks++;
                 
-                Starter.form.label10.Text = $"Loaded tracks: {totaltracks} / {trackAmount}";
-                Starter.form.label5.Text = $"Notes: {loadedNotes} / {totalNotes}";
                 temp.Dispose();
             });
             midistream.Close();
@@ -91,12 +90,15 @@ namespace SharpMIDI
             Renderer.NoteProcessor.FinalizeBuckets();
             
             Console.WriteLine("merging events to one array");
-            MIDI.synthEvents = new BigArray<long>((ulong)eventCount);
+            MIDI.synthEvents = new BigArray<long>((ulong)eventCount + 1);
             unsafe
             {
                 MergeAllTracks(tempLists, MIDI.synthEvents);
+                
+                // using dummy events with positions > maxtick for the sake of no mid-playback bounds checking
+                MIDI.temppos.Add((long)int.MaxValue << 32);
+                MIDI.synthEvents.Pointer[eventCount] = (long)int.MaxValue << 32;
             }
-            
             MIDI.tempoEvents = [.. MIDI.temppos];
             MIDI.temppos.Clear();
             
@@ -161,45 +163,64 @@ namespace SharpMIDI
             }
         }
 
-        public static unsafe void MergeAllTracks(List<long>[] trackEvents, BigArray<long> output)
+        public static unsafe void MergeAllTracks(List<long>[] tracks, BigArray<long> output)
         {
-            int trackAmount = trackEvents.Length;
-            ulong outPos = 0;
+            int trackCount = tracks.Length;
+            int max = maxTick + 1;
 
-            // Min-heap of (value, track index)
-            var heap = new PriorityQueue<(long value, int track), long>();
-
-            // Per-track index
-            int[] idx = new int[trackAmount];
-
-            // Initialize heap with the first element of each non-empty list
-            for (int t = 0; t < trackAmount; t++)
+            // Ensure reusable offset buffer
+            if (tickOffsets == null || tickOffsetCapacity < max)
             {
-                var list = trackEvents[t];
-                if (list != null && list.Count > 0)
-                {
-                    heap.Enqueue((list[0], t), list[0]);
-                }
+                tickOffsets = new ulong[max];
+                tickOffsetCapacity = max;
+            }
+            else
+            {
+                Array.Clear(tickOffsets, 0, max);
             }
 
-            while (heap.TryDequeue(out var entry, out long _))
+            ulong[] offsets = tickOffsets;
+
+            // count events per tick
+            for (int t = 0; t < trackCount; t++)
             {
-                long value = entry.value;
-                int t = entry.track;
+                var list = tracks[t];
+                if (list == null) continue;
 
-                // Store to output buffer
-                output.Pointer[outPos++] = value;
+                int count = list.Count;
+                for (int i = 0; i < count; i++)
+                    offsets[(int)(list[i] >> 32)]++;
+            }
 
-                // Advance index & push next element
-                int next = ++idx[t];
-                var list = trackEvents[t];
-                if (next < list.Count)
+            // prefix sum to write positions
+            ulong sum = 0;
+            for (int i = 0; i < max; i++)
+            {
+                ulong c = offsets[i];
+                offsets[i] = sum;
+                sum += c;
+            }
+
+            // write events directly
+            long* dst = output.Pointer;
+
+            for (int t = 0; t < trackCount; t++)
+            {
+                var list = tracks[t];
+                if (list == null) continue;
+
+                int count = list.Count;
+                for (int i = 0; i < count; i++)
                 {
-                    long val2 = list[next];
-                    heap.Enqueue((val2, t), val2);
+                    long ev = list[i];
+                    int tick = (int)(ev >> 32);
+                    ulong pos = offsets[tick]++;
+                    dst[pos] = ev;
                 }
             }
+            tracks = null;
         }
+
 
         static uint ReadUInt32()
         {

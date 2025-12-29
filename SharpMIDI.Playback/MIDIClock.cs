@@ -2,7 +2,7 @@ using System.Diagnostics;
 
 namespace SharpMIDI
 {
-    static class Timer
+    public static class Timer
     {
         static readonly double tickToSeconds = 1.0 / Stopwatch.Frequency;
 
@@ -20,8 +20,10 @@ namespace SharpMIDI
         public static double ppq = 480;
         public static double tickscale;
         static double lastnow;
-
-        public static bool throttle = true;
+        public static bool skipevents = true;
+        public static bool throttle = !skipevents;
+        public static bool stalled = false;
+        public static bool skipping = false;
         public static bool paused;
 
         public static void Start()
@@ -29,7 +31,6 @@ namespace SharpMIDI
             double now = Timer.Seconds();
             lastnow = now;
             tick = 0.0;
-
             tickscale = (bpm * ppq) / 60.0;
             paused = false;
         }
@@ -38,15 +39,22 @@ namespace SharpMIDI
 
         public static double Update()
         {
-            if (paused) return tick;
+            if (paused || MIDIPlayer.stopping) return tick;
             double now = Timer.Seconds();
-            double delta = now - lastnow;
-
-            if (throttle && delta > 0.0166666)
-                delta = 0.0166666;
+            double advancetime = now - lastnow;
+            if (skipevents && advancetime > 0.0166666) 
+            {
+                stalled = true;
+                skipping = true;
+            }
+            else if (throttle && advancetime > 0.0166666)
+            {
+                stalled = true;
+                advancetime = 0.0166666;
+            }
+            else stalled = false; skipping = false;
             lastnow = now;
-            
-            tick += delta * tickscale;
+            tick += advancetime * tickscale;
             return tick;
         }
 
@@ -56,7 +64,6 @@ namespace SharpMIDI
             bpm = 60000000.0 / microTempo;
             tickscale = (bpm * ppq) / 60.0;
 
-            // ensure tick never jumps backwards
             if (tick < posTick)
                 tick = posTick;
             //Console.WriteLine($"Tempo in pos {posTick} with value {microTempo} ({bpm})");

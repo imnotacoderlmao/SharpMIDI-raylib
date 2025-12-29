@@ -94,7 +94,7 @@ namespace SharpMIDI
             running = true;
             audthread = new Thread(AudioThread)
             {
-                IsBackground = true,
+                IsBackground = true
             };
             audthread.Start();
         }
