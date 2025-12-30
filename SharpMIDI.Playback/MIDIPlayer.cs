@@ -1,4 +1,6 @@
-﻿namespace SharpMIDI
+﻿using System.Data;
+
+namespace SharpMIDI
 {
     static unsafe class MIDIPlayer
     {
@@ -11,6 +13,7 @@
             // this could be done better but whatever
             var synthev = MIDI.synthEvents;
             long* evptr = synthev.Pointer;
+            long* evend = evptr + synthev.Length;
             long* currev = evptr;
             long[] tevs = MIDI.tempoEvents;
             int maxTick = MIDILoader.maxTick;
@@ -23,19 +26,36 @@
                 MIDIClock.Start();
                 while (!stopping)
                 {
-                    int localclock = (int)MIDIClock.Update();
+                    uint localclock = (uint)MIDIClock.Update();
                     bool skipping = MIDIClock.skipping;
-                    while ((int)(*currev >> 32) <= localclock)
+                    if (!skipping) 
                     {
-                        long ev = *currev++;
-                        if (skipping) continue;
-                        buffer[localwrite] = (uint)ev;
-                        localwrite = (localwrite + 1) & localbuffermask;
+                        while ((uint)(*currev >> 32) <= localclock)
+                        {
+                            long ev = *currev++;
+                            buffer[localwrite] = (uint)ev;
+                            localwrite = (localwrite + 1) & localbuffermask;
+                        }
                     }
-                    while ((int)(*currtev >> 32) <= localclock)
+                    else 
                     {
-                        long tev = *currtev++;
-                        MIDIClock.SubmitBPM((int)(tev >> 32), tev & 0xFFFFFF);
+                       // fucign binary search
+                        long* left = currev;
+                        long* right = evend;
+                        while (right - left > 16)
+                        {
+                            long* mid = left + ((right - left) >> 1);
+                            if ((uint)(*mid >> 32) <= localclock)
+                                left = mid + 1;
+                            else
+                                right = mid;
+                        }
+                        currev = left;
+                    }
+                    while ((uint)(*currtev >> 32) <= localclock)
+                    {
+                        MIDIClock.SubmitBPM((uint)(*currtev >> 32), *currtev & 0xFFFFFF);
+                        ++currtev;
                     }
                     Sound.write = localwrite;
                     playedEvents = currev - evptr;

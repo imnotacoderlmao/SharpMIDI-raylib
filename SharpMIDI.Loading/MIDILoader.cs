@@ -35,6 +35,7 @@ namespace SharpMIDI
 
             Console.WriteLine("Indexing MIDI tracks...");
             trackAmount = 0;
+            loadedtracks = 0;
             while (midistream.Position < midistream.Length)
             {
                 bool success = IndexTrack();
@@ -49,7 +50,6 @@ namespace SharpMIDI
             }
             
             midistream.Position++;
-            loadedtracks = 1;
             Parallel.For(0, trackAmount, (i) =>
             {
                 if (i > tracklimit) return;
