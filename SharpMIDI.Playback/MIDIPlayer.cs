@@ -32,8 +32,7 @@ namespace SharpMIDI
                     {
                         while ((uint)(*currev >> 32) <= localclock)
                         {
-                            long ev = *currev++;
-                            buffer[localwrite] = (uint)ev;
+                            buffer[localwrite] = (uint)*currev++;
                             localwrite = (localwrite + 1) & localbuffermask;
                         }
                     }

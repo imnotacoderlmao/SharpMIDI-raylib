@@ -1,12 +1,12 @@
 #pragma warning disable 8602
+using System.Runtime.InteropServices;
+
 namespace SharpMIDI
 {
     static class MIDILoader
     {
         private static List<long> trackLocations = new List<long>();
         private static List<uint> trackSizes = new List<uint>();
-        static ulong[]? tickOffsets;
-        static int   tickOffsetCapacity;
         static Stream? midistream;
         public static long totalNotes = 0;
         public static long loadedNotes = 0;
@@ -27,7 +27,7 @@ namespace SharpMIDI
 
         public static async Task LoadPath(string path, byte thres, int tracklimit)
         {   
-            midistream = File.OpenRead(path);
+            midistream = File.Open(path, FileMode.Open);
             VerifyHeader();
 
             MIDIClock.ppq = ppq;
@@ -38,75 +38,162 @@ namespace SharpMIDI
             loadedtracks = 0;
             while (midistream.Position < midistream.Length)
             {
-                bool success = IndexTrack();
-                if (!success)
-                    break;
+                if (!IndexTrack()) break;
             }
-            
-            List<long>[] tempLists = new List<long>[trackAmount];
-            for (int i = 0; i < trackAmount; i++)
-            {
-                tempLists[i] = new List<long>();
-            }
-            
-            midistream.Position++;
-            Parallel.For(0, trackAmount, (i) =>
-            {
-                if (i > tracklimit) return;
-                Console.WriteLine($"Loading track #{i + 1} | Size {trackSizes[i]}");
-                
-                // this shouldntve worked at all, but it deadass makes >2gb track loading possible
-                int bufSize = (int)Math.Min(int.MaxValue, trackSizes[i]/4);
-                
-                FastTrack temp = new FastTrack(
-                    new BufferByteReader(midistream, bufSize, trackLocations[i], trackSizes[i])
-                );
-                temp.ParseTrackEvents(thres, tempLists[i]);
-                
-                // update counters
-                Interlocked.Add(ref loadedNotes, temp.loadedNotes);
-                Interlocked.Add(ref totalNotes, temp.totalNotes);
-                Interlocked.Add(ref eventCount, temp.eventAmount);
-                loadedtracks++;
-                
-                temp.Dispose();
-            });
-            midistream.Close();
-            
-            Console.WriteLine("preprocessing stuff for the renderer");
-            Renderer.NoteProcessor.InitializeBuckets(maxTick);
-            int bucketCount = (maxTick / Renderer.NoteProcessor.BucketSize) + 2;
-            Parallel.For(0, trackAmount, (i) =>
-            {
-                if (tempLists[i] != null && tempLists[i].Count > 0)
-                {
-                    // Estimate notes for this track (events / 2 for note on/off pairs)
-                    int thisTrackNotes = tempLists[i].Count / 2;
-                    int notesPerBucket = (thisTrackNotes / bucketCount) + 16;
 
-                    Renderer.NoteProcessor.ProcessTrackForRendering(tempLists[i], i, notesPerBucket);
-                }
-            });
-            Renderer.NoteProcessor.FinalizeBuckets();
-            
-            Console.WriteLine("merging events to one array");
-            MIDI.synthEvents = new BigArray<long>((ulong)eventCount + 1);
             unsafe
             {
-                MergeAllTracks(tempLists, MIDI.synthEvents);
+                long[] trackOffsets = new long[trackAmount];
+                long[] trackEventCounts = new long[trackAmount];
+                long totalEstimated = 0;
+
+                // preallocate cheaply
+                for (int i = 0; i < trackAmount && i <= tracklimit; i++)
+                {
+                    long estimate = trackSizes[i] / 3;
+                    trackOffsets[i] = totalEstimated;
+                    totalEstimated += estimate;
+                }
+                MIDI.synthEvents = new BigArray<long>((ulong)totalEstimated + 1024);
+                long* eventsPtr = MIDI.synthEvents.Pointer;
                 
-                // using dummy events with positions > maxtick for the sake of no mid-playback bounds checking
+                midistream.Position++;
+                Parallel.For(0, trackAmount, (i) =>
+                {
+                    if (i > tracklimit) return;
+                    Console.WriteLine($"Loading track #{i + 1} | Size {trackSizes[i]}");
+
+                    FastTrack temp = new FastTrack(
+                        // using fixed 256kib buffer size made it way faster somehow
+                        new BufferByteReader(midistream, 256 * 1024, trackLocations[i], trackSizes[i]) 
+                    );
+
+                    // this parses to one big tempbuffer instead now
+                    temp.ParseTrackEvents(thres, eventsPtr, trackOffsets[i]);
+                    trackEventCounts[i] = temp.GetWrittenCount();
+
+                    Interlocked.Add(ref loadedNotes, temp.loadedNotes);
+                    Interlocked.Add(ref totalNotes, temp.totalNotes);
+                    Interlocked.Add(ref eventCount, temp.eventAmount);
+                    loadedtracks++;
+                    temp.Dispose();
+                });
+                midistream.Close();
+
+                Console.WriteLine("preprocessing stuff for the renderer");
+                Renderer.NoteProcessor.InitializeBuckets(maxTick);
+                int bucketCount = (maxTick / Renderer.NoteProcessor.BucketSize) + 2;
+                Parallel.For(0, trackAmount, (i) =>
+                {
+                    if (trackEventCounts[i] == 0) return;
+
+                    long trackStart = trackOffsets[i];
+                    long trackCount = trackEventCounts[i];
+
+                    int thisTrackNotes = (int)(trackCount / 2);
+                    int notesPerBucket = (thisTrackNotes / bucketCount) + 16;
+                    Renderer.NoteProcessor.ProcessTrackForRendering(eventsPtr + trackStart, trackCount, i, notesPerBucket);
+                });
+
+                Renderer.NoteProcessor.FinalizeBuckets();
+
+                Console.WriteLine("compacting and sorting events");
+                long writePos = 0;
+                for (int t = 0; t < trackAmount && t <= tracklimit; t++)
+                {
+                    long trackStart = trackOffsets[t];
+                    long count = trackEventCounts[t];
+                    
+                    if (count > 0 && trackStart != writePos)
+                    {
+                        // move forward
+                        Buffer.MemoryCopy(
+                            eventsPtr + trackStart,
+                            eventsPtr + writePos,
+                            count * sizeof(long),
+                            count * sizeof(long)
+                        );
+                    }
+                    writePos += count;
+                }
+                eventCount = writePos;
+                
+                // dummy events for no playback bounds checking
                 MIDI.temppos.Add((long)int.MaxValue << 32);
-                MIDI.synthEvents.Pointer[eventCount] = (long)int.MaxValue << 32;
+                eventsPtr[eventCount] = (long)int.MaxValue << 32;
+                
+                RadixSort(eventsPtr, eventCount+1);
             }
+
             MIDI.tempoEvents = [.. MIDI.temppos];
             MIDI.temppos.Clear();
-            
+
             Starter.form.label2.Text = "Status: Loaded";
             Starter.form.button4.Enabled = true;
             Console.WriteLine("MIDI Loaded");
         }
         
+        private static unsafe void RadixSort(long* events, long count)
+        {
+            const int RADIX_BITS = 16;
+            const int RADIX = 1 << RADIX_BITS;
+            const int MASK = RADIX - 1;
+        
+            // this kinda sucks in memory efficiency but its pretty fast
+            long* sortBuffer = (long*)NativeMemory.Alloc((nuint)(count * sizeof(long)));
+            long* temp = sortBuffer;
+        
+            // counts: uint is enough unless a single bucket exceeds 4 billion entries
+            uint* counts = stackalloc uint[RADIX];
+        
+            bool swapped = false;
+        
+            // low 16 bits, then high 16 bits of tick
+            for (int pass = 0; pass < 2; pass++)
+            {
+                int shift = 32 + (pass * RADIX_BITS);
+        
+                for (int i = 0; i < RADIX; i++)
+                    counts[i] = 0;
+
+                for (long i = 0; i < count; i++)
+                {
+                    uint bucket = (uint)(events[i] >> shift) & MASK;
+                    counts[bucket]++;
+                }
+        
+                // prefix sum
+                uint sum = 0;
+                for (int i = 0; i < RADIX; i++)
+                {
+                    uint c = counts[i];
+                    counts[i] = sum;
+                    sum += c;
+                }
+        
+                // redistribute
+                for (long i = 0; i < count; i++)
+                {
+                    long ev = events[i];
+                    uint bucket = (uint)(ev >> shift) & MASK;
+                    temp[counts[bucket]++] = ev;
+                }
+        
+                // swap buffers
+                long* swap = events;
+                events = temp;
+                temp = swap;
+                swapped = !swapped;
+            }
+        
+            // ensure final result is in original buffer
+            if (swapped)
+            {
+                Buffer.MemoryCopy(events, temp, count * sizeof(long), count * sizeof(long));
+            }
+            NativeMemory.Free(sortBuffer);
+        }
+
         public static void Unload()
         {
             totalNotes = 0;
@@ -162,65 +249,6 @@ namespace SharpMIDI
                 return false;
             }
         }
-
-        public static unsafe void MergeAllTracks(List<long>[] tracks, BigArray<long> output)
-        {
-            int trackCount = tracks.Length;
-            int max = maxTick + 1;
-
-            // Ensure reusable offset buffer
-            if (tickOffsets == null || tickOffsetCapacity < max)
-            {
-                tickOffsets = new ulong[max];
-                tickOffsetCapacity = max;
-            }
-            else
-            {
-                Array.Clear(tickOffsets, 0, max);
-            }
-
-            ulong[] offsets = tickOffsets;
-
-            // count events per tick
-            for (int t = 0; t < trackCount; t++)
-            {
-                var list = tracks[t];
-                if (list == null) continue;
-
-                int count = list.Count;
-                for (int i = 0; i < count; i++)
-                    offsets[(int)(list[i] >> 32)]++;
-            }
-
-            // prefix sum to write positions
-            ulong sum = 0;
-            for (int i = 0; i < max; i++)
-            {
-                ulong c = offsets[i];
-                offsets[i] = sum;
-                sum += c;
-            }
-
-            // write events directly
-            long* dst = output.Pointer;
-
-            for (int t = 0; t < trackCount; t++)
-            {
-                var list = tracks[t];
-                if (list == null) continue;
-
-                int count = list.Count;
-                for (int i = 0; i < count; i++)
-                {
-                    long ev = list[i];
-                    int tick = (int)(ev >> 32);
-                    ulong pos = offsets[tick]++;
-                    dst[pos] = ev;
-                }
-            }
-            tracks = null;
-        }
-
 
         static uint ReadUInt32()
         {

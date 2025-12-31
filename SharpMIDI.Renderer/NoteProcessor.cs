@@ -5,25 +5,28 @@ using System.Runtime.CompilerServices;
 namespace SharpMIDI.Renderer
 {
     public static unsafe class NoteProcessor
-    {
-        // Bit layout (optimized for unpacking speed):
-        // bits 0-10:  RelativeStart (11 bits, 0-2047)
-        // bits 11-18:  NoteNumber (7 bits, 0-127)
-        // bits 18-27: Duration (10 bits, 0-1023)
-        // bits 28-31: ColorIndex (4 bits, 0-16)
+    {        
+        // pseudo-struct for sortedbuckets since its bitpacked:
+        // bits 0-10 = RelativeStart
+        // bits 11-18 = NoteNumber (midi key essentially)
+        // bits 18-27 = Duration
+        // bits 28-31 = ColorIndex
         public static uint[][] SortedBuckets = Array.Empty<uint[]>();
+        public static readonly uint[] trackColors = new uint[16];
+        private static List<uint>[]? sharedBuckets;
+        private static readonly object bucketsLock = new object();
+        
         public const int BucketSize = 2047;
-        public const int MaxChunkDuration = 1023; // updated for 10-bit duration
+        public const int MaxChunkDuration = 1023;
         public static bool IsReady { get; private set; } = false;
         public static long TotalNoteCount { get; private set; } = 0;
 
-        // New bit masks and shifts
-        private const uint RELSTART_MASK = 0x7FFu;     // 11 bits
+        private const uint RELSTART_MASK = 0x7FFu;
         private const int NOTENUMBER_SHIFT = 11;
-        private const uint NOTENUMBER_MASK = 0x7Fu;    // 7 bits
+        private const uint NOTENUMBER_MASK = 0x7Fu;
         private const int DURATION_SHIFT = 18;
-        private const uint DURATION_MASK = 0x3FFu;     // 10 bits
-        private const int COLORINDEX_SHIFT = 28;       // 4 bits
+        private const uint DURATION_MASK = 0x3FFu;
+        private const int COLORINDEX_SHIFT = 28;
 
         private struct NoteStack
         {
@@ -51,14 +54,8 @@ namespace SharpMIDI.Renderer
             public bool HasNotes => count > 0;
         }
 
-        public static readonly uint[] trackColors = new uint[16]; // now only 4-bit index needed
-
-        private static List<uint>[]? sharedBuckets;
-        private static readonly object bucketsLock = new object();
-
         static NoteProcessor()
         {
-            // Precompute 16 distinct colors
             for (int i = 0; i < 16; i++)
             {
                 float h = (i * 137.50776f) % 360f;
@@ -108,9 +105,10 @@ namespace SharpMIDI.Renderer
             sharedBuckets = new List<uint>[bucketCount];
         }
 
-        public static void ProcessTrackForRendering(List<long> trackEvents, int trackIndex, int estimatedNotesPerBucket)
+
+        public static void ProcessTrackForRendering(long* trackEvents, long trackCount, int trackIndex, int estimatedNotesPerBucket)
         {
-            if (trackEvents == null || trackEvents.Count == 0) return;
+            if (trackEvents == null || trackCount == 0) return;
             if (sharedBuckets == null) return;
 
             NoteStack[] stacks = new NoteStack[2048];
@@ -119,12 +117,10 @@ namespace SharpMIDI.Renderer
             int bucketSize = BucketSize;
             int maxDuration = MaxChunkDuration;
             int bucketsLen = sharedBuckets.Length;
-            int eventCount = trackEvents.Count;
 
-            // Color based on track + channel for more variety
-            int trackColorBase = (trackIndex * 17) & 0xFF; // Use track for base color
+            int trackColorBase = (trackIndex * 17) & 0xFF;
 
-            for (int i = 0; i < eventCount; i++)
+            for (long i = 0; i < trackCount; i++)
             {
                 long evt = trackEvents[i];
                 int tick = (int)(evt >> 32);
@@ -139,12 +135,12 @@ namespace SharpMIDI.Renderer
 
                 int key = (channel << 7) | note;
 
-                if (status == 0x90 && velocity > 0) // Note ON
+                if (status == 0x90 && velocity > 0)
                 {
                     stacks[key].Push(tick);
                     hasNotes[key] = true;
                 }
-                else if (status == 0x80 || (status == 0x90 && velocity == 0)) // Note OFF
+                else if (status == 0x80 || (status == 0x90 && velocity == 0))
                 {
                     int startTick = stacks[key].Pop();
                     if (startTick >= 0)
@@ -152,7 +148,6 @@ namespace SharpMIDI.Renderer
                         int duration = tick - startTick;
                         if (duration < 1) duration = 1;
                         
-                        // Combine track and channel for color variety
                         int colorIndex = (trackColorBase + channel) & 0xFF;
                         
                         SliceNote(startTick, duration, note, colorIndex, sharedBuckets, 
@@ -163,7 +158,7 @@ namespace SharpMIDI.Renderer
             }
 
             // Handle remaining notes
-            int fallbackEnd = eventCount > 0 ? (int)(trackEvents[eventCount - 1] >> 32) + 100 : 100;
+            int fallbackEnd = trackCount > 0 ? (int)(trackEvents[trackCount - 1] >> 32) + 100 : 100;
             for (int key = 0; key < 2048; key++)
             {
                 if (!hasNotes[key]) continue;

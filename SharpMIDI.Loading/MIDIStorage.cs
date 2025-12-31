@@ -15,7 +15,7 @@ namespace SharpMIDI
         public BigArray(ulong length)
         {
             Length = length;
-            ulong bytes = length * sizeof(long);
+            ulong bytes = length * (uint)sizeof(T);
             ptr = (long*)NativeMemory.Alloc((nuint)bytes);
         }
 
