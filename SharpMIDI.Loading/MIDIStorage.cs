@@ -1,31 +1,42 @@
 using System.Runtime.InteropServices;
 namespace SharpMIDI
 {
+    public struct SynthEvent
+    {
+        public uint tick;
+        public uint message;
+    }
+    public struct Tempo
+    {
+        public uint tick;
+        public uint tempo;
+    }
+    
     static class MIDI
     {
-        public static BigArray<long> synthEvents;
-        public static List<long> temppos = new List<long>();
-        public static long[] tempoEvents = Array.Empty<long>();
+        public static BigArray<SynthEvent> synthEvents;
+        public static List<Tempo> temppos = new List<Tempo>();
+        public static Tempo[] tempoEvents = Array.Empty<Tempo>();
     }
     public unsafe class BigArray<T> : IDisposable
     {
-        public readonly ulong Length;
-        private long* ptr;
-
+        public ulong Length;
+        private T* ptr;
+        public T* Pointer => ptr;
+        
         public BigArray(ulong length)
         {
             Length = length;
             ulong bytes = length * (uint)sizeof(T);
-            ptr = (long*)NativeMemory.Alloc((nuint)bytes);
+            ptr = (T*)NativeMemory.Alloc((nuint)bytes);
         }
 
-        public long this[ulong index]
+        public void Resize(ulong newLength)
         {
-            get => ptr[index];
-            set => ptr[index] = value;
+            Length = newLength;
+            ulong bytes = Length * (uint)sizeof(T);
+            ptr = (T*)NativeMemory.Realloc(ptr, (nuint)bytes);
         }
-
-        public long* Pointer => ptr;
 
         public void Dispose()
         {

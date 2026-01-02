@@ -54,8 +54,8 @@ namespace SharpMIDI
                     trackOffsets[i] = totalEstimated;
                     totalEstimated += estimate;
                 }
-                MIDI.synthEvents = new BigArray<long>((ulong)totalEstimated + 1024);
-                long* eventsPtr = MIDI.synthEvents.Pointer;
+                MIDI.synthEvents = new BigArray<SynthEvent>((ulong)totalEstimated + 1024);
+                SynthEvent* eventsPtr = MIDI.synthEvents.Pointer;
                 
                 midistream.Position++;
                 Parallel.For(0, trackAmount, (i) =>
@@ -94,7 +94,6 @@ namespace SharpMIDI
                     int notesPerBucket = (thisTrackNotes / bucketCount) + 16;
                     Renderer.NoteProcessor.ProcessTrackForRendering(eventsPtr + trackStart, trackCount, i, notesPerBucket);
                 });
-
                 Renderer.NoteProcessor.FinalizeBuckets();
 
                 Console.WriteLine("compacting and sorting events");
@@ -103,26 +102,27 @@ namespace SharpMIDI
                 {
                     long trackStart = trackOffsets[t];
                     long count = trackEventCounts[t];
-                    
+
                     if (count > 0 && trackStart != writePos)
                     {
                         // move forward
                         Buffer.MemoryCopy(
                             eventsPtr + trackStart,
                             eventsPtr + writePos,
-                            count * sizeof(long),
-                            count * sizeof(long)
+                            count * sizeof(SynthEvent),
+                            count * sizeof(SynthEvent)
                         );
                     }
                     writePos += count;
                 }
                 eventCount = writePos;
+                             
+                RadixSortInPlace(eventsPtr, 0, eventCount + 1, 24);
+                MIDI.synthEvents.Resize((ulong)(eventCount + 1));
                 
-                // dummy events for no playback bounds checking
-                MIDI.temppos.Add((long)int.MaxValue << 32);
-                eventsPtr[eventCount] = (long)int.MaxValue << 32;
-                
-                RadixSort(eventsPtr, eventCount+1);
+                // dummy events for no playback bounds checking   
+                MIDI.temppos.Add(new Tempo { tick=uint.MaxValue } );
+                eventsPtr[eventCount] = new SynthEvent{ tick = uint.MaxValue };
             }
 
             MIDI.tempoEvents = [.. MIDI.temppos];
@@ -132,70 +132,79 @@ namespace SharpMIDI
             Starter.form.button4.Enabled = true;
             Console.WriteLine("MIDI Loaded");
         }
-        
-        private static unsafe void RadixSort(long* events, long count)
-        {
-            const int RADIX_BITS = 16;
-            const int RADIX = 1 << RADIX_BITS;
-            const int MASK = RADIX - 1;
-        
-            // this kinda sucks in memory efficiency but its pretty fast
-            long* sortBuffer = (long*)NativeMemory.Alloc((nuint)(count * sizeof(long)));
-            long* temp = sortBuffer;
-        
-            // counts: uint is enough unless a single bucket exceeds 4 billion entries
-            uint* counts = stackalloc uint[RADIX];
-        
-            bool swapped = false;
-        
-            // low 16 bits, then high 16 bits of tick
-            for (int pass = 0; pass < 2; pass++)
-            {
-                int shift = 32 + (pass * RADIX_BITS);
-        
-                for (int i = 0; i < RADIX; i++)
-                    counts[i] = 0;
 
-                for (long i = 0; i < count; i++)
-                {
-                    uint bucket = (uint)(events[i] >> shift) & MASK;
-                    counts[bucket]++;
-                }
-        
-                // prefix sum
-                uint sum = 0;
-                for (int i = 0; i < RADIX; i++)
-                {
-                    uint c = counts[i];
-                    counts[i] = sum;
-                    sum += c;
-                }
-        
-                // redistribute
-                for (long i = 0; i < count; i++)
-                {
-                    long ev = events[i];
-                    uint bucket = (uint)(ev >> shift) & MASK;
-                    temp[counts[bucket]++] = ev;
-                }
-        
-                // swap buffers
-                long* swap = events;
-                events = temp;
-                temp = swap;
-                swapped = !swapped;
-            }
-        
-            // ensure final result is in original buffer
-            if (swapped)
+        static unsafe void RadixSortInPlace(SynthEvent* arr, long start, long length, int shift)
+        {
+            const int RADIX_BITS = 8;
+            const int BUCKETS = 1 << RADIX_BITS;
+            const uint MASK = BUCKETS - 1;
+
+            if (length <= 1 || shift < 0)
+                return;
+
+            long* count = stackalloc long[BUCKETS];
+            long* startOf = stackalloc long[BUCKETS];
+            long* next = stackalloc long[BUCKETS];
+
+            // Count
+            for (int i = 0; i < BUCKETS; i++) count[i] = 0;
+
+            long end = start + length;
+            for (long i = start; i < end; i++)
             {
-                Buffer.MemoryCopy(events, temp, count * sizeof(long), count * sizeof(long));
+                int k = (int)((arr[i].tick >> shift) & MASK);
+                count[k]++;
             }
-            NativeMemory.Free(sortBuffer);
+
+            // Prefix sum
+            long sum = 0;
+            for (int i = 0; i < BUCKETS; i++)
+            {
+                startOf[i] = sum;
+                next[i] = sum;
+                sum += count[i];
+            }
+
+            // In-place distribution
+            for (int b = 0; b < BUCKETS; b++)
+            {
+                long bucketEnd = startOf[b] + count[b];
+
+                while (next[b] < bucketEnd)
+                {
+                    long idx = start + next[b];
+                    SynthEvent val = arr[idx];
+                    int k = (int)((val.tick >> shift) & MASK);
+
+                    if (k == b)
+                    {
+                        next[b]++;
+                    }
+                    else
+                    {
+                        long dst = start + next[k]++;
+                        SynthEvent tmp = arr[dst];
+                        arr[dst] = val;
+                        arr[idx] = tmp;
+                    }
+                }
+            }
+
+            // Recurse into buckets
+            for (int b = 0; b < BUCKETS; b++)
+            {
+                long c = count[b];
+                if (c > 1)
+                {
+                    RadixSortInPlace(arr, start + startOf[b], c, shift - RADIX_BITS);
+                }
+            }
         }
+
 
         public static void Unload()
         {
+            MIDIPlayer.stopping = true;
             totalNotes = 0;
             loadedNotes = 0;
             eventCount = 0;
@@ -268,10 +277,10 @@ namespace SharpMIDI
 
         static bool FindText(string text)
         {
-            foreach (char l in text)
+            for (int i = 0; i < text.Length; i++)
             {
                 int test = midistream.ReadByte();
-                if (test != l)
+                if (test != text[i])
                 {
                     if(test == -1){
                         return false;

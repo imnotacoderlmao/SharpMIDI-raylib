@@ -53,7 +53,7 @@ namespace SharpMIDI
             return tick;
         }
 
-        public static void SubmitBPM(double posTick, double microTempo)
+        public static void SubmitBPM(uint posTick, uint microTempo)
         {
             Update();
             bpm = 60000000.0 / microTempo;

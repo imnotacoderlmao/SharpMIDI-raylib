@@ -6,7 +6,7 @@ namespace SharpMIDI
         public long eventAmount = 0;
         public long loadedNotes = 0;
         public long totalNotes = 0;
-        private long* outputPtr;
+        private SynthEvent* outputPtr;
         private long writeIndex;
         //public List<long> localEvents;
         public List<int[]> skippedNotes = new List<int[]>();
@@ -16,11 +16,11 @@ namespace SharpMIDI
             stupid = reader;
         }
         byte prevEvent = 0;
-        public void ParseTrackEvents(byte thres, long* destination, long startOffset)
+        public void ParseTrackEvents(byte thres, SynthEvent* destination, long startOffset)
         {
             outputPtr = destination + startOffset;
             writeIndex = 0;
-            int localtracktime = 0;
+            uint localtracktime = 0;
             for (int i = 0; i < 16; i++)
             {
                 skippedNotes.Add(new int[256]);
@@ -31,7 +31,7 @@ namespace SharpMIDI
                 {
                     //this is huge zenith inspiration lol, if you can't beat 'em, join 'em
                     int test = ReadVariableLen();
-                    localtracktime += test;
+                    localtracktime += (uint)test;
                     byte readEvent = stupid.ReadFast();
                     if (readEvent < 0x80)
                     {
@@ -40,7 +40,7 @@ namespace SharpMIDI
                     }
                     if (localtracktime > MIDILoader.maxTick)
                     {
-                        MIDILoader.maxTick = localtracktime;
+                        MIDILoader.maxTick = (int)localtracktime;
                     }
                     prevEvent = readEvent;
                     switch ((byte)(readEvent & 0b11110000))
@@ -57,8 +57,11 @@ namespace SharpMIDI
                                     {
                                         loadedNotes++;
                                         eventAmount++;
-                                        long data = ((long)localtracktime << 32) | (uint)(readEvent | (note << 8) | (vel << 16));
-                                        outputPtr[writeIndex++] = data;
+                                        outputPtr[writeIndex++] = new SynthEvent
+                                        {
+                                            tick = localtracktime,
+                                            message = (uint)(readEvent | (note << 8) | (vel << 16))   
+                                        };
                                     }
                                     else
                                     {
@@ -71,8 +74,11 @@ namespace SharpMIDI
                                     {
                                         byte customEvent = (byte)(readEvent - 0b00010000);
                                         eventAmount++;
-                                        long data = ((long)localtracktime << 32) | (uint)(customEvent | (note << 8) | (vel << 16));
-                                        outputPtr[writeIndex++] = data;
+                                        outputPtr[writeIndex++] = new SynthEvent
+                                        {
+                                            tick = localtracktime,
+                                            message =  (uint)(customEvent | (note << 8) | (vel << 16))
+                                        };
                                     }
                                     else
                                     {
@@ -90,7 +96,11 @@ namespace SharpMIDI
                                 {
                                     eventAmount++;
                                     long data = ((long)localtracktime << 32) | (uint)(readEvent | (note << 8) | (vel << 16));
-                                    outputPtr[writeIndex++] = data;
+                                    outputPtr[writeIndex++] = new SynthEvent
+                                    {
+                                        tick = localtracktime, 
+                                        message = (uint)(readEvent | (note << 8) | (vel << 16))
+                                    };
                                 }
                                 else
                                 {
@@ -104,8 +114,11 @@ namespace SharpMIDI
                                 byte note = stupid.Read();
                                 byte vel = stupid.Read();
                                 eventAmount++;
-                                long data = ((long)localtracktime << 32) | (uint)(readEvent | (note << 8) | (vel << 16));
-                                outputPtr[writeIndex++] = data;
+                                outputPtr[writeIndex++] = new SynthEvent 
+                                {
+                                    tick = localtracktime,
+                                    message = (uint)(readEvent | (note << 8) | (vel << 16))
+                                };
                             }
                             break;
                         case 0b11000000:
@@ -113,8 +126,11 @@ namespace SharpMIDI
                                 int channel = readEvent & 0b00001111;
                                 byte program = stupid.Read();
                                 eventAmount++;
-                                long data = ((long)localtracktime << 32) | (uint)(readEvent | (program << 8));
-                                outputPtr[writeIndex++] = data;
+                                outputPtr[writeIndex++] = new SynthEvent 
+                                {
+                                    tick = localtracktime, 
+                                    message  = (uint)(readEvent | (program << 8))
+                                };
                             }
                             break;
                         case 0b11010000:
@@ -122,8 +138,11 @@ namespace SharpMIDI
                                 int channel = readEvent & 0b00001111;
                                 byte pressure = stupid.Read();
                                 eventAmount++;
-                                long data = ((long)localtracktime << 32) | (uint)(readEvent | (pressure << 8));
-                                outputPtr[writeIndex++] = data;
+                                outputPtr[writeIndex++] = new SynthEvent 
+                                {
+                                    tick = localtracktime,
+                                    message = (uint)(readEvent | (pressure << 8))
+                                };
                             }
                             break;
                         case 0b11100000:
@@ -132,8 +151,11 @@ namespace SharpMIDI
                                 byte l = stupid.Read();
                                 byte m = stupid.Read();
                                 eventAmount++;
-                                long data = ((long)localtracktime << 32) | (uint)(readEvent | (l << 8) | (m << 16));
-                                outputPtr[writeIndex++] = data;
+                                outputPtr[writeIndex++] = new SynthEvent
+                                {
+                                    tick = localtracktime, 
+                                    message = (uint)(readEvent | (l << 8) | (m << 16))
+                                };
                             }
                             break;
                         case 0b10110000:
@@ -142,8 +164,11 @@ namespace SharpMIDI
                                 byte cc = stupid.Read();
                                 byte vv = stupid.Read();
                                 eventAmount++;
-                                long data = ((long)localtracktime << 32) | (uint)(readEvent | (cc << 8) | (vv << 16));
-                                outputPtr[writeIndex++] = data;
+                                outputPtr[writeIndex++] = new SynthEvent
+                                {
+                                    tick = localtracktime, 
+                                    message = (uint)(readEvent | (cc << 8) | (vv << 16))
+                                };
                             }
                             break;
                         default:
@@ -167,7 +192,11 @@ namespace SharpMIDI
                                             uint tempo = 0;
                                             for (int i = 0; i != 3; i++)
                                                 tempo = (uint)((tempo << 8) | stupid.Read());
-                                            long data = ((long)localtracktime << 32) | tempo;
+                                            Tempo data = new Tempo() 
+                                            { 
+                                                tick = localtracktime, 
+                                                tempo = tempo
+                                            };
                                             MIDI.temppos.Add(data);
                                         }
                                         else if (readEvent == 0x2F)

@@ -12,17 +12,17 @@ namespace SharpMIDI
             stopping = false;
             // this could be done better but whatever
             var synthev = MIDI.synthEvents;
-            long* evptr = synthev.Pointer;
-            long* evend = evptr + synthev.Length;
-            long* currev = evptr;
-            long[] tevs = MIDI.tempoEvents;
+            SynthEvent* evptr = synthev.Pointer;
+            SynthEvent* currev = evptr;
+            SynthEvent* evend = evptr + synthev.Length;
+            Tempo[] tevs = MIDI.tempoEvents;
             int maxTick = MIDILoader.maxTick;
             uint localwrite = Sound.write;
             uint localbuffermask = Sound.bufferMask;
             uint* buffer = Sound.ringbuffer;
-            fixed (long* t0 = tevs)
+            fixed (Tempo* t0 = tevs)
             {
-                long* currtev = t0;
+                Tempo* currtev = t0;
                 MIDIClock.Start();
                 while (!stopping)
                 {
@@ -30,30 +30,31 @@ namespace SharpMIDI
                     bool skipping = MIDIClock.skipping;
                     if (!skipping) 
                     {
-                        while ((uint)(*currev >> 32) <= localclock)
+                        while (currev->tick <= localclock)
                         {
-                            buffer[localwrite] = (uint)*currev++;
+                            buffer[localwrite] = currev++->message;
                             localwrite = (localwrite + 1) & localbuffermask;
                         }
                     }
                     else 
                     {
                        // fucign binary search
-                        long* left = currev;
-                        long* right = evend;
+                        SynthEvent* left = currev;
+                        SynthEvent* right = evend;
+
                         while (right - left > 16)
                         {
-                            long* mid = left + ((right - left) >> 1);
-                            if ((uint)(*mid >> 32) <= localclock)
+                            SynthEvent* mid = left + ((right - left) >> 1);
+                            if (mid->tick <= localclock)
                                 left = mid + 1;
                             else
                                 right = mid;
                         }
                         currev = left;
                     }
-                    while ((uint)(*currtev >> 32) <= localclock)
+                    while (currtev->tick <= localclock)
                     {
-                        MIDIClock.SubmitBPM((uint)(*currtev >> 32), *currtev & 0xFFFFFF);
+                        MIDIClock.SubmitBPM(currtev->tick, currtev->tempo);
                         ++currtev;
                     }
                     Sound.write = localwrite;

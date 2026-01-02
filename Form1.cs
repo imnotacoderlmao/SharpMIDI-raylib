@@ -139,12 +139,7 @@ namespace SharpMIDI
             paused = !paused;
         }
 
-        private void button5_Click(object sender, EventArgs e)
-        {
-            MIDIPlayer.stopping = true;
-            button5.Enabled = false;
-            button6.Enabled = false;
-        }
+        private void button5_Click(object sender, EventArgs e) => MIDIPlayer.stopping = true;
 
         private void checkBox1_CheckedChanged(object sender, EventArgs e)
         {

@@ -106,7 +106,7 @@ namespace SharpMIDI.Renderer
         }
 
 
-        public static void ProcessTrackForRendering(long* trackEvents, long trackCount, int trackIndex, int estimatedNotesPerBucket)
+        public static void ProcessTrackForRendering(SynthEvent* trackEvents, long trackCount, int trackIndex, int estimatedNotesPerBucket)
         {
             if (trackEvents == null || trackCount == 0) return;
             if (sharedBuckets == null) return;
@@ -117,15 +117,14 @@ namespace SharpMIDI.Renderer
             int bucketSize = BucketSize;
             int maxDuration = MaxChunkDuration;
             int bucketsLen = sharedBuckets.Length;
-
             int trackColorBase = (trackIndex * 17) & 0xFF;
 
             for (long i = 0; i < trackCount; i++)
             {
-                long evt = trackEvents[i];
-                int tick = (int)(evt >> 32);
-                int val = (int)(evt & 0xFFFFFFFF);
-                
+                SynthEvent evt = trackEvents[i];
+                int tick = (int)evt.tick;
+                int val = (int)evt.message;
+
                 int status = val & 0xF0;
                 int channel = val & 0x0F;
                 int note = (val >> 8) & 0x7F;
@@ -147,9 +146,9 @@ namespace SharpMIDI.Renderer
                     {
                         int duration = tick - startTick;
                         if (duration < 1) duration = 1;
-                        
+
                         int colorIndex = (trackColorBase + channel) & 0xFF;
-                        
+
                         SliceNote(startTick, duration, note, colorIndex, sharedBuckets, 
                                  estimatedNotesPerBucket, bucketSize, maxDuration, bucketsLen);
                         hasNotes[key] = stacks[key].HasNotes;
@@ -158,15 +157,15 @@ namespace SharpMIDI.Renderer
             }
 
             // Handle remaining notes
-            int fallbackEnd = trackCount > 0 ? (int)(trackEvents[trackCount - 1] >> 32) + 100 : 100;
+            int fallbackEnd = trackCount > 0 ? (int)trackEvents[trackCount - 1].tick + 100 : 100;
             for (int key = 0; key < 2048; key++)
             {
                 if (!hasNotes[key]) continue;
-                
+
                 int note = key & 0x7F;
                 int channel = key >> 7;
                 int colorIndex = (trackColorBase + channel) & 0xFF;
-                
+
                 while (stacks[key].HasNotes)
                 {
                     int startTick = stacks[key].Pop();
@@ -174,7 +173,7 @@ namespace SharpMIDI.Renderer
                     {
                         int duration = fallbackEnd - startTick;
                         if (duration < 1) duration = 1;
-                        
+
                         SliceNote(startTick, duration, note, colorIndex, sharedBuckets, 
                                  estimatedNotesPerBucket, bucketSize, maxDuration, bucketsLen);
                     }
