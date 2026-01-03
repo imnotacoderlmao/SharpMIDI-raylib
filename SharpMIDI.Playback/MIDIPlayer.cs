@@ -10,7 +10,6 @@ namespace SharpMIDI
         public static void StartPlayback()
         {
             stopping = false;
-            // this could be done better but whatever
             var synthev = MIDI.synthEvents;
             SynthEvent* evptr = synthev.Pointer;
             SynthEvent* currev = evptr;
@@ -38,7 +37,6 @@ namespace SharpMIDI
                     }
                     else 
                     {
-                       // fucign binary search
                         SynthEvent* left = currev;
                         SynthEvent* right = evend;
 

@@ -45,16 +45,17 @@ namespace SharpMIDI
             {
                 long[] trackOffsets = new long[trackAmount];
                 long[] trackEventCounts = new long[trackAmount];
+                long[] trackMaxTicks = new long[trackAmount];
                 long totalEstimated = 0;
 
                 // preallocate cheaply
                 for (int i = 0; i < trackAmount && i <= tracklimit; i++)
                 {
-                    long estimate = trackSizes[i] / 3;
+                    long estimate = trackSizes[i] / 4;
                     trackOffsets[i] = totalEstimated;
                     totalEstimated += estimate;
                 }
-                MIDI.synthEvents = new BigArray<SynthEvent>((ulong)totalEstimated + 1024);
+                MIDI.synthEvents = new BigArray<SynthEvent>((ulong)totalEstimated);
                 SynthEvent* eventsPtr = MIDI.synthEvents.Pointer;
                 
                 midistream.Position++;
@@ -64,14 +65,32 @@ namespace SharpMIDI
                     Console.WriteLine($"Loading track #{i + 1} | Size {trackSizes[i]}");
 
                     FastTrack temp = new FastTrack(
-                        // using fixed 256kib buffer size made it way faster somehow
                         new BufferByteReader(midistream, 256 * 1024, trackLocations[i], trackSizes[i]) 
                     );
 
                     // this parses to one big tempbuffer instead now
                     temp.ParseTrackEvents(thres, eventsPtr, trackOffsets[i]);
-                    trackEventCounts[i] = temp.GetWrittenCount();
+                    trackEventCounts[i] = temp.writeIndex;
+                    trackMaxTicks[i] = temp.trackMaxTick;
+                    
+                    if (trackEventCounts[i] > 0)
+                    {
+                        long trackStart = trackOffsets[i];
+                        long trackCount = trackEventCounts[i];
 
+                        int thisTrackNotes = (int)(trackCount / 2);
+                        int bucketCount = ((int)trackMaxTicks[i] / Renderer.NoteProcessor.BucketSize) + 2;
+                        int notesPerBucket = (thisTrackNotes / bucketCount) + 16;
+
+                        Renderer.NoteProcessor.ProcessTrackForRendering(
+                            eventsPtr + trackStart,
+                            trackCount,
+                            i,
+                            notesPerBucket,
+                            (int)trackMaxTicks[i]
+                        );
+                    }
+                    
                     Interlocked.Add(ref loadedNotes, temp.loadedNotes);
                     Interlocked.Add(ref totalNotes, temp.totalNotes);
                     Interlocked.Add(ref eventCount, temp.eventAmount);
@@ -79,22 +98,6 @@ namespace SharpMIDI
                     temp.Dispose();
                 });
                 midistream.Close();
-
-                Console.WriteLine("preprocessing stuff for the renderer");
-                Renderer.NoteProcessor.InitializeBuckets(maxTick);
-                int bucketCount = (maxTick / Renderer.NoteProcessor.BucketSize) + 2;
-                Parallel.For(0, trackAmount, (i) =>
-                {
-                    if (trackEventCounts[i] == 0) return;
-
-                    long trackStart = trackOffsets[i];
-                    long trackCount = trackEventCounts[i];
-
-                    int thisTrackNotes = (int)(trackCount / 2);
-                    int notesPerBucket = (thisTrackNotes / bucketCount) + 16;
-                    Renderer.NoteProcessor.ProcessTrackForRendering(eventsPtr + trackStart, trackCount, i, notesPerBucket);
-                });
-                Renderer.NoteProcessor.FinalizeBuckets();
 
                 Console.WriteLine("compacting and sorting events");
                 long writePos = 0;
@@ -116,7 +119,7 @@ namespace SharpMIDI
                     writePos += count;
                 }
                 eventCount = writePos;
-                             
+                Renderer.NoteProcessor.FinalizeBuckets();         
                 RadixSortInPlace(eventsPtr, 0, eventCount + 1, 24);
                 MIDI.synthEvents.Resize((ulong)(eventCount + 1));
                 

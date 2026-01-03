@@ -31,13 +31,12 @@ namespace SharpMIDI
 
         public static Task UpdateUI()
         {
-            System.Diagnostics.Stopwatch? watch = System.Diagnostics.Stopwatch.StartNew();
-            double totalDelay = 0, fps = 0;
+            double now, lastnow = 0, delay, fps = 0;
             while (true)
             {
-                totalDelay += watch.Elapsed.TotalSeconds;
-                watch.Restart();
-                fps = (fps * 0.4) + ((MIDIPlayer.totalFrames / totalDelay) * 0.6);
+                now = Timer.Seconds();
+                delay = now - lastnow;
+                fps = (fps * 0.4) + ((MIDIPlayer.totalFrames / delay) * 0.6);
                 if (fps > 60) Starter.form.label12.Text = $"FPS \u2248 {Math.Round(fps,5)}";
                 else Starter.form.label12.Text = "FPS \u2248 <60";
                 Starter.form.label10.Text = $"Loaded tracks: {MIDILoader.loadedtracks} / {MIDILoader.trackAmount}";
@@ -46,9 +45,9 @@ namespace SharpMIDI
                 Starter.form.label14.Text = $"Tick: {(int)MIDIClock.tick} / {MIDILoader.maxTick}";
                 Starter.form.label16.Text = $"Ticks/sec: {Math.Round(MIDIClock.tickscale, 5)}";
                 Starter.form.label17.Text = $"BPM: {Math.Round(MIDIClock.bpm, 5)}";
-                Starter.form.label7.Text = $"GC Heap: {Form1.toMemoryText(GC.GetTotalMemory(false))} (May be inaccurate)";
+                Starter.form.label7.Text = $"GC Heap: {toMemoryText(GC.GetTotalMemory(false))} (May be inaccurate)";
                 MIDIPlayer.totalFrames = 0;
-                totalDelay = 0;
+                lastnow = now;
                 Thread.Sleep(1000/60);
             }
         }

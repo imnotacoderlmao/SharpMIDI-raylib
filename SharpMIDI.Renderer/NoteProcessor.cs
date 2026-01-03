@@ -15,6 +15,7 @@ namespace SharpMIDI.Renderer
         public static readonly uint[] trackColors = new uint[16];
         private static List<uint>[]? sharedBuckets;
         private static readonly object bucketsLock = new object();
+        private static int currentBucketCount = 0;
         
         public const int BucketSize = 2047;
         public const int MaxChunkDuration = 1023;
@@ -96,44 +97,54 @@ namespace SharpMIDI.Renderer
             colorIndex = (int)((packed >> COLORINDEX_SHIFT) & 0xF);
         }
 
-        public static void InitializeBuckets(int maxTick)
+        private static void EnsureBucketCapacity(int requiredBuckets)
         {
-            IsReady = false;
-            SortedBuckets = Array.Empty<uint[]>();
-            int bucketCount = (maxTick / BucketSize) + 2;
-            if (bucketCount < 2) bucketCount = 2;
-            sharedBuckets = new List<uint>[bucketCount];
+            lock (bucketsLock)
+            {
+                if (sharedBuckets == null)
+                {
+                    sharedBuckets = new List<uint>[requiredBuckets];
+                    currentBucketCount = requiredBuckets;
+                }
+                else if (requiredBuckets > currentBucketCount)
+                {
+                    Array.Resize(ref sharedBuckets, requiredBuckets);
+                    currentBucketCount = requiredBuckets;
+                }
+            }
         }
 
 
-        public static void ProcessTrackForRendering(SynthEvent* trackEvents, long trackCount, int trackIndex, int estimatedNotesPerBucket)
+        public static void ProcessTrackForRendering(SynthEvent* trackEvents, long trackCount, int trackIndex, int estimatedNotesPerBucket, int trackMaxTick)
         {
             if (trackEvents == null || trackCount == 0) return;
-            if (sharedBuckets == null) return;
-
+    
+            int bucketsNeeded = (trackMaxTick / BucketSize) + 2;
+            EnsureBucketCapacity(bucketsNeeded);
+    
             NoteStack[] stacks = new NoteStack[2048];
             bool[] hasNotes = new bool[2048];
-
+    
             int bucketSize = BucketSize;
             int maxDuration = MaxChunkDuration;
-            int bucketsLen = sharedBuckets.Length;
+            int bucketsLen = currentBucketCount;  // Use current size
             int trackColorBase = (trackIndex * 17) & 0xFF;
-
+    
             for (long i = 0; i < trackCount; i++)
             {
                 SynthEvent evt = trackEvents[i];
                 int tick = (int)evt.tick;
                 int val = (int)evt.message;
-
+                
                 int status = val & 0xF0;
                 int channel = val & 0x0F;
                 int note = (val >> 8) & 0x7F;
                 int velocity = (val >> 16) & 0x7F;
-
+    
                 if (note > 127) continue;
-
+    
                 int key = (channel << 7) | note;
-
+    
                 if (status == 0x90 && velocity > 0)
                 {
                     stacks[key].Push(tick);
@@ -146,26 +157,26 @@ namespace SharpMIDI.Renderer
                     {
                         int duration = tick - startTick;
                         if (duration < 1) duration = 1;
-
+                        
                         int colorIndex = (trackColorBase + channel) & 0xFF;
-
+                        
                         SliceNote(startTick, duration, note, colorIndex, sharedBuckets, 
                                  estimatedNotesPerBucket, bucketSize, maxDuration, bucketsLen);
                         hasNotes[key] = stacks[key].HasNotes;
                     }
                 }
             }
-
+    
             // Handle remaining notes
-            int fallbackEnd = trackCount > 0 ? (int)trackEvents[trackCount - 1].tick + 100 : 100;
+            int fallbackEnd = trackMaxTick + 100;
             for (int key = 0; key < 2048; key++)
             {
                 if (!hasNotes[key]) continue;
-
+                
                 int note = key & 0x7F;
                 int channel = key >> 7;
                 int colorIndex = (trackColorBase + channel) & 0xFF;
-
+                
                 while (stacks[key].HasNotes)
                 {
                     int startTick = stacks[key].Pop();
@@ -173,7 +184,7 @@ namespace SharpMIDI.Renderer
                     {
                         int duration = fallbackEnd - startTick;
                         if (duration < 1) duration = 1;
-
+                        
                         SliceNote(startTick, duration, note, colorIndex, sharedBuckets, 
                                  estimatedNotesPerBucket, bucketSize, maxDuration, bucketsLen);
                     }
@@ -231,7 +242,7 @@ namespace SharpMIDI.Renderer
         {
             if (sharedBuckets == null) return;
 
-            int bucketCount = sharedBuckets.Length;
+            int bucketCount = currentBucketCount;
             uint[][] finalBuckets = new uint[bucketCount][];
             long totalNotes = 0;
 
@@ -250,6 +261,7 @@ namespace SharpMIDI.Renderer
 
             Parallel.For(0, bucketCount, SortBucket);
             sharedBuckets = null;
+            currentBucketCount = 0;
             IsReady = true;
         }
 
@@ -258,6 +270,7 @@ namespace SharpMIDI.Renderer
             IsReady = false;
             SortedBuckets = Array.Empty<uint[]>();
             sharedBuckets = null;
+            currentBucketCount = 0;
             TotalNoteCount = 0;
         }
     }
