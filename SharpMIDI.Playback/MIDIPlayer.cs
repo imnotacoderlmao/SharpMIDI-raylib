@@ -18,7 +18,7 @@ namespace SharpMIDI
             int maxTick = MIDILoader.maxTick;
             uint localwrite = Sound.write;
             uint localbuffermask = Sound.bufferMask;
-            uint* buffer = Sound.ringbuffer;
+            uint24* buffer = Sound.ringbuffer;
             fixed (Tempo* t0 = tevs)
             {
                 Tempo* currtev = t0;
@@ -31,7 +31,7 @@ namespace SharpMIDI
                     {
                         while (currev->tick <= localclock)
                         {
-                            buffer[localwrite] = (uint)(currev++->message & 0xFFFFFF);
+                            buffer[localwrite] = currev++->message;
                             localwrite = (localwrite + 1) & localbuffermask;
                         }
                     }

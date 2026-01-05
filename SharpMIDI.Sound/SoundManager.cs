@@ -5,7 +5,7 @@ namespace SharpMIDI
 {
     static unsafe class Sound
     {
-        public static uint* ringbuffer;      // buffer
+        public static uint24* ringbuffer;      // buffer
         public static uint write;
         //static uint read;
         public const int bufferSize = 2097152;
@@ -75,7 +75,7 @@ namespace SharpMIDI
 
         static void AllocateEvBuffer()
         {    
-            ringbuffer = (uint*)NativeMemory.AlignedAlloc(bufferSize * sizeof(uint), 64);
+            ringbuffer = (uint24*)NativeMemory.AlignedAlloc((nuint)(bufferSize * sizeof(uint24)), 64);
             write = 0;
         }
         
@@ -101,7 +101,7 @@ namespace SharpMIDI
 
         static void AudioThread()
         {
-            uint* buffer = ringbuffer;
+            uint24* buffer = ringbuffer;
             uint readidx = 0;
             uint mask = bufferMask;
             var sendfn = sendTo;
@@ -111,7 +111,7 @@ namespace SharpMIDI
                 uint writeidx = write;
                 while (readidx != writeidx)
                 {
-                    sendfn(buffer[readidx]);
+                    sendfn((uint)(buffer[readidx] & 0xFFFFFF));
                     readidx = (readidx + 1) & mask;
                 }
                 //read = readidx;
