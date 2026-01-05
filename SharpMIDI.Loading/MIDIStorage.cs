@@ -1,11 +1,13 @@
 using System.Runtime.InteropServices;
 namespace SharpMIDI
 {
+    [StructLayout(LayoutKind.Sequential, Pack = 1)]
     public struct SynthEvent
     {
         public uint tick;
-        public uint message;
+        public uint24 message;
     }
+    
     public struct Tempo
     {
         public uint tick;
@@ -18,6 +20,7 @@ namespace SharpMIDI
         public static List<Tempo> temppos = new List<Tempo>();
         public static Tempo[] tempoEvents = Array.Empty<Tempo>();
     }
+    
     public unsafe class BigArray<T> : IDisposable
     {
         public ulong Length;
@@ -46,5 +49,34 @@ namespace SharpMIDI
                 ptr = null;
             }
         }
+    }
+    
+    [StructLayout(LayoutKind.Sequential, Pack = 1)]
+    public struct uint24
+    {
+        private byte b0;
+        private byte b1;
+        private byte b2;
+
+        public uint24(int value)
+        {
+            b0 = (byte)(value & 0xFF);
+            b1 = (byte)((value >> 8) & 0xFF);
+            b2 = (byte)((value >> 16) & 0xFF);
+        }
+
+        public int Value
+        {
+            get => b0 | (b1 << 8) | (b2 << 16);
+            set
+            {
+                b0 = (byte)(value & 0xFF);
+                b1 = (byte)((value >> 8) & 0xFF);
+                b2 = (byte)((value >> 16) & 0xFF);
+            }
+        }
+
+        public static implicit operator uint24(int value) => new uint24(value);
+        public static implicit operator int(uint24 value) => value.Value;
     }
 }

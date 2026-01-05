@@ -25,7 +25,7 @@ namespace SharpMIDI
             {
                 comboBox1.Items.Add(i);
             }
-            Renderer.MIDIRenderer.StartRenderer();
+            Renderer.WindowManager.StartRenderer();
             Task.Run(() => UpdateUI());
         }
 
@@ -169,7 +169,7 @@ namespace SharpMIDI
                 button5.Update();
                 button6.Update();
                 button2.Update();
-                Renderer.MIDIRenderer.Cleanup();
+                Renderer.NoteProcessor.Cleanup();
                 MIDILoader.Unload();
                 Starter.midiLoaded = false;
                 button1.Enabled = true;

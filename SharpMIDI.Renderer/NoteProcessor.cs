@@ -114,12 +114,14 @@ namespace SharpMIDI.Renderer
             }
         }
 
-
-        public static void ProcessTrackForRendering(SynthEvent* trackEvents, long trackCount, int trackIndex, int estimatedNotesPerBucket, int trackMaxTick)
+        public static void ProcessTrackForRendering(SynthEvent* trackEvents, long trackEventCount, int trackIndex, int trackMaxTick)
         {
-            if (trackEvents == null || trackCount == 0) return;
+            if (trackEvents == null || trackEventCount == 0) return;
     
-            int bucketsNeeded = (trackMaxTick / BucketSize) + 2;
+            int bucketsNeeded = (trackMaxTick / BucketSize) + 1;
+            int bucketCount = ((int)trackEventCount / BucketSize) + 1;
+            int thisTrackNotes = (int)(trackEventCount / 2);
+            int estimatedNotesPerBucket = (thisTrackNotes / bucketCount) + 16;
             EnsureBucketCapacity(bucketsNeeded);
     
             NoteStack[] stacks = new NoteStack[2048];
@@ -130,7 +132,7 @@ namespace SharpMIDI.Renderer
             int bucketsLen = currentBucketCount;  // Use current size
             int trackColorBase = (trackIndex * 17) & 0xFF;
     
-            for (long i = 0; i < trackCount; i++)
+            for (long i = 0; i < trackEventCount; i++)
             {
                 SynthEvent evt = trackEvents[i];
                 int tick = (int)evt.tick;

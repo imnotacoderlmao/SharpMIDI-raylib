@@ -31,7 +31,7 @@ namespace SharpMIDI
                     {
                         while (currev->tick <= localclock)
                         {
-                            buffer[localwrite] = currev++->message;
+                            buffer[localwrite] = (uint)(currev++->message & 0xFFFFFF);
                             localwrite = (localwrite + 1) & localbuffermask;
                         }
                     }
@@ -39,7 +39,6 @@ namespace SharpMIDI
                     {
                         SynthEvent* left = currev;
                         SynthEvent* right = evend;
-
                         while (right - left > 16)
                         {
                             SynthEvent* mid = left + ((right - left) >> 1);

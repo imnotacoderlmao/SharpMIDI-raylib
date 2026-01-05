@@ -8,10 +8,10 @@ namespace SharpMIDI
         public static uint* ringbuffer;      // buffer
         public static uint write;
         //static uint read;
-        public const int bufferSize = 16777216;
-        public const int bufferMask = 16777215;
+        public const int bufferSize = 2097152;
+        public const int bufferMask = 2097151;
         static bool running = false;
-        static Thread? audthread;
+        static Thread? audthread; 
         
         private static int engine = 0;
         private static IntPtr? handle;
@@ -85,7 +85,7 @@ namespace SharpMIDI
         {
             uint wr = write;
             ringbuffer[wr] = ev;
-            write = (wr + 1) & bufferMask;;
+            write = (wr + 1) & bufferMask;
         }*/
 
         static void StartAudioThread()

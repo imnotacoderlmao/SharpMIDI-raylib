@@ -162,9 +162,9 @@ namespace SharpMIDI.Renderer
                 {
                     uint packed = notes[n];
                     int relStart = (int)(packed & RELSTART_MASK);
-                    int noteNumber = (int)((packed >> NOTENUMBER_SHIFT) & NOTENUMBER_MASK);
+                    byte noteNumber = (byte)((packed >> NOTENUMBER_SHIFT) & NOTENUMBER_MASK);
                     int duration = (int)((packed >> DURATION_SHIFT) & DURATION_MASK);
-                    int colorIndex = (int)((packed >> COLORINDEX_SHIFT) & 0xF);
+                    byte colorIndex = (byte)((packed >> COLORINDEX_SHIFT) & 0xF);
 
                     int absStart = bucketStartTick + relStart;
                     int absEnd = absStart + duration;
@@ -180,7 +180,7 @@ namespace SharpMIDI.Renderer
                     if (x2 <= x1) continue;
 
                     uint rgba = BLACK_ALPHA | NoteProcessor.trackColors[colorIndex];
-                    int y = noteToY[noteNumber];
+                    byte y = noteToY[noteNumber];
                     uint* rowPtr = pixelPtr + y * textureWidth + startX + x1;
                     int noteWidth = x2 - x1;
 

@@ -45,7 +45,6 @@ namespace SharpMIDI
             {
                 long[] trackOffsets = new long[trackAmount];
                 long[] trackEventCounts = new long[trackAmount];
-                long[] trackMaxTicks = new long[trackAmount];
                 long totalEstimated = 0;
 
                 // preallocate cheaply
@@ -68,28 +67,15 @@ namespace SharpMIDI
                         new BufferByteReader(midistream, 256 * 1024, trackLocations[i], trackSizes[i]) 
                     );
 
-                    // this parses to one big tempbuffer instead now
                     temp.ParseTrackEvents(thres, eventsPtr, trackOffsets[i]);
                     trackEventCounts[i] = temp.writeIndex;
-                    trackMaxTicks[i] = temp.trackMaxTick;
                     
-                    if (trackEventCounts[i] > 0)
-                    {
-                        long trackStart = trackOffsets[i];
-                        long trackCount = trackEventCounts[i];
-
-                        int thisTrackNotes = (int)(trackCount / 2);
-                        int bucketCount = ((int)trackMaxTicks[i] / Renderer.NoteProcessor.BucketSize) + 2;
-                        int notesPerBucket = (thisTrackNotes / bucketCount) + 16;
-
-                        Renderer.NoteProcessor.ProcessTrackForRendering(
-                            eventsPtr + trackStart,
-                            trackCount,
-                            i,
-                            notesPerBucket,
-                            (int)trackMaxTicks[i]
-                        );
-                    }
+                    Renderer.NoteProcessor.ProcessTrackForRendering(
+                        eventsPtr + trackOffsets[i],
+                        trackEventCounts[i],
+                        i,
+                        temp.trackMaxTick
+                    );
                     
                     Interlocked.Add(ref loadedNotes, temp.loadedNotes);
                     Interlocked.Add(ref totalNotes, temp.totalNotes);
@@ -119,17 +105,17 @@ namespace SharpMIDI
                     writePos += count;
                 }
                 eventCount = writePos;
-                Renderer.NoteProcessor.FinalizeBuckets();         
+                Renderer.NoteProcessor.FinalizeBuckets();
                 RadixSortInPlace(eventsPtr, 0, eventCount + 1, 24);
                 MIDI.synthEvents.Resize((ulong)(eventCount + 1));
                 
-                // dummy events for no playback bounds checking   
+                // dummy events
                 MIDI.temppos.Add(new Tempo { tick=uint.MaxValue } );
                 eventsPtr[eventCount] = new SynthEvent{ tick = uint.MaxValue };
             }
 
             MIDI.tempoEvents = [.. MIDI.temppos];
-            MIDI.temppos.Clear();
+            MIDI.temppos = null;
 
             Starter.form.label2.Text = "Status: Loaded";
             Starter.form.button4.Enabled = true;
@@ -217,6 +203,7 @@ namespace SharpMIDI
             trackSizes.Clear();
             MIDI.synthEvents.Dispose();
             MIDI.tempoEvents = null;
+            MIDI.temppos = [];
             GC.Collect();
         }
 

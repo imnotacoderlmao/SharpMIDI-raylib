@@ -31,22 +31,17 @@ namespace SharpMIDI.Renderer
         {
             Raylib.SetConfigFlags(ConfigFlags.ResizableWindow);
             Raylib.InitWindow(currentWidth, currentHeight, "SharpMIDI");
-
-            // Initialize streaming texture renderer
             NoteRenderer.Initialize(currentWidth, currentHeight);
 
             int targetFPS = Raylib.GetMonitorRefreshRate(Raylib.GetCurrentMonitor());
             Raylib.SetTargetFPS(vsync ? targetFPS : 0);
 
-            while (!Raylib.WindowShouldClose() && IsRunning)
+            while (!Raylib.WindowShouldClose())
             {
                 UpdateWindowDimensions();
                 HandleInput();
 
-                // this WILL set the last elapsed time in getelapsed(), which makes throttling useless
                 tick = UpdateRenderTick();
-                
-                //tick = (float)MIDIClock.tick;
                 if (MIDIPlayer.stopping) 
                 {
                     tick = 0;
@@ -58,38 +53,12 @@ namespace SharpMIDI.Renderer
                 if (dynascroll && NoteRenderer.Window != MIDIClock.tickscale) 
                     NoteRenderer.SetWindow((float)MIDIClock.tickscale * scrollfactor); 
 
-                // Update the streaming texture using NoteProcessor data.
-                // Lock around NoteProcessor to avoid racing with EnhanceTracksForRendering().
-                // NoteProcessor.IsReady prevents spurious updates.
-                if (NoteProcessor.IsReady)
-                {
-                    try
-                    {
-                        NoteRenderer.UpdateStreaming(tick);
-                    }
-                    catch (Exception ex)
-                    {
-                        // Keep renderer alive on unexpected errors; show minimal console info.
-                        Console.WriteLine("NoteRenderer.UpdateStreaming error: " + ex.Message);
-                    }
-                }
+                NoteRenderer.UpdateStreaming(tick);
                 Raylib.BeginDrawing();
                 Raylib.ClearBackground(Raylib_cs.Color.Black);
-
-                // Draw the streaming texture to screen while holding the lock for consistency.
-                try
-                {
-                    NoteRenderer.Render(currentWidth, currentHeight, PAD);
-                }
-                catch (Exception ex)
-                {
-                    Console.WriteLine("NoteRenderer.Render error: " + ex.Message);
-                }
-
-                // Draw center line
+                NoteRenderer.Render(currentWidth, currentHeight, PAD);
                 Raylib.DrawLine(currentWidth >> 1, 0, currentWidth >> 1, currentHeight, Raylib_cs.Color.Red);
-
-                DrawUI(tick);
+                DrawUI();
 
                 Raylib.EndDrawing();
             }
@@ -107,8 +76,6 @@ namespace SharpMIDI.Renderer
             {
                 currentWidth = newWidth;
                 currentHeight = newHeight;
-
-                // Reinitialize streaming renderer with new dimensions
                 NoteRenderer.Initialize(currentWidth, currentHeight);
             }
         }
@@ -132,7 +99,6 @@ namespace SharpMIDI.Renderer
 
         private static void HandleInput()
         {
-            // Zoom controls
             if (Raylib.IsKeyPressed(KeyboardKey.Up) || Raylib.IsKeyPressedRepeat(KeyboardKey.Up))
             {
                 if (dynascroll)
@@ -158,6 +124,7 @@ namespace SharpMIDI.Renderer
             if (Raylib.IsKeyPressed(KeyboardKey.Right) || Raylib.IsKeyPressedRepeat(KeyboardKey.Right))
             { 
                 MIDIClock.tick += MIDIClock.tickscale;
+                tick = (float)MIDIClock.tick;
             }
             // Toggle controls
             if (Raylib.IsKeyPressed(KeyboardKey.S)) dynascroll = !dynascroll;
@@ -172,11 +139,9 @@ namespace SharpMIDI.Renderer
                 Raylib.ToggleBorderlessWindowed();
             if (Raylib.IsKeyPressed(KeyboardKey.C))
                 controls = !controls;
-            if (Raylib.IsKeyPressed(KeyboardKey.Escape))
-                IsRunning = false;
         }
 
-        private static void DrawUI(float tick)
+        private static void DrawUI()
         {
             // Main UI
             tickStr.Clear();
