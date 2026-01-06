@@ -3,20 +3,20 @@ using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 namespace SharpMIDI
 {
+    public struct MIDIHDR
+    {
+        public string lpdata;
+        public uint dwBufferLength;
+        public uint dwBytesRecorded;
+        public uint dwFlags;
+        public uint dwOffset;
+        IntPtr dwUser;
+        IntPtr lpNext;
+        IntPtr reserved;
+        IntPtr dwReserved;
+    }
     static unsafe class KDMAPI
     {
-        public struct MIDIHDR
-        {
-            string lpdata;
-            uint dwBufferLength;
-            uint dwBytesRecorded;
-            IntPtr dwUser;
-            uint dwFlags;
-            IntPtr lpNext;
-            IntPtr reserved;
-            uint dwOffset;
-            IntPtr dwReserved;
-        }
 
         public enum OMSettingMode
         {
@@ -100,7 +100,7 @@ namespace SharpMIDI
         }
 
         [DllImport("OmniMIDI.dll")]
-        public static extern uint SendDirectLongData(ref MIDIHDR IIMidiHdr);
+        public static extern uint SendDirectLongData(MIDIHDR* IIMidiHdr, uint IIMidiHdrSize);
 
         [DllImport("OmniMIDI.dll")]
         public static extern uint SendDirectLongDataNoBuf(ref MIDIHDR IIMidiHdr);

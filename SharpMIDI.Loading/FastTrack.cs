@@ -6,7 +6,6 @@ namespace SharpMIDI
         public long eventAmount = 0;
         public long loadedNotes = 0;
         public long totalNotes = 0;
-        public long writeIndex;
         public int trackMaxTick = 0;
         //public List<long> localEvents;
         public List<int[]> skippedNotes = new List<int[]>();
@@ -19,7 +18,6 @@ namespace SharpMIDI
         public void ParseTrackEvents(byte thres, SynthEvent* destination, long startOffset)
         {
             SynthEvent* outputPtr = destination + startOffset;
-            long localwriteidx = 0;
             uint localtracktime = 0;
             for (int i = 0; i < 16; i++)
             {
@@ -30,8 +28,8 @@ namespace SharpMIDI
                 try
                 {
                     //this is huge zenith inspiration lol, if you can't beat 'em, join 'em
-                    int test = ReadVariableLen();
-                    localtracktime += (uint)test;
+                    int delta = ReadVariableLen();
+                    localtracktime += (uint)delta;
                     byte readEvent = stupid.ReadFast();
                     if (readEvent < 0x80)
                     {
@@ -42,60 +40,19 @@ namespace SharpMIDI
                     {
                         MIDILoader.maxTick = (int)localtracktime;
                     }
+    
+                    byte status = (byte)(readEvent & 0xF0);
+                    byte channel = (byte)(readEvent & 0x0F);
                     prevEvent = readEvent;
-                    switch ((byte)(readEvent & 0b11110000))
+                    switch (status)
                     {
-                        case 0b10010000:
+                        case 0x80:
                             {
-                                byte ch = (byte)(readEvent & 0b00001111);
                                 byte note = stupid.Read();
-                                byte vel = stupid.ReadFast();
-                                if (vel != 0)
+                                byte vel = stupid.Read();
+                                if (skippedNotes[channel][note] == 0)
                                 {
-                                    totalNotes++;
-                                    if (vel >= thres)
-                                    {
-                                        loadedNotes++;
-                                        eventAmount++;
-                                        outputPtr[localwriteidx++] = new SynthEvent
-                                        {
-                                            tick = localtracktime,
-                                            message = (uint24)(readEvent | (note << 8) | (vel << 16))   
-                                        };
-                                    }
-                                    else
-                                    {
-                                        skippedNotes[ch][note]++;
-                                    }
-                                }
-                                else
-                                {
-                                    if (skippedNotes[ch][note] == 0)
-                                    {
-                                        byte customEvent = (byte)(readEvent - 0b00010000);
-                                        eventAmount++;
-                                        outputPtr[localwriteidx++] = new SynthEvent
-                                        {
-                                            tick = localtracktime,
-                                            message =  (uint24)(customEvent | (note << 8) | (vel << 16))
-                                        };
-                                    }
-                                    else
-                                    {
-                                        skippedNotes[ch][note]--;
-                                    }
-                                }
-                            }
-                            break;
-                        case 0b10000000:
-                            {
-                                int ch = readEvent & 0b00001111;
-                                byte note = stupid.Read();
-                                byte vel = stupid.ReadFast();
-                                if (skippedNotes[ch][note] == 0)
-                                {
-                                    eventAmount++;
-                                    outputPtr[localwriteidx++] = new SynthEvent
+                                    outputPtr[eventAmount++] = new SynthEvent
                                     {
                                         tick = localtracktime, 
                                         message = (uint24)(readEvent | (note << 8) | (vel << 16))
@@ -103,93 +60,126 @@ namespace SharpMIDI
                                 }
                                 else
                                 {
-                                    skippedNotes[ch][note]--;
+                                    skippedNotes[channel][note]--;
                                 }
                             }
                             break;
-                        case 0b10100000:
+                        case 0x90:
                             {
-                                int channel = readEvent & 0b00001111;
                                 byte note = stupid.Read();
                                 byte vel = stupid.Read();
-                                eventAmount++;
-                                outputPtr[localwriteidx++] = new SynthEvent 
+                                if (vel != 0)
+                                {
+                                    totalNotes++;
+                                    if (vel >= thres)
+                                    {
+                                        loadedNotes++;
+                                        outputPtr[eventAmount++] = new SynthEvent
+                                        {
+                                            tick = localtracktime,
+                                            message = (uint24)(readEvent | (note << 8) | (vel << 16))   
+                                        };
+                                    }
+                                    else
+                                    {
+                                        skippedNotes[channel][note]++;
+                                    }
+                                }
+                                else
+                                {
+                                    if (skippedNotes[channel][note] == 0)
+                                    {
+                                        byte dummynoteoff = (byte)(0x80 | channel);
+                                        outputPtr[eventAmount++] = new SynthEvent
+                                        {
+                                            tick = localtracktime,
+                                            message =  (uint24)(dummynoteoff | (note << 8) | (64 << 16))
+                                        };
+                                    }
+                                    else
+                                    {
+                                        skippedNotes[channel][note]--;
+                                    }
+                                }
+                            }
+                            break;
+                        case 0xA0:
+                            {
+                                byte note = stupid.Read();
+                                byte pressure = stupid.Read();
+                                outputPtr[eventAmount++] = new SynthEvent 
                                 {
                                     tick = localtracktime,
-                                    message = (uint24)(readEvent | (note << 8) | (vel << 16))
+                                    message = (uint24)(readEvent | (note << 8) | (pressure << 16))
                                 };
                             }
                             break;
-                        case 0b11000000:
+                        case 0xB0:
                             {
-                                int channel = readEvent & 0b00001111;
+                                byte controller = stupid.Read();
+                                byte value = stupid.Read();
+                                outputPtr[eventAmount++] = new SynthEvent
+                                {
+                                    tick = localtracktime, 
+                                    message = (uint24)(readEvent | (controller << 8) | (value << 16))
+                                };
+                            }
+                            break;
+                        case 0xC0:
+                            {
                                 byte program = stupid.Read();
-                                eventAmount++;
-                                outputPtr[localwriteidx++] = new SynthEvent 
+                                outputPtr[eventAmount++] = new SynthEvent 
                                 {
                                     tick = localtracktime, 
                                     message  = (uint24)(readEvent | (program << 8))
                                 };
                             }
                             break;
-                        case 0b11010000:
+                        case 0xD0:
                             {
-                                int channel = readEvent & 0b00001111;
                                 byte pressure = stupid.Read();
-                                eventAmount++;
-                                outputPtr[localwriteidx++] = new SynthEvent 
+                                outputPtr[eventAmount++] = new SynthEvent 
                                 {
                                     tick = localtracktime,
                                     message = (uint24)(readEvent | (pressure << 8))
                                 };
                             }
                             break;
-                        case 0b11100000:
+                        case 0xE0:
                             {
-                                int channel = readEvent & 0b00001111;
-                                byte l = stupid.Read();
-                                byte m = stupid.Read();
-                                eventAmount++;
-                                outputPtr[localwriteidx++] = new SynthEvent
+                                byte lsb = stupid.Read();
+                                byte msb = stupid.Read();
+                                outputPtr[eventAmount++] = new SynthEvent
                                 {
                                     tick = localtracktime, 
-                                    message = (uint24)(readEvent | (l << 8) | (m << 16))
-                                };
-                            }
-                            break;
-                        case 0b10110000:
-                            {
-                                int channel = readEvent & 0b00001111;
-                                byte cc = stupid.Read();
-                                byte vv = stupid.Read();
-                                eventAmount++;
-                                outputPtr[localwriteidx++] = new SynthEvent
-                                {
-                                    tick = localtracktime, 
-                                    message = (uint24)(readEvent | (cc << 8) | (vv << 16))
+                                    message = (uint24)(readEvent | (lsb << 8) | (msb << 16))
                                 };
                             }
                             break;
                         default:
                             switch (readEvent)
                             {
-                                case 0b11110000:
-                                    while (stupid.Read() != 0b11110111);
+                                case 0xF0:
+                                    // add sysex later?????
+                                    stupid.Skip(ReadVariableLen());
                                     break;
-                                case 0b11110010:
+                                case 0xF1:
+                                    stupid.Skip(1);
+                                    break;
+                                case 0xF2:
                                     stupid.Skip(2);
                                     break;
-                                case 0b11110011:
+                                case 0xF3:
                                     stupid.Skip(1);
                                     break;
                                 case 0xFF:
                                     {
                                         readEvent = stupid.Read();
+                                        int metaLength = ReadVariableLen();
                                         if (readEvent == 0x51)
                                         {
-                                            stupid.Skip(1);
                                             uint tempo = 0;
-                                            for (int i = 0; i != 3; i++)
+                                            for (int i = 0; i < 3; i++)
                                                 tempo = (tempo << 8) | stupid.Read();
                                             Tempo data = new Tempo() 
                                             { 
@@ -200,11 +190,12 @@ namespace SharpMIDI
                                         }
                                         else if (readEvent == 0x2F)
                                         {
+                                            stupid.Skip(metaLength);
                                             break;
                                         }
                                         else
                                         {
-                                            stupid.Skip(stupid.Read());
+                                            stupid.Skip(metaLength);
                                         }
                                     }
                                 break;
@@ -215,10 +206,9 @@ namespace SharpMIDI
                 catch (IndexOutOfRangeException)
                 {
                     trackMaxTick = (int)localtracktime;
-                    writeIndex = localwriteidx;
                     break;
                 }
-            }
+            }   
         }
         int ReadVariableLen()
         {

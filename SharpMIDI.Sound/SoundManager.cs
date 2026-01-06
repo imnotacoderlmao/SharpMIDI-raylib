@@ -6,13 +6,12 @@ namespace SharpMIDI
     static unsafe class Sound
     {
         public static uint24* ringbuffer;      // buffer
-        public static uint write;
+        public static ushort write;
         //static uint read;
-        public const int bufferSize = 2097152;
-        public const int bufferMask = 2097151;
+        public const int bufferSize = 65536;
+        //public const int bufferMask = 65535;
         static bool running = false;
         static Thread? audthread; 
-        
         private static int engine = 0;
         private static IntPtr? handle;
         static delegate* unmanaged[SuppressGCTransition]<uint,void> sendTo;
@@ -102,19 +101,18 @@ namespace SharpMIDI
         static void AudioThread()
         {
             uint24* buffer = ringbuffer;
-            uint readidx = 0;
-            uint mask = bufferMask;
+            ushort readidx = 0;
+            //uint mask = bufferMask;
             var sendfn = sendTo;
             
             while (running)
             {
-                uint writeidx = write;
+                ushort writeidx = write;
                 while (readidx != writeidx)
                 {
-                    sendfn((uint)(buffer[readidx] & 0xFFFFFF));
-                    readidx = (readidx + 1) & mask;
+                    sendfn((uint)buffer[readidx].Value);
+                    readidx++; // overflow naturally instead of masking :sob:
                 }
-                //read = readidx;
             }
         }
         

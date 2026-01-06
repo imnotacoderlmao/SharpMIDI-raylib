@@ -25,7 +25,7 @@ namespace SharpMIDI
             throw new Exception();
         }
 
-        public static async Task LoadPath(string path, byte thres, int tracklimit)
+        public static void LoadPath(string path, byte thres, int tracklimit)
         {   
             midistream = File.Open(path, FileMode.Open);
             VerifyHeader();
@@ -52,7 +52,7 @@ namespace SharpMIDI
                 {
                     long estimate = trackSizes[i] / 4;
                     trackOffsets[i] = totalEstimated;
-                    totalEstimated += estimate;
+                    totalEstimated += estimate + 256; // buffer for small midis
                 }
                 MIDI.synthEvents = new BigArray<SynthEvent>((ulong)totalEstimated);
                 SynthEvent* eventsPtr = MIDI.synthEvents.Pointer;
@@ -68,7 +68,7 @@ namespace SharpMIDI
                     );
 
                     temp.ParseTrackEvents(thres, eventsPtr, trackOffsets[i]);
-                    trackEventCounts[i] = temp.writeIndex;
+                    trackEventCounts[i] = temp.eventAmount;
                     
                     Renderer.NoteProcessor.ProcessTrackForRendering(
                         eventsPtr + trackOffsets[i],
@@ -106,9 +106,7 @@ namespace SharpMIDI
                 }
                 eventCount = writePos;
                 Renderer.NoteProcessor.FinalizeBuckets();
-                RadixSortInPlace(eventsPtr, 0, eventCount + 1, 24);
-                MIDI.synthEvents.Resize((ulong)(eventCount + 1));
-                
+                RadixSortInPlace(eventsPtr, 0, eventCount + 1, 24);                
                 // dummy events
                 MIDI.temppos.Add(new Tempo { tick=uint.MaxValue } );
                 eventsPtr[eventCount] = new SynthEvent{ tick = uint.MaxValue };
@@ -116,7 +114,6 @@ namespace SharpMIDI
 
             MIDI.tempoEvents = [.. MIDI.temppos];
             MIDI.temppos = null;
-
             Starter.form.label2.Text = "Status: Loaded";
             Starter.form.button4.Enabled = true;
             Console.WriteLine("MIDI Loaded");

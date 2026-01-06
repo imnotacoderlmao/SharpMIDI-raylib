@@ -1,6 +1,4 @@
-﻿using System.Data;
-
-namespace SharpMIDI
+﻿namespace SharpMIDI
 {
     static unsafe class MIDIPlayer
     {
@@ -16,8 +14,8 @@ namespace SharpMIDI
             SynthEvent* evend = evptr + synthev.Length;
             Tempo[] tevs = MIDI.tempoEvents;
             int maxTick = MIDILoader.maxTick;
-            uint localwrite = Sound.write;
-            uint localbuffermask = Sound.bufferMask;
+            ushort localwrite = Sound.write;
+            //uint localbuffermask = Sound.bufferMask;
             uint24* buffer = Sound.ringbuffer;
             fixed (Tempo* t0 = tevs)
             {
@@ -26,13 +24,12 @@ namespace SharpMIDI
                 while (!stopping)
                 {
                     uint localclock = (uint)MIDIClock.Update();
-                    bool skipping = MIDIClock.skipping;
-                    if (!skipping) 
+                    if (!MIDIClock.skipping) 
                     {
                         while (currev->tick <= localclock)
                         {
                             buffer[localwrite] = currev++->message;
-                            localwrite = (localwrite + 1) & localbuffermask;
+                            localwrite++;
                         }
                     }
                     else 
@@ -52,7 +49,7 @@ namespace SharpMIDI
                     while (currtev->tick <= localclock)
                     {
                         MIDIClock.SubmitBPM(currtev->tick, currtev->tempo);
-                        ++currtev;
+                        currtev++;
                     }
                     Sound.write = localwrite;
                     playedEvents = currev - evptr;
