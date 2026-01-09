@@ -64,21 +64,19 @@ namespace SharpMIDI
 
         private void button1_Click(object sender, EventArgs e)
         {
-            using (OpenFileDialog openFileDialog = new OpenFileDialog())
+            OpenFileDialog openFileDialog = new OpenFileDialog();
+            button1.Enabled = false;
+            openFileDialog.Filter = "MIDI file (*.mid)|*.mid";
+            openFileDialog.FilterIndex = 1;
+            openFileDialog.RestoreDirectory = true;
+            if (openFileDialog.ShowDialog() == DialogResult.OK)
             {
-                button1.Enabled = false;
-                openFileDialog.Filter = "MIDI file (*.mid)|*.mid|7-Zip Archive (*.7z)|*.7z|.gz Archive (*.gz)|*.gz|.rar Archive (*.rar)|*.rar|.tar Archive (*.tar)|*.tar|.xz Archive (*.xz)|*.xz|.zip Archive (*.zip)|*.zip";
-                openFileDialog.FilterIndex = 1;
-                openFileDialog.RestoreDirectory = true;
-                if (openFileDialog.ShowDialog() == DialogResult.OK)
-                {
-                    Starter.SubmitMIDIPath(openFileDialog.FileName);
-                    button2.Enabled = true;
-                }
-                else
-                {
-                    button1.Enabled = true;
-                }
+                Starter.SubmitMIDIPath(openFileDialog.FileName);
+                button2.Enabled = true;
+            }
+            else
+            {
+                button1.Enabled = true;
             }
         }
 

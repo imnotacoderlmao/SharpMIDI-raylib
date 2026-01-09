@@ -13,7 +13,7 @@ namespace SharpMIDI
             ApplicationConfiguration.Initialize();
             Application.Run(form);
         }
-        public static async Task SubmitMIDIPath(string path)
+        public static void SubmitMIDIPath(string path)
         {
             Console.WriteLine("Loading MIDI file: " + path);
             midiLoaded = true;
