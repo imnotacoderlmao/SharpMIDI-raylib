@@ -13,23 +13,25 @@
             SynthEvent* currev = evptr;
             SynthEvent* evend = evptr + synthev.Length;
             Tempo[] tevs = MIDI.tempoEvents;
-            int maxTick = MIDILoader.maxTick;
-            ushort localwrite = Sound.write;
+            uint maxTick = (uint)MIDILoader.maxTick;
+            uint clock = 0;
             //uint localbuffermask = Sound.bufferMask;
             uint24* buffer = Sound.ringbuffer;
+            ushort writeptr = Sound.write;
             fixed (Tempo* t0 = tevs)
             {
                 Tempo* currtev = t0;
                 MIDIClock.Start();
                 while (!stopping)
                 {
-                    uint localclock = (uint)MIDIClock.Update();
+                    clock = (uint)MIDIClock.Update();
                     if (!MIDIClock.skipping) 
                     {
-                        while (currev->tick <= localclock)
+                        while (currev->tick <= clock)
                         {
-                            buffer[localwrite] = currev++->message;
-                            localwrite++;
+                            buffer[writeptr] = currev++->message;
+                            writeptr++;
+                            Sound.write = writeptr;
                         }
                     }
                     else 
@@ -39,22 +41,21 @@
                         while (right - left > 16)
                         {
                             SynthEvent* mid = left + ((right - left) >> 1);
-                            if (mid->tick <= localclock)
+                            if (mid->tick <= clock)
                                 left = mid + 1;
                             else
                                 right = mid;
                         }
                         currev = left;
                     }
-                    while (currtev->tick <= localclock)
+                    while (currtev->tick <= clock)
                     {
                         MIDIClock.SubmitBPM(currtev->tick, currtev->tempo);
                         currtev++;
                     }
-                    Sound.write = localwrite;
                     playedEvents = currev - evptr;
-                    ++totalFrames;
-                    if (localclock > maxTick) stopping = true;
+                    totalFrames++;
+                    if (clock > maxTick) stopping = true;
                 }
             }
             MIDIClock.Reset();

@@ -43,10 +43,13 @@ namespace SharpMIDI
             double now = Timer.Seconds();
             double advancetime = now - lastnow;
             stalled = advancetime > 0.0166666;
-            skipping = skipevents && stalled;
             if (throttle && stalled)
             {
                 advancetime = 0.0166666;
+            }
+            else
+            {
+                skipping = skipevents && stalled;
             }
             lastnow = now;
             tick += advancetime * tickscale;

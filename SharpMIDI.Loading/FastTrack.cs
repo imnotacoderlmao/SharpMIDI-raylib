@@ -7,7 +7,6 @@ namespace SharpMIDI
         public long loadedNotes = 0;
         public long totalNotes = 0;
         public int trackMaxTick = 0;
-        //public List<long> localEvents;
         public List<int[]> skippedNotes = new List<int[]>();
         BufferByteReader stupid;
         public FastTrack(BufferByteReader reader)
@@ -15,9 +14,9 @@ namespace SharpMIDI
             stupid = reader;
         }
         byte prevEvent = 0;
-        public void ParseTrackEvents(byte thres, SynthEvent* destination, long startOffset)
+        public void ParseTrackEvents(byte thres, SynthEvent* destination)
         {
-            SynthEvent* outputPtr = destination + startOffset;
+            SynthEvent* outputPtr = destination;
             uint localtracktime = 0;
             for (int i = 0; i < 16; i++)
             {
@@ -34,14 +33,61 @@ namespace SharpMIDI
                     stupid.Pushback = readEvent;
                     readEvent = prevEvent;
                 }
-                if (localtracktime > MIDILoader.maxTick)
-                {
-                    MIDILoader.maxTick = (int)localtracktime;
-                }
-
                 byte status = (byte)(readEvent & 0xF0);
                 byte channel = (byte)(readEvent & 0x0F);
                 prevEvent = readEvent;
+                // is this the right way in ordering sake? meta then midi events?
+                switch (readEvent)
+                {
+                    case 0xF0:
+                        // add sysex later?????
+                        stupid.Skip(ReadVariableLen());
+                        break;
+                    case 0xF1:
+                        stupid.Skip(1);
+                        break;
+                    case 0xF2:
+                        stupid.Skip(2);
+                        break;
+                    case 0xF3:
+                        stupid.Skip(1);
+                        break;
+                    case 0xFF:
+                        {
+                            readEvent = stupid.Read();
+                            int metaLength = ReadVariableLen();
+                            if (readEvent == 0x51)
+                            {
+                                uint tempo = 0;
+                                for (int i = 0; i < 3; i++)
+                                    tempo = (tempo << 8) | stupid.Read();
+                                lock (MIDI.temppos)
+                                {
+                                    MIDI.temppos.Add(new Tempo 
+                                    { 
+                                        tick = localtracktime, 
+                                        tempo = tempo
+                                    });
+                                }
+                            }
+                            else if (readEvent == 0x2F)
+                            {
+                                if (localtracktime > MIDILoader.maxTick)
+                                {
+                                    MIDILoader.maxTick = (int)localtracktime;
+                                }
+                                trackMaxTick = (int)localtracktime;
+                                return;
+                            }
+                            else
+                            {
+                                stupid.Skip(metaLength);
+                            }
+                        }
+                        break;
+                    default:
+                        break;
+                }
                 switch (status)
                 {
                     case 0x80:
@@ -155,52 +201,9 @@ namespace SharpMIDI
                         }
                         break;
                     default:
-                        switch (readEvent)
-                        {
-                            case 0xF0:
-                                // add sysex later?????
-                                stupid.Skip(ReadVariableLen());
-                                break;
-                            case 0xF1:
-                                stupid.Skip(1);
-                                break;
-                            case 0xF2:
-                                stupid.Skip(2);
-                                break;
-                            case 0xF3:
-                                stupid.Skip(1);
-                                break;
-                            case 0xFF:
-                                {
-                                    readEvent = stupid.Read();
-                                    int metaLength = ReadVariableLen();
-                                    if (readEvent == 0x51)
-                                    {
-                                        uint tempo = 0;
-                                        for (int i = 0; i < 3; i++)
-                                            tempo = (tempo << 8) | stupid.Read();
-                                        Tempo data = new Tempo 
-                                        { 
-                                            tick = localtracktime, 
-                                            tempo = tempo
-                                        };
-                                        MIDI.temppos.Add(data);
-                                    }
-                                    else if (readEvent == 0x2F)
-                                    {
-                                        trackMaxTick = (int)localtracktime;
-                                        return;
-                                    }
-                                    else
-                                    {
-                                        stupid.Skip(metaLength);
-                                    }
-                                }
-                            break;
-                        }
-                    break;
-                }
-            }   
+                        break;
+                }   
+            }
         }
         int ReadVariableLen()
         {

@@ -13,7 +13,6 @@ namespace SharpMIDI
         public uint tick;
         public uint tempo;
     }
-    
     static class MIDI
     {
         public static BigArray<SynthEvent> synthEvents;
@@ -30,7 +29,7 @@ namespace SharpMIDI
         public BigArray(ulong length)
         {
             Length = length;
-            ulong bytes = length * (uint)sizeof(T);
+            ulong bytes = Length * (uint)sizeof(T);
             ptr = (T*)NativeMemory.Alloc((nuint)bytes);
         }
 

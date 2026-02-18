@@ -5,6 +5,19 @@ namespace SharpMIDI
 {
     static class MIDILoader
     {
+        private struct TrackHeapData
+        {
+            public BigArray<SynthEvent> events;
+            public long eventCount;
+            public int trackIndex;
+        }
+
+        private struct HeapNode
+        {
+            public int trackIndex;
+            public long position;
+        }
+        
         private static List<long> trackLocations = new List<long>();
         private static List<uint> trackSizes = new List<uint>();
         static Stream? midistream;
@@ -43,150 +56,130 @@ namespace SharpMIDI
 
             unsafe
             {
-                long[] trackOffsets = new long[trackAmount];
-                long[] trackEventCounts = new long[trackAmount];
-                long totalEstimated = 0;
-
-                // preallocate cheaply
-                for (int i = 0; i < trackAmount && i <= tracklimit; i++)
-                {
-                    long estimate = trackSizes[i] / 4;
-                    trackOffsets[i] = totalEstimated;
-                    totalEstimated += estimate + 256; // buffer for small midis
-                }
-                MIDI.synthEvents = new BigArray<SynthEvent>((ulong)totalEstimated);
-                SynthEvent* eventsPtr = MIDI.synthEvents.Pointer;
+                int actualTrackCount = Math.Min(trackAmount, tracklimit + 1);
+                
+                // track properties for merging
+                TrackHeapData[] trackDataArray = new TrackHeapData[actualTrackCount];
                 
                 midistream.Position++;
-                Parallel.For(0, trackAmount, (i) =>
+                if (tracklimit < ushort.MaxValue) 
+                    Console.WriteLine($"track limit set to {tracklimit}. will exit early if reached.");
+                Parallel.For(0, actualTrackCount, (i) =>
                 {
-                    if (i > tracklimit) return;
-                    Console.WriteLine($"Loading track #{i + 1} | Size {trackSizes[i]}");
+                    Console.Write($"\rLoading track #{i + 1} | Size {trackSizes[i]} bytes ({loadedtracks + 1} / {actualTrackCount} tracks loaded)");
 
                     FastTrack temp = new FastTrack(
                         new BufferByteReader(midistream, 256 * 1024, trackLocations[i], trackSizes[i]) 
                     );
 
-                    temp.ParseTrackEvents(thres, eventsPtr, trackOffsets[i]);
-                    trackEventCounts[i] = temp.eventAmount;
+                    long estimate = Math.Max(trackSizes[i] / 4, 64);
+                    BigArray<SynthEvent> trackEvents = new BigArray<SynthEvent>((ulong)estimate);
+                    temp.ParseTrackEvents(thres, trackEvents.Pointer);
+                    if ((ulong)temp.eventAmount < trackEvents.Length)
+                    {
+                        trackEvents.Resize((ulong)temp.eventAmount);
+                    }
+                    
+                    trackDataArray[i] = new TrackHeapData
+                    {
+                        events = trackEvents,
+                        eventCount = temp.eventAmount,
+                        trackIndex = i
+                    };
                     
                     Renderer.NoteProcessor.ProcessTrackForRendering(
-                        eventsPtr + trackOffsets[i],
-                        trackEventCounts[i],
+                        trackEvents.Pointer,
+                        temp.eventAmount,
                         i,
                         temp.trackMaxTick
                     );
                     
-                    Interlocked.Add(ref loadedNotes, temp.loadedNotes);
-                    Interlocked.Add(ref totalNotes, temp.totalNotes);
-                    Interlocked.Add(ref eventCount, temp.eventAmount);
+                    loadedNotes += temp.loadedNotes;
+                    totalNotes += temp.totalNotes;
+                    eventCount += temp.eventAmount;
                     loadedtracks++;
                     temp.Dispose();
                 });
+                
                 midistream.Close();
 
-                Console.WriteLine("compacting and sorting events");
-                long writePos = 0;
-                for (int t = 0; t < trackAmount && t <= tracklimit; t++)
+                Console.WriteLine($"\nflattening event array");
+                MIDI.synthEvents = MergeAndSort(trackDataArray, actualTrackCount);
+                for (int i = 0; i < actualTrackCount; i++)
                 {
-                    long trackStart = trackOffsets[t];
-                    long count = trackEventCounts[t];
-
-                    if (count > 0 && trackStart != writePos)
-                    {
-                        // move forward
-                        Buffer.MemoryCopy(
-                            eventsPtr + trackStart,
-                            eventsPtr + writePos,
-                            count * sizeof(SynthEvent),
-                            count * sizeof(SynthEvent)
-                        );
-                    }
-                    writePos += count;
+                    trackDataArray[i].events?.Dispose();
                 }
-                eventCount = writePos;
                 Renderer.NoteProcessor.FinalizeBuckets();
-                RadixSortInPlace(eventsPtr, 0, eventCount + 1, 24);                
-                // dummy events
-                MIDI.temppos.Add(new Tempo { tick=uint.MaxValue } );
-                eventsPtr[eventCount] = new SynthEvent{ tick = uint.MaxValue };
+                
+                // dummy events for no bounds checking
+                MIDI.temppos.Add(new Tempo { tick = uint.MaxValue });
+                unsafe
+                {
+                    SynthEvent* eventsPtr = MIDI.synthEvents.Pointer;
+                    eventsPtr[eventCount] = new SynthEvent { tick = uint.MaxValue };
+                }
             }
 
             MIDI.tempoEvents = [.. MIDI.temppos];
+            Array.Sort(MIDI.tempoEvents, (a,b) => a.tick.CompareTo(b.tick)); // it was this that fixed the issue. a literal one liner :sob:
             MIDI.temppos = null;
             Starter.form.label2.Text = "Status: Loaded";
             Starter.form.button4.Enabled = true;
             Console.WriteLine("MIDI Loaded");
         }
 
-        static unsafe void RadixSortInPlace(SynthEvent* arr, long start, long length, int shift)
+        static unsafe BigArray<SynthEvent> MergeAndSort(TrackHeapData[] tracks, int trackCount)
         {
-            const int RADIX_BITS = 8;
-            const int BUCKETS = 1 << RADIX_BITS;
-            const uint MASK = BUCKETS - 1;
-
-            if (length <= 1 || shift < 0)
-                return;
-
-            long* count = stackalloc long[BUCKETS];
-            long* startOf = stackalloc long[BUCKETS];
-            long* next = stackalloc long[BUCKETS];
-
-            // Count
-            for (int i = 0; i < BUCKETS; i++) count[i] = 0;
-
-            long end = start + length;
-            for (long i = start; i < end; i++)
+            long totalEvents = 0;
+            for (int i = 0; i < trackCount; i++)
             {
-                int k = (int)((arr[i].tick >> shift) & MASK);
-                count[k]++;
-            }
-
-            // Prefix sum
-            long sum = 0;
-            for (int i = 0; i < BUCKETS; i++)
-            {
-                startOf[i] = sum;
-                next[i] = sum;
-                sum += count[i];
-            }
-
-            // In-place distribution
-            for (int b = 0; b < BUCKETS; b++)
-            {
-                long bucketEnd = startOf[b] + count[b];
-
-                while (next[b] < bucketEnd)
+                if (tracks[i].eventCount > 0)
                 {
-                    long idx = start + next[b];
-                    SynthEvent val = arr[idx];
-                    int k = (int)((val.tick >> shift) & MASK);
-
-                    if (k == b)
-                    {
-                        next[b]++;
-                    }
-                    else
-                    {
-                        long dst = start + next[k]++;
-                        SynthEvent tmp = arr[dst];
-                        arr[dst] = val;
-                        arr[idx] = tmp;
-                    }
+                    totalEvents += tracks[i].eventCount;
                 }
             }
-
-            // Recurse into buckets
-            for (int b = 0; b < BUCKETS; b++)
+            
+            BigArray<SynthEvent> result = new BigArray<SynthEvent>((ulong)totalEvents + 1);
+            SynthEvent* resultPtr = result.Pointer;
+            HeapMerge(tracks, trackCount, resultPtr, totalEvents);
+            
+            eventCount = totalEvents;
+            return result;
+        }
+        
+        static unsafe void HeapMerge(TrackHeapData[] tracks, int trackCount, SynthEvent* dest, long totalEvents)
+        {
+            // min-heap of (tick, trackIndex, position)
+            var heap = new PriorityQueue<HeapNode, uint>();
+            
+            // initialize heap with first event from each non-empty track
+            for (int i = 0; i < trackCount; i++)
             {
-                long c = count[b];
-                if (c > 1)
+                if (tracks[i].eventCount > 0)
                 {
-                    RadixSortInPlace(arr, start + startOf[b], c, shift - RADIX_BITS);
+                    SynthEvent firstEvent = tracks[i].events.Pointer[0];
+                    heap.Enqueue(new HeapNode { trackIndex = i, position = 0 }, firstEvent.tick);
+                }
+            }
+            
+            long writePos = 0;
+            
+            while (heap.Count > 0)
+            {
+                var node = heap.Dequeue();
+                int trackIdx = node.trackIndex;
+                long pos = node.position;
+                dest[writePos++] = tracks[trackIdx].events.Pointer[pos];
+                
+                // add next event from same track if available
+                long nextPos = pos + 1;
+                if (nextPos < tracks[trackIdx].eventCount)
+                {
+                    SynthEvent nextEvent = tracks[trackIdx].events.Pointer[nextPos];
+                    heap.Enqueue(new HeapNode { trackIndex = trackIdx, position = nextPos }, nextEvent.tick);
                 }
             }
         }
-
 
         public static void Unload()
         {

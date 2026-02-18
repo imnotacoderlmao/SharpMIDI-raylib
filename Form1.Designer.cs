@@ -111,7 +111,7 @@
             label5.Font = new Font("Segoe MDL2 Assets", 11.25F, FontStyle.Regular, GraphicsUnit.Point);
             label5.Location = new Point(0, 70);
             label5.Name = "label5";
-            label5.Size = new Size(496, 15);
+            label5.Size = new Size(640, 15);
             label5.TabIndex = 6;
             label5.Text = "Notes: ??? / ???";
             // 
@@ -271,7 +271,7 @@
             label12.Font = new Font("Segoe MDL2 Assets", 11.25F, FontStyle.Regular, GraphicsUnit.Point);
             label12.Location = new Point(0, 141);
             label12.Name = "label12";
-            label12.Size = new Size(211, 15);
+            label12.Size = new Size(300, 15);
             label12.TabIndex = 26;
             label12.Text = "FPS ≈ N/A";
             // 

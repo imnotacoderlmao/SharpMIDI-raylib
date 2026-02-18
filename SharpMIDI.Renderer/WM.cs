@@ -41,7 +41,8 @@ namespace SharpMIDI.Renderer
                 UpdateWindowDimensions();
                 HandleInput();
 
-                tick = UpdateRenderTick();
+                //tick = UpdateRenderTick();
+                tick = (float)MIDIClock.tick;
                 if (MIDIPlayer.stopping) 
                 {
                     tick = 0;
@@ -80,6 +81,8 @@ namespace SharpMIDI.Renderer
             }
         }
 
+        /*
+        this is the result of trying to decouple renderer tick from player tick
         public static float UpdateRenderTick()
         {
             if (MIDIClock.paused || MIDIPlayer.stopping) return tick;
@@ -95,7 +98,7 @@ namespace SharpMIDI.Renderer
             }
             lastrendernow = localnow;
             return tick;
-        }
+        }*/
 
         private static void HandleInput()
         {
