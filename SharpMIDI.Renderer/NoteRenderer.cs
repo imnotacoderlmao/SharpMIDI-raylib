@@ -9,8 +9,7 @@ namespace SharpMIDI.Renderer
 {
     public static unsafe class NoteRenderer
     {
-        private const int TEXTURE_HEIGHT = 128; // 1 pixel per MIDI note
-
+        private const int TEXTURE_HEIGHT = 128;
         private static int textureWidth = 2048;
         private static Texture2D streamingTexture;
 
@@ -19,28 +18,31 @@ namespace SharpMIDI.Renderer
         private static uint* pixelPtr;
 
         private static readonly byte[] noteToY = new byte[128];
-        private static float currentWindow = 2000f;
+        private static float currentWindow  = 2000f;
         private static float ticksPerPixel;
 
         private static int lastColumn = -1;
-        public static bool forceRedraw = true;
-        public static float lastTick = 0;
-        public static bool initialized = false;
-        public static float Window => currentWindow;
-        public static int NotesDrawnLastFrame { get; private set; } = 0;
+        public  static bool forceRedraw = true;
+        public  static float lastTick  = 0;
+        public  static bool initialized = false;
+        public  static float Window => currentWindow;
+        public  static int NotesDrawnLastFrame { get; private set; } = 0;
 
         private const uint BLACK_ALPHA = 0xFF000000u;
 
-        // Bit unpacking (matches NoteProcessor)
-        private const uint RELSTART_MASK = 0x7FFu; // 11 bits
-        private const int NOTENUMBER_SHIFT = 11;
-        private const uint NOTENUMBER_MASK = 0x7Fu; // 7 bits
-        private const int DURATION_SHIFT = 18;
-        private const uint DURATION_MASK = 0x3FFu; // 10 bits
-        private const int COLORINDEX_SHIFT = 28;
+        // Bit layout mirrors NoteProcessor
+        private const int RELSTART_SHIFT   = 21;
+        private const uint RELSTART_MASK    = 0x7FFu;
+        private const int DURATION_SHIFT   = 11;
+        private const uint DURATION_MASK    = 0x3FFu;
+        private const int COLORINDEX_SHIFT = 7;
+        private const uint COLORINDEX_MASK  = 0xFu;
+        private const uint NOTENUMBER_MASK  = 0x7Fu;
 
-        // Precompute bucket start ticks
+        // Per-bucket metadata cached from NoteProcessor — rebuilt when BucketCount changes.
         private static int[]? bucketStartTicks;
+        private static int[]? bucketCursors;      // forward-only playback cursor per bucket
+        private static int    cachedBucketCount = -1;
 
         static NoteRenderer()
         {
@@ -75,9 +77,26 @@ namespace SharpMIDI.Renderer
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private static void UpdateWindowParams()
-        {
+        private static void UpdateWindowParams() =>
             ticksPerPixel = currentWindow / textureWidth;
+
+        private static void EnsureBucketMeta()
+        {
+            int count = NoteProcessor.BucketCount;
+            if (count == cachedBucketCount) return;
+
+            int bucketSize = NoteProcessor.BucketSize;
+            bucketStartTicks = new int[count];
+            bucketCursors = new int[count];
+            for (int i = 0; i < count; i++)
+                bucketStartTicks[i] = i * bucketSize;
+            cachedBucketCount = count;
+        }
+
+        private static void ResetCursors()
+        {
+            if (bucketCursors != null)
+                Array.Clear(bucketCursors, 0, bucketCursors.Length);
         }
 
         public static void UpdateStreaming(float tick)
@@ -97,13 +116,16 @@ namespace SharpMIDI.Renderer
 
             if (forceRedraw || delta >= textureWidth)
             {
-                RenderRegion(0, textureWidth, tick - currentWindow * 0.5f);
+                ResetCursors();
+                RenderRegion(0, textureWidth, tick - currentWindow * 0.5f, advanceCursors: false);
                 forceRedraw = false;
             }
             else if (delta > 0)
             {
                 ScrollLeft(delta);
-                RenderRegion(textureWidth - delta, delta, tick - currentWindow * 0.5f + currentWindow * (textureWidth - delta) / textureWidth);
+                float regionStart = tick - currentWindow * 0.5f
+                                  + currentWindow * (textureWidth - delta) / textureWidth;
+                RenderRegion(textureWidth - delta, delta, regionStart, advanceCursors: true);
             }
 
             Raylib.UpdateTexture(streamingTexture, pixelPtr);
@@ -113,10 +135,8 @@ namespace SharpMIDI.Renderer
         private static void ScrollLeft(int pixels)
         {
             if (pixels <= 0) return;
-
             int keep = textureWidth - pixels;
             int bytesToCopy = keep * sizeof(uint);
-
             for (int y = 0; y < TEXTURE_HEIGHT; y++)
             {
                 uint* row = pixelPtr + y * textureWidth;
@@ -125,62 +145,85 @@ namespace SharpMIDI.Renderer
             }
         }
 
-        private static void RenderRegion(int startX, int width, float startTick)
+        private static void RenderRegion(int startX, int width, float startTick, bool advanceCursors)
         {
-            if (width <= 0 || NoteProcessor.SortedBuckets.Length == 0) return;
+            if (width <= 0 || NoteProcessor.BucketCount == 0) return;
 
             NotesDrawnLastFrame = 0;
 
             for (int y = 0; y < TEXTURE_HEIGHT; y++)
                 new Span<uint>(pixelPtr + y * textureWidth + startX, width).Fill(BLACK_ALPHA);
 
-            var buckets = NoteProcessor.SortedBuckets;
+            EnsureBucketMeta();
+
+            uint* flatNotes = NoteProcessor.FlatNotes.Pointer;
+            int[] offsets = NoteProcessor.BucketOffsets;
+            int[] lengths = NoteProcessor.BucketLengths;
+            int bucketCount = NoteProcessor.BucketCount;
             int bucketSize = NoteProcessor.BucketSize;
 
-            // Precompute bucket start ticks
-            if (bucketStartTicks == null || bucketStartTicks.Length != buckets.Length)
-            {
-                bucketStartTicks = new int[buckets.Length];
-                for (int i = 0; i < buckets.Length; i++)
-                    bucketStartTicks[i] = i * bucketSize;
-            }
-
-            int startBucket = Math.Max(0, (int)(startTick / bucketSize));
-            int endBucket = Math.Min(buckets.Length - 1, (int)((startTick + width * ticksPerPixel) / bucketSize));
-
+            float windowEndTick = startTick + width * ticksPerPixel;
             float invTicksPerPixel = 1f / ticksPerPixel;
+
+            int startBucket = Math.Max(0, (int)(startTick    / bucketSize));
+            int endBucket = Math.Min(bucketCount - 1, (int)(windowEndTick / bucketSize));
+
+            int[] bst = bucketStartTicks;
+            int[] cursors = bucketCursors;
 
             for (int b = startBucket; b <= endBucket; b++)
             {
-                var bucket = buckets[b];
-                if (bucket == null || bucket.Length == 0) continue;
+                int len = lengths[b];
+                if (len == 0) continue;
 
-                int bucketStartTick = bucketStartTicks[b];
-                ReadOnlySpan<uint> notes = bucket;
+                uint* bucketPtr = flatNotes + offsets[b];
+                int bucketStartTick = bst[b];
+                int cursor = cursors[b];
 
-                for (int n = 0; n < notes.Length; n++)
+                // Advance cursor: skip notes guaranteed to have ended before startTick.
+                // Worst-case end tick for relStart r = bucketStartTick + r + MaxChunkDuration.
+                // So any r < (startTick - bucketStartTick - MaxChunkDuration) is definitely gone.
+                if (advanceCursors && cursor < len)
                 {
-                    uint packed = notes[n];
-                    int relStart = (int)(packed & RELSTART_MASK);
-                    byte noteNumber = (byte)((packed >> NOTENUMBER_SHIFT) & NOTENUMBER_MASK);
-                    int duration = (int)((packed >> DURATION_SHIFT) & DURATION_MASK);
-                    byte colorIndex = (byte)((packed >> COLORINDEX_SHIFT) & 0xF);
+                    int minVisible = (int)(startTick - bucketStartTick) - NoteProcessor.MaxChunkDuration;
+                    if (minVisible > 0)
+                    {
+                        uint threshold = NoteProcessor.RelStartThreshold(minVisible);
+                        int lo = cursor, hi = len;
+                        while (lo < hi)
+                        {
+                            int mid = (lo + hi) >> 1;
+                            if (bucketPtr[mid] < threshold) lo = mid + 1;
+                            else hi = mid;
+                        }
+                        cursors[b] = cursor = lo;
+                    }
+                }
 
+                for (int n = cursor; n < len; n++)
+                {
+                    uint packed = bucketPtr[n];
+                    int relStart = (int)((packed >> RELSTART_SHIFT)   & RELSTART_MASK);
                     int absStart = bucketStartTick + relStart;
+
+                    if (absStart > windowEndTick) break;
+
+                    int duration = (int)((packed >> DURATION_SHIFT)   & DURATION_MASK);
+                    int colorIndex = (int)((packed >> COLORINDEX_SHIFT) & COLORINDEX_MASK);
+                    int noteNumber = (int)( packed                      & NOTENUMBER_MASK);
                     int absEnd = absStart + duration;
 
-                    if (absEnd < startTick || absStart > startTick + width * ticksPerPixel)
-                        continue;
+                    if (absEnd < startTick) continue;
 
                     float startPx = (absStart - startTick) * invTicksPerPixel;
-                    float endPx = (absEnd - startTick) * invTicksPerPixel;
+                    float endPx = (absEnd   - startTick) * invTicksPerPixel;
 
                     int x1 = Math.Max(0, (int)startPx);
                     int x2 = Math.Min(width, (int)endPx + 1);
                     if (x2 <= x1) continue;
 
                     uint rgba = BLACK_ALPHA | NoteProcessor.trackColors[colorIndex];
-                    byte y = noteToY[noteNumber];
+                    int y = noteToY[noteNumber];
                     uint* rowPtr = pixelPtr + y * textureWidth + startX + x1;
                     int noteWidth = x2 - x1;
 
@@ -199,10 +242,8 @@ namespace SharpMIDI.Renderer
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private static void ClearBuffer()
-        {
+        private static void ClearBuffer() =>
             new Span<uint>(pixelPtr, textureWidth * TEXTURE_HEIGHT).Fill(BLACK_ALPHA);
-        }
 
         public static void Render(int screenWidth, int screenHeight, int pad)
         {

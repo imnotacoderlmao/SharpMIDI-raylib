@@ -171,7 +171,7 @@ namespace SharpMIDI.Renderer
             if (!NoteProcessor.IsReady)
                 Raylib.DrawText("No MIDI loaded.", 12, currentHeight - 19, 16, Raylib_cs.Color.Yellow);
             else
-                Raylib.DrawText($"{Starter.filename ?? "Unknown"}", 12, currentHeight - 19, 16, Raylib_cs.Color.SkyBlue);
+                Raylib.DrawText($"{Starter.filename}", 12, currentHeight - 19, 16, Raylib_cs.Color.SkyBlue);
         }
 
         public static void StopRenderer() => IsRunning = false;

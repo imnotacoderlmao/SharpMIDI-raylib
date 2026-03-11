@@ -91,7 +91,7 @@
             label1.Font = new Font("Segoe MDL2 Assets", 11.25F, FontStyle.Regular, GraphicsUnit.Point);
             label1.Location = new Point(0, 40);
             label1.Name = "label1";
-            label1.Size = new Size(496, 15);
+            label1.Size = new Size(550, 15);
             label1.TabIndex = 2;
             label1.Text = "Selected MIDI: (none)";
             // 
@@ -271,7 +271,7 @@
             label12.Font = new Font("Segoe MDL2 Assets", 11.25F, FontStyle.Regular, GraphicsUnit.Point);
             label12.Location = new Point(0, 141);
             label12.Name = "label12";
-            label12.Size = new Size(300, 15);
+            label12.Size = new Size(270, 15);
             label12.TabIndex = 26;
             label12.Text = "FPS ≈ N/A";
             // 

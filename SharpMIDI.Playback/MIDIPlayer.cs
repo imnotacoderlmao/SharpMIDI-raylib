@@ -4,7 +4,7 @@
     {
         public static int totalFrames = 0;
         public static long playedEvents = 0;
-        public static bool stopping;
+        public static bool stopping = true;
         public static void StartPlayback()
         {
             stopping = false;
@@ -15,9 +15,8 @@
             Tempo[] tevs = MIDI.tempoEvents;
             uint maxTick = (uint)MIDILoader.maxTick;
             uint clock = 0;
-            //uint localbuffermask = Sound.bufferMask;
             uint24* buffer = Sound.ringbuffer;
-            ushort writeptr = Sound.write;
+            ushort writeptr = 0;
             fixed (Tempo* t0 = tevs)
             {
                 Tempo* currtev = t0;
@@ -29,9 +28,9 @@
                     {
                         while (currev->tick <= clock)
                         {
-                            buffer[writeptr] = currev++->message;
+                            buffer[writeptr] = currev->message;
+                            currev++;
                             writeptr++;
-                            Sound.write = writeptr;
                         }
                     }
                     else 

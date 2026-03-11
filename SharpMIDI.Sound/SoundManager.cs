@@ -5,11 +5,10 @@ namespace SharpMIDI
 {
     static unsafe class Sound
     {
-        public static uint24* ringbuffer;      // buffer
-        public static ushort write;
+        public static uint24* ringbuffer;
+        //public static ushort write;
         //static uint read;
-        public const int bufferSize = 65536;
-        //public const int bufferMask = 65535;
+        public const int bufferSize = ushort.MaxValue;
         static bool running = false;
         static Thread? audthread; 
         private static int engine = 0;
@@ -74,19 +73,9 @@ namespace SharpMIDI
 
         static void AllocateEvBuffer()
         {    
-            ringbuffer = (uint24*)NativeMemory.AlignedAlloc((nuint)(bufferSize * sizeof(uint24)), 64);
-            write = 0;
+            ringbuffer = (uint24*)NativeMemory.AllocZeroed((nuint)(bufferSize * sizeof(uint24)));
         }
         
-        /* 
-        middle finger
-        public static void Submit(uint ev)
-        {
-            uint wr = write;
-            ringbuffer[wr] = ev;
-            write = (wr + 1) & bufferMask;
-        }*/
-
         static void StartAudioThread()
         {
             if (running) return;
@@ -102,17 +91,17 @@ namespace SharpMIDI
         {
             uint24* buffer = ringbuffer;
             ushort readidx = 0;
-            //uint mask = bufferMask;
             var sendfn = sendTo;
             
             while (running)
             {
-                ushort writeidx = write;
-                while (readidx != writeidx)
+                uint val = (uint)buffer[readidx].Value;
+                if (val != 0)
                 {
-                    sendfn((uint)buffer[readidx].Value);
-                    readidx++; // overflow naturally instead of masking :sob:
+                    sendfn(val);
+                    buffer[readidx] = 0;
                 }
+                readidx++;
             }
         }
         
