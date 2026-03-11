@@ -29,7 +29,6 @@ namespace SharpMIDI
                         KDMAPI.InitializeKDMAPIStream();
                         engine = 1;
                         sendTo = KDMAPI._sendDirectData;
-                        StartAudioThread();
                         return true;
                     } catch (DllNotFoundException) 
                     { 
@@ -48,7 +47,6 @@ namespace SharpMIDI
                         engine = 2;
                         sendTo = WinMM._midiOutShortMsg;
                         handle = result.Item4;
-                        StartAudioThread();
                         return true;
                     }
                 case 3:
@@ -59,7 +57,6 @@ namespace SharpMIDI
                         int loaded = XSynth.InitializeKDMAPIStream();
                         engine = 3;
                         sendTo = XSynth._sendDirectData;
-                        StartAudioThread();
                         return true;
                     } catch (DllNotFoundException) 
                     { 
@@ -76,7 +73,7 @@ namespace SharpMIDI
             ringbuffer = (uint24*)NativeMemory.AllocZeroed((nuint)(bufferSize * sizeof(uint24)));
         }
         
-        static void StartAudioThread()
+        public static void StartAudioThread()
         {
             if (running) return;
             running = true;
@@ -105,10 +102,14 @@ namespace SharpMIDI
             }
         }
         
-        static void Close()
+        public static void KillAudioThread()
         {
             running = false;
             audthread?.Join(100);
+        }
+
+        static void Close()
+        {
             switch(engine){
                 case 1:
                     KDMAPI.TerminateKDMAPIStream();

@@ -20,6 +20,7 @@
             fixed (Tempo* t0 = tevs)
             {
                 Tempo* currtev = t0;
+                Sound.StartAudioThread();
                 MIDIClock.Start();
                 while (!stopping)
                 {
@@ -58,6 +59,7 @@
                 }
             }
             MIDIClock.Reset();
+            Sound.KillAudioThread();
             Console.WriteLine("Playback finished...");
             Starter.form.button4.Enabled = true;
             Starter.form.button5.Enabled = false;
