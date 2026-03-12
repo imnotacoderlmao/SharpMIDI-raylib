@@ -1,5 +1,4 @@
 #pragma warning disable 8602
-using System.Runtime.InteropServices;
 
 namespace SharpMIDI
 {
@@ -31,27 +30,35 @@ namespace SharpMIDI
         static uint fmt = 0;
         static uint ppq = 0;
         static bool success;
+        public static bool midiLoaded = false;
+        public static string? filename;
+        public static string loadstatus = "No MIDI Loaded";
 
         static void Crash(string test)
         {
-            MessageBox.Show(test);
+            Console.WriteLine(test);
             throw new Exception();
         }
 
-        public static void LoadPath(string path, byte thres, int tracklimit)
+        public static void LoadMIDI(string path, byte thres, int tracklimit)
         {   
+            if (midiLoaded) UnloadMIDI();
+            loadstatus = $"Loading MIDI file: {path}";
+            Console.WriteLine(loadstatus);
             midistream = File.Open(path, FileMode.Open);
             VerifyHeader();
 
             MIDIClock.ppq = ppq;
-            Starter.form.label6.Text = $"PPQ: {ppq}";
-
-            Console.WriteLine("Indexing MIDI tracks...");
+            filename = Path.GetFileName(path);
+            
+            loadstatus = $"Indexing MIDI tracks...";
+            Console.WriteLine(loadstatus);
             trackAmount = 0;
             loadedtracks = 0;
             while (midistream.Position < midistream.Length)
             {
                 if (!IndexTrack()) break;
+                loadstatus = $"Indexing MIDI tracks... {trackAmount} found..";
             }
 
             unsafe
@@ -66,7 +73,8 @@ namespace SharpMIDI
                     Console.WriteLine($"track limit set to {tracklimit}. will exit early if reached.");
                 Parallel.For(0, actualTrackCount, (i) =>
                 {
-                    Console.Write($"\rLoading track #{i + 1} | Size {trackSizes[i]} bytes ({loadedtracks + 1} / {actualTrackCount} tracks loaded)");
+                    loadstatus = $"Loading {filename} ({loadedtracks + 1} / {actualTrackCount} tracks loaded)";
+                    Console.Write($"\r{loadstatus}");
 
                     FastTrack temp = new FastTrack(
                         new BufferByteReader(midistream, 256 * 1024, trackLocations[i], trackSizes[i]) 
@@ -102,8 +110,8 @@ namespace SharpMIDI
                 });
                 
                 midistream.Close();
-
-                Console.WriteLine($"\nflattening event array");
+                loadstatus = $"flattening event array";
+                Console.WriteLine($"\n{loadstatus}");
                 MIDI.synthEvents = MergeAndSort(trackDataArray, actualTrackCount);
                 for (int i = 0; i < actualTrackCount; i++)
                 {
@@ -123,8 +131,8 @@ namespace SharpMIDI
             MIDI.tempoEvents = [.. MIDI.temppos];
             Array.Sort(MIDI.tempoEvents, (a,b) => a.tick.CompareTo(b.tick)); // it was this that fixed the issue. a literal one liner :sob:
             MIDI.temppos = null;
-            Starter.form.label2.Text = "Status: Loaded";
-            Starter.form.button4.Enabled = true;
+            midiLoaded = true;
+            loadstatus = filename;
             Console.WriteLine("MIDI Loaded");
         }
 
@@ -181,9 +189,12 @@ namespace SharpMIDI
             }
         }
 
-        public static void Unload()
+        public static void UnloadMIDI()
         {
+            loadstatus = $"unloading {filename}";
+            Console.WriteLine(loadstatus);
             MIDIPlayer.stopping = true;
+            midiLoaded = false;
             totalNotes = 0;
             loadedNotes = 0;
             eventCount = 0;
@@ -191,9 +202,11 @@ namespace SharpMIDI
             trackAmount = 0;
             trackLocations.Clear();
             trackSizes.Clear();
+            Renderer.NoteProcessor.Cleanup();
             MIDI.synthEvents.Dispose();
             MIDI.tempoEvents = null;
             MIDI.temppos = [];
+            loadstatus = $"No MIDI Loaded";
             GC.Collect();
         }
 

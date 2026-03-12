@@ -6,65 +6,50 @@ namespace SharpMIDI
     static unsafe class Sound
     {
         public static uint24* ringbuffer;
-        //public static ushort write;
-        //static uint read;
         public const int bufferSize = ushort.MaxValue;
         static bool running = false;
+        public static bool issynthinitiated = false;
         static Thread? audthread; 
         private static int engine = 0;
-        private static IntPtr? handle;
         static delegate* unmanaged[SuppressGCTransition]<uint,void> sendTo;
-        public static bool Init(int synth, string winMMdev)
+        public static void InitSynth(string synth)
         {
             Close();
             AllocateEvBuffer();
-            // idk how to start the audio thread in a better way without having sendfn being declared inside the while loop
+            issynthinitiated = true; 
             switch (synth)
             {
-                case 1:
+                case "KDMAPI":
                     try 
                     { 
-                        if(!KDMAPI.IsKDMAPIAvailable()) return false;
+                        if(!KDMAPI.IsKDMAPIAvailable()) return;
                         KDMAPI.InitializeFunctionPointer();
                         KDMAPI.InitializeKDMAPIStream();
                         engine = 1;
                         sendTo = KDMAPI._sendDirectData;
-                        return true;
+                        return;
                     } catch (DllNotFoundException) 
                     { 
-                        MessageBox.Show("KDMAPI is not available.");
-                        return false; 
+                        Console.WriteLine("KDMAPI is not available.");
+                        return;
                     }
-                case 2:
-                    (bool, string, string, IntPtr?, MidiOutCaps?) result = WinMM.Setup(winMMdev);
-                    if (!result.Item1)
-                    {
-                        MessageBox.Show(result.Item3);
-                        return false;
-                    }
-                    else
-                    {
-                        engine = 2;
-                        sendTo = WinMM._midiOutShortMsg;
-                        handle = result.Item4;
-                        return true;
-                    }
-                case 3:
+                case "XSynth":
                     try 
                     {
-                        if(!XSynth.IsKDMAPIAvailable()) return false;
+                        if(!XSynth.IsKDMAPIAvailable()) return;
                         XSynth.InitializeFunctionPointer();
                         int loaded = XSynth.InitializeKDMAPIStream();
                         engine = 3;
                         sendTo = XSynth._sendDirectData;
-                        return true;
+                        return;
                     } catch (DllNotFoundException) 
                     { 
-                        MessageBox.Show("XSynth is not available."); 
-                        return false; 
+                        Console.WriteLine("XSynth is not available."); 
+                        return; 
                     }
                 default:
-                    return false;
+                    Console.WriteLine($"{synth} is not a valid option!");
+                    return;
             }
         }
 
@@ -115,11 +100,6 @@ namespace SharpMIDI
                     KDMAPI.TerminateKDMAPIStream();
                     return;
                 case 2:
-                    if(handle!=null){
-                        WinMM.midiOutClose((IntPtr)handle);
-                    }
-                    return;
-                case 3:
                     XSynth.TerminateKDMAPIStream();
                     return;
             }

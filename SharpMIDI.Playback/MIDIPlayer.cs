@@ -7,6 +7,7 @@
         public static bool stopping = true;
         public static void StartPlayback()
         {
+            if (!Sound.issynthinitiated) Sound.InitSynth("KDMAPI"); // fallback since i kept forgetting to init and it crashes the whole program lmao
             stopping = false;
             var synthev = MIDI.synthEvents;
             SynthEvent* evptr = synthev.Pointer;
@@ -61,9 +62,6 @@
             MIDIClock.Reset();
             Sound.KillAudioThread();
             Console.WriteLine("Playback finished...");
-            Starter.form.button4.Enabled = true;
-            Starter.form.button5.Enabled = false;
-            Starter.form.button6.Enabled = false;
         }
     }
 }

@@ -1,3 +1,4 @@
+using System.Runtime.InteropServices;
 using Raylib_cs;
 
 namespace SharpMIDI.Renderer
@@ -7,6 +8,7 @@ namespace SharpMIDI.Renderer
         public const int PAD = 20;
         private static float scrollfactor = 1f;
         public static float tick = 0f;
+        static string filepath;
         public static double lastrendernow;
         // Dynamic window dimensions
         private static int currentWidth = 1280;
@@ -24,7 +26,7 @@ namespace SharpMIDI.Renderer
         {
             if (IsRunning) return;
             IsRunning = true;
-            Task.Run(RenderLoop);
+            RenderLoop();
         }
 
         private static void RenderLoop()
@@ -102,6 +104,22 @@ namespace SharpMIDI.Renderer
 
         private static void HandleInput()
         {
+            if (Raylib.IsFileDropped())
+            {
+                FilePathList droppedFiles = Raylib.LoadDroppedFiles();
+                unsafe
+                {
+                    filepath = Marshal.PtrToStringUTF8((nint)droppedFiles.Paths[0]);
+                }
+                Raylib.UnloadDroppedFiles(droppedFiles);
+                Task.Run(() => MIDILoader.LoadMIDI(filepath, 0, ushort.MaxValue));
+            }
+            
+            if (Raylib.IsKeyPressed(KeyboardKey.One))
+                Sound.InitSynth("KDMAPI");
+            if (Raylib.IsKeyPressed(KeyboardKey.Two))
+                Sound.InitSynth("XSynth");
+
             if (Raylib.IsKeyPressed(KeyboardKey.Up) || Raylib.IsKeyPressedRepeat(KeyboardKey.Up))
             {
                 if (dynascroll)
@@ -123,13 +141,21 @@ namespace SharpMIDI.Renderer
                 NoteRenderer.SetWindow(newWindow);
             }
 
-            // Seeking controls
             if (Raylib.IsKeyPressed(KeyboardKey.Right) || Raylib.IsKeyPressedRepeat(KeyboardKey.Right))
             { 
                 MIDIClock.tick += MIDIClock.tickscale;
                 tick = (float)MIDIClock.tick;
             }
-            // Toggle controls
+
+            if (Raylib.IsKeyPressed(KeyboardKey.Space))
+            { 
+                if (MIDIPlayer.stopping) Task.Run(MIDIPlayer.StartPlayback);
+                if (!MIDIClock.paused)MIDIClock.Stop();
+                else MIDIClock.Resume();
+            }
+            if (Raylib.IsKeyPressed(KeyboardKey.R))
+                MIDIPlayer.stopping = true;
+
             if (Raylib.IsKeyPressed(KeyboardKey.S)) dynascroll = !dynascroll;
             if (Raylib.IsKeyPressed(KeyboardKey.D))
                 Debug = !Debug;
@@ -142,6 +168,21 @@ namespace SharpMIDI.Renderer
                 Raylib.ToggleBorderlessWindowed();
             if (Raylib.IsKeyPressed(KeyboardKey.C))
                 controls = !controls;
+            if (Raylib.IsKeyPressed(KeyboardKey.U))
+                MIDILoader.UnloadMIDI();
+        }
+
+        public static string toMemoryText(long bytes)
+        {
+            switch (bytes)
+            {
+                case var expression when bytes < 1000:
+                    return $"{bytes} B";
+                case var expression when bytes < 1000000:
+                    return $"{bytes/1000} KB";
+                default:
+                    return $"{bytes / 1000000} MB";
+            }
         }
 
         private static void DrawUI()
@@ -158,20 +199,17 @@ namespace SharpMIDI.Renderer
             {
                 debugStr.Clear();
                 debugStr.Append("DrawOps: ").Append(NoteRenderer.NotesDrawnLastFrame)
-                        .Append(" | Memory: ").Append(Form1.toMemoryText(GC.GetTotalMemory(false)))
+                        .Append(" | Memory: ").Append(toMemoryText(GC.GetTotalMemory(false)))
                         .Append(" | DynaScroll: ").Append(dynascroll ? $"({scrollfactor}x ticklen)" : "False");
                 Raylib.DrawText(debugStr.ToString(), 12, 25, 16, Raylib_cs.Color.SkyBlue);
             }
             if (controls)
             {
-                Raylib.DrawText($"Up/Dn = zoom | V = vsync | Right = seek fwd | Left = skip bw (broken) | C = toggle this text | F = fullscreen | D = debug | S = dynamic scrolling", 12, 45, 16, Raylib_cs.Color.White);
+                Raylib.DrawText($"Up/Dn = zoom | V = vsync | Right = seek fwd\nLeft = skip bw (broken) | C = toggle this text | F = fullscreen\nD = debug | S = dynamic scrolling | U = unload midi\nR = reset playback | Space = start, pause continue playback\nto load a midi file drag and drop a file into the window\nremember to init the synth via pressing your number keys\n(1 = KDMAPI, 2 = XSynth)", 12, 45, 16, Raylib_cs.Color.White);
                 if (Raylib.GetTime() >= 4.0 && Raylib.GetTime() <= 4.5)
                     controls = false;
             }
-            if (!NoteProcessor.IsReady)
-                Raylib.DrawText("No MIDI loaded.", 12, currentHeight - 19, 16, Raylib_cs.Color.Yellow);
-            else
-                Raylib.DrawText($"{Starter.filename}", 12, currentHeight - 19, 16, Raylib_cs.Color.SkyBlue);
+            Raylib.DrawText($"{MIDILoader.loadstatus}", 12, currentHeight - 19, 16, Raylib_cs.Color.SkyBlue);
         }
 
         public static void StopRenderer() => IsRunning = false;
