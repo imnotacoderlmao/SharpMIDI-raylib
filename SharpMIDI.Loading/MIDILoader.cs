@@ -11,10 +11,10 @@ namespace SharpMIDI
             public int trackIndex;
         }
 
-        private struct HeapNode
+        private unsafe struct HeapNode
         {
-            public int trackIndex;
-            public long position;
+            public SynthEvent* current;  // direct pointer into track's event array
+            public SynthEvent* end;      // pointer to one past last event
         }
         
         private static List<long> trackLocations = new List<long>();
@@ -73,7 +73,7 @@ namespace SharpMIDI
                     Console.WriteLine($"track limit set to {tracklimit}. will exit early if reached.");
                 Parallel.For(0, actualTrackCount, (i) =>
                 {
-                    loadstatus = $"Loading {filename} ({loadedtracks + 1} / {actualTrackCount} tracks loaded)";
+                    loadstatus = $"Loading {filename} ({loadedtracks + 1} / {actualTrackCount} tracks, {eventCount} events loaded)";
                     Console.Write($"\r{loadstatus}");
 
                     FastTrack temp = new FastTrack(
@@ -121,14 +121,11 @@ namespace SharpMIDI
                 
                 // dummy events for no bounds checking
                 MIDI.temppos.Add(new Tempo { tick = uint.MaxValue });
-                unsafe
-                {
-                    SynthEvent* eventsPtr = MIDI.synthEvents.Pointer;
-                    eventsPtr[eventCount] = new SynthEvent { tick = uint.MaxValue };
-                }
+                MIDI.tickGroups.Add(new TickGroup { tick = uint.MaxValue, count = 0 });
             }
 
             MIDI.tempoEvents = [.. MIDI.temppos];
+            MIDI.tickGroupArr = [.. MIDI.tickGroups];
             Array.Sort(MIDI.tempoEvents, (a,b) => a.tick.CompareTo(b.tick)); // it was this that fixed the issue. a literal one liner :sob:
             MIDI.temppos = null;
             midiLoaded = true;
@@ -136,57 +133,69 @@ namespace SharpMIDI
             Console.WriteLine("MIDI Loaded");
         }
 
-        static unsafe BigArray<SynthEvent> MergeAndSort(TrackHeapData[] tracks, int trackCount)
+        static unsafe BigArray<uint24> MergeAndSort(TrackHeapData[] tracks, int trackCount)
         {
             long totalEvents = 0;
             for (int i = 0; i < trackCount; i++)
             {
                 if (tracks[i].eventCount > 0)
-                {
                     totalEvents += tracks[i].eventCount;
-                }
             }
             
-            BigArray<SynthEvent> result = new BigArray<SynthEvent>((ulong)totalEvents + 1);
-            SynthEvent* resultPtr = result.Pointer;
-            HeapMerge(tracks, trackCount, resultPtr, totalEvents);
-            
+            BigArray<uint24> messages = new((ulong)totalEvents + 1);
+            HeapMerge(tracks, trackCount, out MIDI.tickGroups, messages);
             eventCount = totalEvents;
-            return result;
+            return messages;
         }
-        
-        static unsafe void HeapMerge(TrackHeapData[] tracks, int trackCount, SynthEvent* dest, long totalEvents)
+         
+
+        static unsafe void HeapMerge(TrackHeapData[] tracks, int trackCount, out List<TickGroup> tickGroups, BigArray<uint24> messages)
         {
-            // min-heap of (tick, trackIndex, position)
-            var heap = new PriorityQueue<HeapNode, uint>();
-            
-            // initialize heap with first event from each non-empty track
+            tickGroups = new List<TickGroup>(1024);
+            uint24* msgPtr = messages.Pointer;
+            long writePos = 0;
+
+            var heap = new PriorityQueue<HeapNode, uint>(trackCount);
             for (int i = 0; i < trackCount; i++)
             {
                 if (tracks[i].eventCount > 0)
                 {
-                    SynthEvent firstEvent = tracks[i].events.Pointer[0];
-                    heap.Enqueue(new HeapNode { trackIndex = i, position = 0 }, firstEvent.tick);
+                    SynthEvent* ptr = tracks[i].events.Pointer;
+                    heap.Enqueue(new HeapNode { 
+                        current = ptr, 
+                        end = ptr + tracks[i].eventCount 
+                    }, ptr->tick);
                 }
             }
-            
-            long writePos = 0;
-            
+
+            uint currentTick = uint.MaxValue;
+            uint currentCount = 0;
+
             while (heap.Count > 0)
             {
                 var node = heap.Dequeue();
-                int trackIdx = node.trackIndex;
-                long pos = node.position;
-                dest[writePos++] = tracks[trackIdx].events.Pointer[pos];
-                
-                // add next event from same track if available
-                long nextPos = pos + 1;
-                if (nextPos < tracks[trackIdx].eventCount)
+                SynthEvent* ev = node.current;
+
+                if (ev->tick != currentTick)
                 {
-                    SynthEvent nextEvent = tracks[trackIdx].events.Pointer[nextPos];
-                    heap.Enqueue(new HeapNode { trackIndex = trackIdx, position = nextPos }, nextEvent.tick);
+                    // flush previous group
+                    if (currentCount > 0)
+                        tickGroups.Add(new TickGroup { tick = currentTick, count = currentCount });
+                    currentTick = ev->tick;
+                    currentCount = 0;
                 }
+
+                msgPtr[writePos++] = ev->message;
+                currentCount++;
+
+                node.current++;
+                if (node.current < node.end)
+                    heap.Enqueue(node, node.current->tick);
             }
+
+            // flush last group
+            if (currentCount > 0)
+                tickGroups.Add(new TickGroup { tick = currentTick, count = currentCount });
         }
 
         public static void UnloadMIDI()
@@ -205,7 +214,9 @@ namespace SharpMIDI
             Renderer.NoteProcessor.Cleanup();
             MIDI.synthEvents.Dispose();
             MIDI.tempoEvents = null;
+            MIDI.tickGroups = null;
             MIDI.temppos = [];
+            MIDI.tickGroupArr = [];
             loadstatus = $"No MIDI Loaded";
             GC.Collect();
         }

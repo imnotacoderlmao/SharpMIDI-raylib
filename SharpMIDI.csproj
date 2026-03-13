@@ -5,10 +5,11 @@
         <Nullable>enable</Nullable>
         <gcAllowVeryLargeObjects>true</gcAllowVeryLargeObjects>
         <ImplicitUsings>enable</ImplicitUsings>
+        <PublishTrimmed>true</PublishTrimmed>
+        <PublishAOT>true</PublishAOT>
         <Optimize>true</Optimize>
         <DebugType>none</DebugType>
         <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
-        <PublishSingleFile>true</PublishSingleFile>
     </PropertyGroup>
     <ItemGroup>
         <PackageReference Include="raylib" Version="5.5.0" />

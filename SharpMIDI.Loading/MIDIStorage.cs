@@ -13,9 +13,18 @@ namespace SharpMIDI
         public uint tick;
         public uint tempo;
     }
+    
+    public struct TickGroup
+    {
+        public uint tick;
+        public uint count;
+    }
+    
     static class MIDI
     {
-        public static BigArray<SynthEvent> synthEvents;
+        public static BigArray<uint24> synthEvents;
+        public static List<TickGroup> tickGroups;
+        public static TickGroup[] tickGroupArr = Array.Empty<TickGroup>();
         public static List<Tempo> temppos = new List<Tempo>();
         public static Tempo[] tempoEvents = Array.Empty<Tempo>();
     }

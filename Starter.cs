@@ -6,6 +6,7 @@ namespace SharpMIDI
         static void Main()
         {
             Renderer.WindowManager.StartRenderer();
+            MIDILoader.UnloadMIDI();
         }
     }
 }

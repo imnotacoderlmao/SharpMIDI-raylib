@@ -155,6 +155,8 @@ namespace SharpMIDI.Renderer
             }
             if (Raylib.IsKeyPressed(KeyboardKey.R))
                 MIDIPlayer.stopping = true;
+            if (Raylib.IsKeyPressed(KeyboardKey.E))
+                MIDIClock.skipevents = !MIDIClock.skipevents;
 
             if (Raylib.IsKeyPressed(KeyboardKey.S)) dynascroll = !dynascroll;
             if (Raylib.IsKeyPressed(KeyboardKey.D))
@@ -188,30 +190,27 @@ namespace SharpMIDI.Renderer
         private static void DrawUI()
         {
             // Main UI
+            MIDIPlayer.MIDIFps = MIDIPlayer.totalFrames / Raylib.GetFrameTime();
             tickStr.Clear();
-            tickStr.Append("Tick: ").Append((int)tick)
-                   .Append(" | Tempo: ").Append(MIDIClock.bpm.ToString("F1"))
-                   .Append(" | Zoom: ").Append((int)NoteRenderer.Window)
-                   //.Append(" | Glow: ").Append("broken")
-                   .Append(" | FPS: ").Append(Raylib.GetFPS());
+            tickStr.Append($"Tick: {(int)tick} | Tempo: {MIDIClock.bpm.ToString("F1")} | Zoom: {(int)NoteRenderer.Window} | FPS: {Raylib.GetFPS()}");
             Raylib.DrawText(tickStr.ToString(), 12, 4, 16, Raylib_cs.Color.Green);
             if (Debug)
             {
                 debugStr.Clear();
-                debugStr.Append("DrawOps: ").Append(NoteRenderer.NotesDrawnLastFrame)
-                        .Append(" | Memory: ").Append(toMemoryText(GC.GetTotalMemory(false)))
+                debugStr.Append($"DrawOps: {NoteRenderer.NotesDrawnLastFrame} | Memory: {toMemoryText(GC.GetTotalMemory(false))}")
                         .Append(" | DynaScroll: ").Append(dynascroll ? $"({scrollfactor}x ticklen)" : "False");
-                Raylib.DrawText(debugStr.ToString(), 12, 25, 16, Raylib_cs.Color.SkyBlue);
+                Raylib.DrawText(debugStr.ToString(), 13, 23, 16, Raylib_cs.Color.SkyBlue);
             }
             if (controls)
             {
-                Raylib.DrawText($"Up/Dn = zoom | V = vsync | Right = seek fwd\nLeft = skip bw (broken) | C = toggle this text | F = fullscreen\nD = debug | S = dynamic scrolling | U = unload midi\nR = reset playback | Space = start, pause continue playback\nto load a midi file drag and drop a file into the window\nremember to init the synth via pressing your number keys\n(1 = KDMAPI, 2 = XSynth)", 12, 45, 16, Raylib_cs.Color.White);
+                Raylib.DrawText($"Up/Dn = zoom | V = vsync | Right = seek fwd\nLeft = skip bw (broken) | C = toggle this text | F = fullscreen\nD = debug | S = dynamic scrolling | U = unload midi | E = skip event toggle\nR = reset playback | Space = start, pause continue playback \nto load a midi file drag and drop a file into the window\nremember to init the synth via pressing your number keys\n(1 = KDMAPI, 2 = XSynth)", 12, 45, 16, Raylib_cs.Color.White);
                 if (Raylib.GetTime() >= 4.0 && Raylib.GetTime() <= 4.5)
                     controls = false;
             }
-            Raylib.DrawText($"{MIDILoader.loadstatus}", 12, currentHeight - 19, 16, Raylib_cs.Color.SkyBlue);
+            if (Debug) Raylib.DrawText($"{MIDILoader.loadstatus} | MIDI: @{MIDIPlayer.MIDIFps} fps | Skip events?: {MIDIClock.skipevents}", 12, currentHeight - 19, 16, Raylib_cs.Color.SkyBlue);
+            else Raylib.DrawText($"{MIDILoader.loadstatus}", 12, currentHeight - 19, 16, Raylib_cs.Color.SkyBlue);
+            MIDIPlayer.totalFrames = 0;
         }
-
         public static void StopRenderer() => IsRunning = false;
     }
 }

@@ -1,67 +1,90 @@
-﻿namespace SharpMIDI
+﻿using SharpMIDI.Renderer;
+
+namespace SharpMIDI
 {
     static unsafe class MIDIPlayer
     {
         public static int totalFrames = 0;
-        public static long playedEvents = 0;
+        public static long playedEvents, playedevents2, eventspersec = 0;
+        public static float MIDIFps = 0f;
         public static bool stopping = true;
+        public static bool stalled = false;
         public static void StartPlayback()
         {
-            if (!Sound.issynthinitiated) Sound.InitSynth("KDMAPI"); // fallback since i kept forgetting to init and it crashes the whole program lmao
+            if (!Sound.issynthinitiated) Sound.InitSynth("KDMAPI"); // fallback since i kept forgetting to do both and it crashes the whole program lmao
+            if (!MIDILoader.midiLoaded) 
+            {
+                Console.WriteLine("no midi loaded!!!");
+                return;
+            }
+            playedEvents = 0;
             stopping = false;
             var synthev = MIDI.synthEvents;
-            SynthEvent* evptr = synthev.Pointer;
-            SynthEvent* currev = evptr;
-            SynthEvent* evend = evptr + synthev.Length;
+            uint24* msgptr = MIDI.synthEvents.Pointer;
+            uint24* msgcur = msgptr;
+            TickGroup[] tickGroupArr = MIDI.tickGroupArr;
             Tempo[] tevs = MIDI.tempoEvents;
             uint maxTick = (uint)MIDILoader.maxTick;
             uint clock = 0;
             uint24* buffer = Sound.ringbuffer;
             ushort writeptr = 0;
-            fixed (Tempo* t0 = tevs)
+            fixed(TickGroup* tg0 = tickGroupArr)
             {
-                Tempo* currtev = t0;
-                Sound.StartAudioThread();
-                MIDIClock.Start();
-                while (!stopping)
+                fixed (Tempo* t0 = tevs)
                 {
-                    clock = (uint)MIDIClock.Update();
-                    if (!MIDIClock.skipping) 
+                    Tempo* currtev = t0;
+                    TickGroup* currtg = tg0;
+                    Sound.StartAudioThread();
+                    Task.Run(PlaybackStats);
+                    MIDIClock.Start();
+                    while (!stopping)
                     {
-                        while (currev->tick <= clock)
+                        clock = (uint)MIDIClock.Update();
+                        if (!MIDIClock.skipping)
                         {
-                            buffer[writeptr] = currev->message;
-                            currev++;
-                            writeptr++;
+                            while (currtg->tick <= clock)
+                            {
+                                uint24* groupEnd = msgcur + currtg->count;
+                                while (msgcur < groupEnd)
+                                    buffer[writeptr++] = *msgcur++;
+                                playedEvents += currtg->count;
+                                currtg++;
+                            }
                         }
-                    }
-                    else 
-                    {
-                        SynthEvent* left = currev;
-                        SynthEvent* right = evend;
-                        while (right - left > 16)
+                        else
                         {
-                            SynthEvent* mid = left + ((right - left) >> 1);
-                            if (mid->tick <= clock)
-                                left = mid + 1;
-                            else
-                                right = mid;
+                            while (currtg->tick <= clock)
+                            {
+                                msgcur += currtg->count;
+                                playedEvents += currtg->count;
+                                currtg++;
+                            }
                         }
-                        currev = left;
+                        while (currtev->tick <= clock)
+                        {
+                            MIDIClock.SubmitBPM(currtev->tick, currtev->tempo);
+                            currtev++;
+                        }
+                        totalFrames++;
+                        if (clock > maxTick) stopping = true;
                     }
-                    while (currtev->tick <= clock)
-                    {
-                        MIDIClock.SubmitBPM(currtev->tick, currtev->tempo);
-                        currtev++;
-                    }
-                    playedEvents = currev - evptr;
-                    totalFrames++;
-                    if (clock > maxTick) stopping = true;
                 }
             }
             MIDIClock.Reset();
             Sound.KillAudioThread();
             Console.WriteLine("Playback finished...");
+        }
+
+        public static void PlaybackStats()
+        {
+            while (!stopping)
+            {
+                eventspersec = (int)(playedEvents - playedevents2) * 30;
+                if (stalled) Console.Write($"\rTick: {(int)MIDIClock.tick} / {MIDILoader.maxTick} | Played Events: {playedEvents} / {MIDILoader.eventCount} ({eventspersec}/s) | MIDI Thread: STALLED");
+                else Console.Write($"\rTick: {(int)MIDIClock.tick} / {MIDILoader.maxTick} | Played Events: {playedEvents} / {MIDILoader.eventCount} ({eventspersec}/s) | MIDI Thread: @{MIDIFps} fps");
+                playedevents2 = playedEvents;
+                Thread.Sleep(1000/30);
+            }
         }
     }
 }

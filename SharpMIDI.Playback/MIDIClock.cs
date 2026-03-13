@@ -15,14 +15,13 @@ namespace SharpMIDI
     static class MIDIClock
     {
         // MIDI state
-        public static double tick;
+        public static double tick, tick2;
         public static double bpm = 120;
         public static double ppq = 480;
         public static double tickscale;
         static double lastnow;
         public static bool skipevents = true;
         public static bool throttle = !skipevents;
-        public static bool stalled = false;
         public static bool skipping = false;
         public static bool paused;
 
@@ -42,14 +41,14 @@ namespace SharpMIDI
             if (paused || MIDIPlayer.stopping) return tick;
             double now = Timer.Seconds();
             double advancetime = now - lastnow;
-            stalled = advancetime > 0.0166666;
-            if (throttle && stalled)
+            MIDIPlayer.stalled = advancetime > 0.0166666;
+            if (throttle && MIDIPlayer.stalled)
             {
                 advancetime = 0.0166666;
             }
             else
             {
-                skipping = skipevents && stalled;
+                skipping = skipevents && MIDIPlayer.stalled;
             }
             lastnow = now;
             tick += advancetime * tickscale;
