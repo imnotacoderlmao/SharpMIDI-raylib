@@ -15,7 +15,7 @@ namespace SharpMIDI
     static class MIDIClock
     {
         // MIDI state
-        public static double tick, tick2;
+        public static double tick;
         public static double bpm = 120;
         public static double ppq = 480;
         public static double tickscale;

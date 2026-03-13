@@ -103,7 +103,7 @@ namespace SharpMIDI.Renderer
         {
             if (!NoteProcessor.IsReady) return;
 
-            if (!MIDIPlayer.stopping && tick < lastTick) tick = lastTick;
+            if (!MIDIPlayer.stopping && tick < lastTick) forceRedraw = true;
             lastTick = tick;
 
             float tickPos = tick / ticksPerPixel;

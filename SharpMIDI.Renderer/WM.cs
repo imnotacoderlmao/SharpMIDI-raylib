@@ -140,11 +140,10 @@ namespace SharpMIDI.Renderer
                 float newWindow = Math.Min(100000f, NoteRenderer.Window * 1.1f);
                 NoteRenderer.SetWindow(newWindow);
             }
-
+            
             if (Raylib.IsKeyPressed(KeyboardKey.Right) || Raylib.IsKeyPressedRepeat(KeyboardKey.Right))
             { 
                 MIDIClock.tick += MIDIClock.tickscale;
-                tick = (float)MIDIClock.tick;
             }
 
             if (Raylib.IsKeyPressed(KeyboardKey.Space))
@@ -190,7 +189,6 @@ namespace SharpMIDI.Renderer
         private static void DrawUI()
         {
             // Main UI
-            MIDIPlayer.MIDIFps = MIDIPlayer.totalFrames / Raylib.GetFrameTime();
             tickStr.Clear();
             tickStr.Append($"Tick: {(int)tick} | Tempo: {MIDIClock.bpm.ToString("F1")} | Zoom: {(int)NoteRenderer.Window} | FPS: {Raylib.GetFPS()}");
             Raylib.DrawText(tickStr.ToString(), 12, 4, 16, Raylib_cs.Color.Green);
@@ -209,7 +207,6 @@ namespace SharpMIDI.Renderer
             }
             if (Debug) Raylib.DrawText($"{MIDILoader.loadstatus} | MIDI: @{MIDIPlayer.MIDIFps} fps | Skip events?: {MIDIClock.skipevents}", 12, currentHeight - 19, 16, Raylib_cs.Color.SkyBlue);
             else Raylib.DrawText($"{MIDILoader.loadstatus}", 12, currentHeight - 19, 16, Raylib_cs.Color.SkyBlue);
-            MIDIPlayer.totalFrames = 0;
         }
         public static void StopRenderer() => IsRunning = false;
     }

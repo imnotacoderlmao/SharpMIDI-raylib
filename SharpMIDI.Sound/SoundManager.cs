@@ -16,7 +16,6 @@ namespace SharpMIDI
         {
             Close();
             AllocateEvBuffer();
-            issynthinitiated = true; 
             switch (synth)
             {
                 case "KDMAPI":
@@ -27,6 +26,7 @@ namespace SharpMIDI
                         KDMAPI.InitializeKDMAPIStream();
                         engine = 1;
                         sendTo = KDMAPI._sendDirectData;
+                        issynthinitiated = true; 
                         return;
                     } catch (DllNotFoundException) 
                     { 
@@ -41,6 +41,7 @@ namespace SharpMIDI
                         int loaded = XSynth.InitializeKDMAPIStream();
                         engine = 3;
                         sendTo = XSynth._sendDirectData;
+                        issynthinitiated = true; 
                         return;
                     } catch (DllNotFoundException) 
                     { 
@@ -95,6 +96,7 @@ namespace SharpMIDI
 
         static void Close()
         {
+            issynthinitiated = false; 
             switch(engine){
                 case 1:
                     KDMAPI.TerminateKDMAPIStream();

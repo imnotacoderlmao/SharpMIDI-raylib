@@ -4,20 +4,25 @@ namespace SharpMIDI
 {
     static unsafe class MIDIPlayer
     {
-        public static int totalFrames = 0;
+        public static long totalFrames = 0;
         public static long playedEvents, playedevents2, eventspersec = 0;
         public static float MIDIFps = 0f;
         public static bool stopping = true;
         public static bool stalled = false;
         public static void StartPlayback()
         {
-            if (!Sound.issynthinitiated) Sound.InitSynth("KDMAPI"); // fallback since i kept forgetting to do both and it crashes the whole program lmao
+            if (!Sound.issynthinitiated)
+            { 
+                Console.WriteLine("NO synth initiated. trying OmniMIDI as a fallback");
+                Sound.InitSynth("KDMAPI"); // fallback since i kept forgetting to do both and it crashes the whole program lmao
+            }
             if (!MIDILoader.midiLoaded) 
             {
                 Console.WriteLine("no midi loaded!!!");
                 return;
             }
             playedEvents = 0;
+            playedevents2 = 0;
             stopping = false;
             var synthev = MIDI.synthEvents;
             uint24* msgptr = MIDI.synthEvents.Pointer;
@@ -79,10 +84,12 @@ namespace SharpMIDI
         {
             while (!stopping)
             {
-                eventspersec = (int)(playedEvents - playedevents2) * 30;
+                MIDIFps = totalFrames * 30;
+                eventspersec = (playedEvents - playedevents2) * 30;
                 if (stalled) Console.Write($"\rTick: {(int)MIDIClock.tick} / {MIDILoader.maxTick} | Played Events: {playedEvents} / {MIDILoader.eventCount} ({eventspersec}/s) | MIDI Thread: STALLED");
                 else Console.Write($"\rTick: {(int)MIDIClock.tick} / {MIDILoader.maxTick} | Played Events: {playedEvents} / {MIDILoader.eventCount} ({eventspersec}/s) | MIDI Thread: @{MIDIFps} fps");
                 playedevents2 = playedEvents;
+                totalFrames = 0;
                 Thread.Sleep(1000/30);
             }
         }
