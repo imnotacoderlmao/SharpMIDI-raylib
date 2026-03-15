@@ -21,9 +21,8 @@ namespace SharpMIDI
                 case "KDMAPI":
                     try 
                     { 
-                        if(!KDMAPI.IsKDMAPIAvailable()) return;
-                        KDMAPI.InitializeFunctionPointer();
-                        KDMAPI.InitializeKDMAPIStream();
+                        KDMAPI.Load();
+                        KDMAPI._initializeKDMAPIStream();
                         engine = 1;
                         sendTo = KDMAPI._sendDirectData;
                         issynthinitiated = true; 
@@ -36,9 +35,8 @@ namespace SharpMIDI
                 case "XSynth":
                     try 
                     {
-                        if(!XSynth.IsKDMAPIAvailable()) return;
-                        XSynth.InitializeFunctionPointer();
-                        int loaded = XSynth.InitializeKDMAPIStream();
+                        XSynth.Load();
+                        XSynth._initializeKDMAPIStream();
                         engine = 3;
                         sendTo = XSynth._sendDirectData;
                         issynthinitiated = true; 
@@ -101,10 +99,10 @@ namespace SharpMIDI
             issynthinitiated = false; 
             switch(engine){
                 case 1:
-                    KDMAPI.TerminateKDMAPIStream();
+                    KDMAPI._terminateKDMAPIStream();
                     return;
                 case 2:
-                    XSynth.TerminateKDMAPIStream();
+                    XSynth._terminateKDMAPIStream();
                     return;
             }
         }

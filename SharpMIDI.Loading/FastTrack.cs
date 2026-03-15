@@ -33,8 +33,7 @@ namespace SharpMIDI
                 switch (readEvent)
                 {
                     case 0xF0:
-                        // thank you mmf agani
-                        //uint len = ReadVariableLen();
+                        // thank you mmf
                         List<byte> data = new List<byte>() { readEvent };
                         byte b = 0;
                         while (b != 0xF7)
@@ -58,11 +57,6 @@ namespace SharpMIDI
                         stupid.Skip(1);
                         break;
                     case 0xF7:
-                        //MIDI.SysEx.Add(new SysEx
-                        //{
-                        //    tick = absolutetime,
-                        //    message = [readEvent]
-                        //});
                         stupid.Skip((int)ReadVariableLen());
                         break;
                     case 0xFF:
@@ -72,13 +66,13 @@ namespace SharpMIDI
                             if (readEvent == 0x51)
                             {
                                 uint tempo = 0;
-                                for (int i = 0; i < 3; i++)
-                                    tempo = (tempo << 8) | stupid.Read();
-                                    MIDI.temppos.Add(new Tempo 
-                                    { 
-                                        tick = absolutetime, 
-                                        tempo = tempo
-                                    });
+                                for (int i = 0; i != 3; i++)
+                                    tempo = ((tempo << 8) | stupid.Read());
+                                MIDI.temppos.Add(new Tempo 
+                                { 
+                                    tick = absolutetime, 
+                                    tempo = tempo
+                                });
                             }
                             else if (readEvent == 0x2F)
                             {

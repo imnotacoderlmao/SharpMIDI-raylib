@@ -76,7 +76,6 @@
                         {
                             SubmitSysEx(sysExes[sysexidx].message);
                             sysexidx++;
-                            Console.WriteLine($"found system exclusive message at tick {clock}, sysex idx now at {sysexidx}");
                         }
                         totalFrames++;
                         if (clock > maxTick) stopping = true;
@@ -91,19 +90,26 @@
 
         public static void SubmitSysEx(byte[] message)
         {
-            fixed (byte* messageptr = message)
-            {
-                MIDIHDR header = new MIDIHDR {
-                    lpData = messageptr,
-                    dwBufferLength = (uint)message.Length,
-                    dwBytesRecorded = (uint)message.Length,
-                    dwFlags = 0
-                };
-                uint size = (uint)sizeof(MIDIHDR);
-                KDMAPI.PrepareLongData(&header, size);
-                KDMAPI.SendDirectLongData(&header, size);
-                KDMAPI.UnprepareLongData(&header, size);
-            }
+                fixed (byte* messageptr = message)
+                {
+                    MIDIHDR header = new MIDIHDR {
+                        lpData = messageptr,
+                        dwBufferLength = (uint)message.Length,
+                        dwBytesRecorded = (uint)message.Length,
+                        dwFlags = 0
+                    };
+                    #if WINDOWS 
+                        uint size = (uint)sizeof(MIDIHDR);
+                        uint prepare = KDMAPI._prepareLongData(&header, size); 
+                        uint send = KDMAPI._sendDirectLongData(&header, size);
+                        uint unprepare = KDMAPI._unprepareLongData(&header, size);
+                        Console.WriteLine($"sysex prepare,send,unprepare returned ({prepare},{send},{unprepare})");
+                    #elif LINUX
+                        uint size = (uint)(message.Length * sizeof(byte));
+                        uint send = KDMAPI._sendDirectLongDataLinux(messageptr, size);
+                        Console.WriteLine($"sysex send returned ({send})");
+                    #endif
+                }
         }
 
         public static void PlaybackStats()
@@ -112,8 +118,8 @@
             {
                 MIDIFps = totalFrames * 30;
                 eventspersec = (playedEvents - playedevents2) * 30;
-                if (stalled) Console.Write($"\rTick: {(int)MIDIClock.tick} / {MIDILoader.maxTick} | Played Events: {playedEvents} / {MIDILoader.eventCount} ({eventspersec}/s) | MIDI Thread: STALLED | Skip events?: {MIDIClock.skipevents}");
-                else Console.Write($"\rTick: {(int)MIDIClock.tick} / {MIDILoader.maxTick} | Played Events: {playedEvents} / {MIDILoader.eventCount} ({eventspersec}/s) | MIDI Thread: @{MIDIFps} fps | Skip events?: {MIDIClock.skipevents}");
+                if (stalled) Console.Write($"\rTick: {(int)MIDIClock.tick} / {MIDILoader.maxTick} | Played Events: {playedEvents} / {MIDILoader.eventCount} ({eventspersec}/s) | MIDI Thread: STALLED | Skip events?: {MIDIClock.skipevents}          ");
+                else Console.Write($"\rTick: {(int)MIDIClock.tick} / {MIDILoader.maxTick} | Played Events: {playedEvents} / {MIDILoader.eventCount} ({eventspersec}/s) | MIDI Thread: @{MIDIFps} fps | Skip events?: {MIDIClock.skipevents}          ");
                 playedevents2 = playedEvents;
                 totalFrames = 0;
                 Thread.Sleep(1000/30);

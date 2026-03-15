@@ -71,53 +71,41 @@ namespace SharpMIDI
             double ASIOInputLatency;
             double ASIOOutputLatency;
         }
-
-        [DllImport("OmniMIDI.dll")]
-        public static extern bool ReturnKDMAPIVer(out Int32 Major, out Int32 Minor, out Int32 Build, out Int32 Revision);
-
-        [DllImport("OmniMIDI.dll")]
-        public static extern bool IsKDMAPIAvailable();
-
-        [DllImport("OmniMIDI.dll")]
-        public static extern int InitializeKDMAPIStream();
-
-        [DllImport("OmniMIDI.dll")]
-        public static extern int TerminateKDMAPIStream();
-
-        [DllImport("OmniMIDI.dll")]
-        public static extern void ResetKDMAPIStream();
-
-        [DllImport("OmniMIDI.dll")]
-        public static extern uint SendCustomEvent(uint eventtype, uint chan, uint param);
-        
+        static IntPtr lib;
         public static delegate* unmanaged[SuppressGCTransition]<uint, void> _sendDirectData;
+        public static delegate* unmanaged<out int, out int, out int, out int, bool> _returnKDMAPIVer;
+        public static delegate* unmanaged<bool> _isKDMAPIAvailable;
+        public static delegate* unmanaged<int> _initializeKDMAPIStream;
+        public static delegate* unmanaged<int> _terminateKDMAPIStream;
+        public static delegate* unmanaged<void> _resetKDMAPIStream;
+        public static delegate* unmanaged<uint, uint, uint, uint> _sendCustomEvent;
+        public static delegate* unmanaged<MIDIHDR*, uint, uint> _winSendDirectLongData;
+        public static delegate* unmanaged<MIDIHDR*, uint, uint> _sendDirectLongData;
+        public static delegate* unmanaged<byte*, uint, uint> _sendDirectLongDataLinux;
+        public static delegate* unmanaged<MIDIHDR*, uint, uint> _prepareLongData;
+        public static delegate* unmanaged<MIDIHDR*, uint, uint> _unprepareLongData;
 
-        public static void InitializeFunctionPointer()
+        public static void Load()
         {
-            IntPtr module = NativeLibrary.Load("OmniMIDI.dll");
-            IntPtr funcPtr = NativeLibrary.GetExport(module, "SendDirectData");
-            _sendDirectData = (delegate* unmanaged[SuppressGCTransition]<uint, void>)funcPtr;
+        #if WINDOWS
+            lib = NativeLibrary.Load("OmniMIDI.dll");
+            Console.WriteLine("loading from OmniMIDI.dll");
+            // these dont exist in the linux version apparently.
+            _returnKDMAPIVer = (delegate* unmanaged<out int, out int, out int, out int, bool>) NativeLibrary.GetExport(lib, "ReturnKDMAPIVer");
+            _prepareLongData = (delegate* unmanaged<MIDIHDR*, uint, uint>) NativeLibrary.GetExport(lib, "PrepareLongData");
+            _unprepareLongData = (delegate* unmanaged<MIDIHDR*, uint, uint>) NativeLibrary.GetExport(lib, "UnprepareLongData");
+            _sendDirectLongData = (delegate* unmanaged<MIDIHDR*, uint, uint>) NativeLibrary.GetExport(lib, "SendDirectLongData");
+        #elif LINUX
+            lib = NativeLibrary.Load("libOmniMIDI.so");
+            Console.WriteLine("loading from libOmniMIDI.so");
+            _sendDirectLongDataLinux = (delegate* unmanaged<byte*, uint, uint>) NativeLibrary.GetExport(lib, "SendDirectLongData");
+        #endif
+            _sendDirectData = (delegate* unmanaged[SuppressGCTransition]<uint, void>) NativeLibrary.GetExport(lib, "SendDirectData");
+            _isKDMAPIAvailable = (delegate* unmanaged<bool>) NativeLibrary.GetExport(lib, "IsKDMAPIAvailable");
+            _initializeKDMAPIStream = (delegate* unmanaged<int>) NativeLibrary.GetExport(lib, "InitializeKDMAPIStream");
+            _terminateKDMAPIStream  = (delegate* unmanaged<int>) NativeLibrary.GetExport(lib, "TerminateKDMAPIStream");
+            _resetKDMAPIStream = (delegate* unmanaged<void>) NativeLibrary.GetExport(lib, "ResetKDMAPIStream");
+            _sendCustomEvent = (delegate* unmanaged<uint, uint, uint, uint>) NativeLibrary.GetExport(lib, "SendCustomEvent");
         }
-
-        [DllImport("OmniMIDI.dll")]
-        public static extern uint SendDirectLongData(MIDIHDR* IIMidiHdr, uint IIMidiHdrSize);
-
-        [DllImport("OmniMIDI.dll")]
-        public static extern uint SendDirectLongDataNoBuf(ref MIDIHDR IIMidiHdr);
-
-        [DllImport("OmniMIDI.dll")]
-        public static extern uint PrepareLongData(MIDIHDR* IIMidiHdr, uint MidiHdrSize);
-
-        [DllImport("OmniMIDI.dll")]
-        public static extern uint UnprepareLongData(MIDIHDR* IIMidiHdr, uint MidiHdrSize);
-
-        [DllImport("OmniMIDI.dll")]
-        public static extern bool DriverSettings(OMSetting Setting, OMSettingMode Mode, IntPtr Value, Int32 cbValue);
-
-        [DllImport("OmniMIDI.dll")]
-        public static extern void LoadCustomSoundFontsList(ref String Directory);
-
-        [DllImport("OmniMIDI.dll")]
-        public static extern DebugInfo GetDriverDebugInfo();
     }
 }

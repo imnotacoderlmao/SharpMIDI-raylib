@@ -50,40 +50,37 @@ namespace SharpMIDI
             OM_DELAYNOTEOFFVAL = 0x10031
         }
 
-        [DllImport("XSynth.dll")]
-        public static extern bool ReturnKDMAPIVer(out Int32 Major, out Int32 Minor, out Int32 Build, out Int32 Revision);
-
-        [DllImport("XSynth.dll")]
-        public static extern bool IsKDMAPIAvailable();
-
-        [DllImport("XSynth.dll")]
-        public static extern int InitializeKDMAPIStream();
-
-        [DllImport("XSynth.dll")]
-        public static extern int TerminateKDMAPIStream();
-
-        [DllImport("XSynth.dll")]
-        public static extern void ResetKDMAPIStream();
-
-        [DllImport("XSynth.dll")]
-        public static extern uint SendCustomEvent(uint eventtype, uint chan, uint param);
-
+        static IntPtr lib;
         public static delegate* unmanaged[SuppressGCTransition]<uint, void> _sendDirectData;
-        
-        public static void InitializeFunctionPointer()
+        public static delegate* unmanaged<out int, out int, out int, out int, bool> _returnKDMAPIVer;
+        public static delegate* unmanaged<bool> _isKDMAPIAvailable;
+        public static delegate* unmanaged<int> _initializeKDMAPIStream;
+        public static delegate* unmanaged<int> _terminateKDMAPIStream;
+        public static delegate* unmanaged<void> _resetKDMAPIStream;
+        public static delegate* unmanaged<uint, uint, uint, uint> _sendCustomEvent;
+        public static delegate* unmanaged<MIDIHDR*, uint, uint> _sendDirectLongData;
+        public static delegate* unmanaged<MIDIHDR*, uint, uint> _prepareLongData;
+        public static delegate* unmanaged<MIDIHDR*, uint, uint> _unprepareLongData;
+
+        public static void Load()
         {
-            IntPtr module = NativeLibrary.Load("XSynth.dll");
-            IntPtr funcPtr = NativeLibrary.GetExport(module, "SendDirectData");
-            _sendDirectData = (delegate* unmanaged[SuppressGCTransition]<uint, void>)funcPtr;
+        #if WINDOWS
+            lib = NativeLibrary.Load("XSynth.dll");
+            Console.WriteLine("loading from XSynth.dll");
+            _returnKDMAPIVer = (delegate* unmanaged<out int, out int, out int, out int, bool>) NativeLibrary.GetExport(lib, "ReturnKDMAPIVer");
+            _prepareLongData = (delegate* unmanaged<MIDIHDR*, uint, uint>) NativeLibrary.GetExport(lib, "PrepareLongData");
+            _unprepareLongData = (delegate* unmanaged<MIDIHDR*, uint, uint>) NativeLibrary.GetExport(lib, "UnprepareLongData");
+            _sendDirectLongData = (delegate* unmanaged<MIDIHDR*, uint, uint>) NativeLibrary.GetExport(lib, "SendDirectLongData");
+        #elif LINUX
+            lib = NativeLibrary.Load("libXSynth.so"); // if my brain is smart then it should be that if its compiled on linux
+            Console.WriteLine("loading from libXSynth.so");
+        #endif
+            _sendDirectData = (delegate* unmanaged[SuppressGCTransition]<uint, void>)  NativeLibrary.GetExport(lib, "SendDirectData");
+            _isKDMAPIAvailable = (delegate* unmanaged<bool>) NativeLibrary.GetExport(lib, "IsKDMAPIAvailable");
+            _initializeKDMAPIStream = (delegate* unmanaged<int>) NativeLibrary.GetExport(lib, "InitializeKDMAPIStream");
+            _terminateKDMAPIStream  = (delegate* unmanaged<int>) NativeLibrary.GetExport(lib, "TerminateKDMAPIStream");
+            _resetKDMAPIStream = (delegate* unmanaged<void>) NativeLibrary.GetExport(lib, "ResetKDMAPIStream");
+            _sendCustomEvent = (delegate* unmanaged<uint, uint, uint, uint>) NativeLibrary.GetExport(lib, "SendCustomEvent");
         }
-        
-        [DllImport("XSynth.dll")]
-        public static extern uint SendDirectDataNoBuf(uint dwMsg);
-
-        [DllImport("XSynth.dll")]
-        public static extern bool DriverSettings(OMSetting Setting, OMSettingMode Mode, IntPtr Value, Int32 cbValue);
-
-        [DllImport("XSynth.dll")]
-        public static extern void LoadCustomSoundFontsList(ref String Directory);
     }
 }

@@ -11,6 +11,12 @@
         <DebugType>none</DebugType>
         <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     </PropertyGroup>
+    <PropertyGroup Condition="$([MSBuild]::IsOSPlatform('Windows'))">
+        <DefineConstants>WINDOWS</DefineConstants>
+    </PropertyGroup>
+    <PropertyGroup Condition="$([MSBuild]::IsOSPlatform('Linux'))">
+        <DefineConstants>LINUX</DefineConstants>
+    </PropertyGroup>
     <ItemGroup>
         <PackageReference Include="raylib" Version="5.5.0" />
         <PackageReference Include="raylib-cs" Version="7.0.1" />
