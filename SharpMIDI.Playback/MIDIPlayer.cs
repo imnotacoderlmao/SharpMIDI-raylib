@@ -1,11 +1,8 @@
-﻿using System.ComponentModel;
-using System.Text;
-using SharpMIDI.Renderer;
-
-namespace SharpMIDI
+﻿namespace SharpMIDI
 {
     static unsafe class MIDIPlayer
     {
+        public static byte[] gmreset = {0xF0, 0x7E, 0x7F, 0x09, 0x01, 0xF7};
         public static long totalFrames = 0;
         public static long playedEvents, playedevents2, eventspersec = 0;
         public static float MIDIFps = 0f;
@@ -32,12 +29,12 @@ namespace SharpMIDI
             uint24* msgcur = msgptr;
             TickGroup[] tickGroupArr = MIDI.tickGroupArr;
             Tempo[] tevs = MIDI.tempoEvents;
-            //SysEx[] sysExes = MIDI.SysExarr;
+            SysEx[] sysExes = MIDI.SysExarr;
             uint maxTick = (uint)MIDILoader.maxTick;
             uint clock = 0;
             uint24* buffer = Sound.ringbuffer;
             ushort writeptr = 0;
-            //uint sysexidx = 0;
+            uint sysexidx = 0;
             fixed(TickGroup* tg0 = tickGroupArr)
             {
                 fixed (Tempo* t0 = tevs)
@@ -75,12 +72,12 @@ namespace SharpMIDI
                             MIDIClock.SubmitBPM(currtev->tick, currtev->tempo);
                             currtev++;
                         }
-                        /*while (sysExes[sysexidx].tick <= clock)
+                        while (sysExes[sysexidx].tick <= clock)
                         {
                             SubmitSysEx(sysExes[sysexidx].message);
                             sysexidx++;
-                            Console.WriteLine($"found sysex event at tick {clock}, sysex idx now at {sysexidx}");
-                        }*/
+                            Console.WriteLine($"found system exclusive message at tick {clock}, sysex idx now at {sysexidx}");
+                        }
                         totalFrames++;
                         if (clock > maxTick) stopping = true;
                     }
@@ -88,25 +85,26 @@ namespace SharpMIDI
             }
             MIDIClock.Reset();
             Sound.KillAudioThread();
+            SubmitSysEx(gmreset);
             Console.WriteLine("Playback finished...");
         }
 
-        /*public static void SubmitSysEx(byte[] message)
+        public static void SubmitSysEx(byte[] message)
         {
-            MIDIHDR data = new MIDIHDR
+            fixed (byte* messageptr = message)
             {
-                lpdata = message[0].ToString(),
-                dwBufferLength = (uint)message.Length,
-                dwBytesRecorded = (uint)message.Length
-            };
-            uint success = KDMAPI.PrepareLongData(&data, (uint)sizeof(MIDIHDR));
-            if (success == 0) 
-            {
-                uint sendsuccess = KDMAPI.SendDirectLongData(&data, (uint)sizeof(MIDIHDR));
-                if (sendsuccess == 0)
-                    KDMAPI.UnprepareLongData(&data, (uint)sizeof(MIDIHDR));
+                MIDIHDR header = new MIDIHDR {
+                    lpData = messageptr,
+                    dwBufferLength = (uint)message.Length,
+                    dwBytesRecorded = (uint)message.Length,
+                    dwFlags = 0
+                };
+                uint size = (uint)sizeof(MIDIHDR);
+                KDMAPI.PrepareLongData(&header, size);
+                KDMAPI.SendDirectLongData(&header, size);
+                KDMAPI.UnprepareLongData(&header, size);
             }
-        }*/
+        }
 
         public static void PlaybackStats()
         {

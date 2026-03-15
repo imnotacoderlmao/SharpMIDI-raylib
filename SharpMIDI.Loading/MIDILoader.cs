@@ -110,37 +110,28 @@ namespace SharpMIDI
                 // dummy events for no bounds checking
                 MIDI.temppos.Add(new Tempo { tick = uint.MaxValue });
                 MIDI.tickGroups.Add(new TickGroup { tick = uint.MaxValue, count = 0 });
-                //MIDI.SysEx.Add(new SysEx { tick = uint.MaxValue, message = [] });
+                MIDI.SysEx.Add(new SysEx { tick = uint.MaxValue, message = [] });
             }
 
             MIDI.tempoEvents = [.. MIDI.temppos];
             MIDI.tickGroupArr = [.. MIDI.tickGroups];
-            //MIDI.SysExarr = [.. MIDI.SysEx];
+            MIDI.SysExarr = [.. MIDI.SysEx];
             Array.Sort(MIDI.tempoEvents, (a,b) => a.tick.CompareTo(b.tick)); // it was this that fixed the issue. a literal one liner :sob:
-            //Array.Sort(MIDI.SysExarr, (a,b) => a.tick.CompareTo(b.tick)); 
+            Array.Sort(MIDI.SysExarr, (a,b) => a.tick.CompareTo(b.tick)); 
             MIDI.temppos = null;
-            //MIDI.SysEx = null; 
+            MIDI.SysEx = null; 
             midiLoaded = true;
             loadstatus = filename;
             Console.WriteLine($"Loaded {filename} with {totalNotes} notes loaded from {actualTrackCount} tracks");
         }
 
         static unsafe BigArray<uint24> MergeAndSort(TrackHeapData[] tracks, int trackCount)
-        {
-            long totalEvents = 0;
-            for (int i = 0; i < trackCount; i++)
-            {
-                if (tracks[i].eventCount > 0)
-                    totalEvents += tracks[i].eventCount;
-            }
-            
-            BigArray<uint24> messages = new((ulong)totalEvents + 1);
+        {   
+            BigArray<uint24> messages = new((ulong)eventCount);
             HeapMerge(tracks, trackCount, out MIDI.tickGroups, messages);
-            eventCount = totalEvents;
             return messages;
         }
          
-
         static unsafe void HeapMerge(TrackHeapData[] tracks, int trackCount, out List<TickGroup> tickGroups, BigArray<uint24> messages)
         {
             tickGroups = new List<TickGroup>(1024);
@@ -192,6 +183,7 @@ namespace SharpMIDI
 
         public static void UnloadMIDI()
         {
+            if (!midiLoaded) return;
             loadstatus = $"unloading {filename}";
             Console.WriteLine(loadstatus);
             MIDIPlayer.stopping = true;
@@ -206,10 +198,10 @@ namespace SharpMIDI
             MIDI.synthEvents.Dispose();
             MIDI.tempoEvents = null;
             MIDI.tickGroups = null;
+            MIDI.SysEx = [];
+            MIDI.SysExarr = null;
             MIDI.temppos = [];
-            MIDI.tickGroupArr = [];
-            //MIDI.SysEx = [];
-            //MIDI.SysExarr = [];
+            MIDI.tickGroupArr = null;
             loadstatus = $"No MIDI Loaded";
             GC.Collect();
         }
@@ -220,9 +212,9 @@ namespace SharpMIDI
             if (success)
             {
                 headersize = ReadUInt32();
-                fmt = ReadInt16();
+                fmt = ReadUInt16();
                 midistream.Seek(midistream.Position + 2, SeekOrigin.Begin);
-                ppq = ReadInt16();
+                ppq = ReadUInt16();
                 if (fmt == 2)
                     Crash("MIDI format 2 unsupported");
                 if (ppq < 0)
@@ -264,7 +256,7 @@ namespace SharpMIDI
             return length;
         }
 
-        static ushort ReadInt16()
+        static ushort ReadUInt16()
         {
             ushort length = 0;
             for (int i = 0; i != 2; i++)

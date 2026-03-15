@@ -33,17 +33,20 @@ namespace SharpMIDI
                 switch (readEvent)
                 {
                     case 0xF0:
-                        // will not add this for now, i dont know how to prepare and send these properly.
-                        /*uint len = ReadVariableLen();
+                        // thank you mmf agani
+                        //uint len = ReadVariableLen();
                         List<byte> data = new List<byte>() { readEvent };
-                        for (uint i = 0; i < len; i++)
-                            data.Add(stupid.Read());
+                        byte b = 0;
+                        while (b != 0xF7)
+                        {
+                            b = stupid.Read();
+                            data.Add(b);
+                        }
                         MIDI.SysEx.Add(new SysEx
                         {
                             tick = absolutetime, 
                             message = [.. data]
-                        });*/
-                        stupid.Skip((int)ReadVariableLen());
+                        });
                         break;
                     case 0xF1:
                         stupid.Skip(1);

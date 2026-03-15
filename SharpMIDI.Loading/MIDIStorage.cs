@@ -14,11 +14,11 @@ namespace SharpMIDI
         public uint tempo;
     }
     
-    /*public struct SysEx
+    public struct SysEx
     {
         public uint tick;
         public byte[] message;
-    }*/
+    }
 
     public struct TickGroup
     {
@@ -34,8 +34,8 @@ namespace SharpMIDI
         public static TickGroup[] tickGroupArr = Array.Empty<TickGroup>();
         public static List<Tempo> temppos = new List<Tempo>();
         public static Tempo[] tempoEvents = Array.Empty<Tempo>();
-        //public static List<SysEx> SysEx = new List<SysEx>();
-        //public static SysEx[] SysExarr = Array.Empty<SysEx>();
+        public static List<SysEx> SysEx = new List<SysEx>();
+        public static SysEx[] SysExarr = Array.Empty<SysEx>();
     }
     
     public unsafe class BigArray<T> : IDisposable
