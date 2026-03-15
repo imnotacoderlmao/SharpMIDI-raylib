@@ -1,5 +1,5 @@
 #pragma warning disable 8602
-
+using MIDIModificationFramework;
 namespace SharpMIDI
 {
     static class MIDILoader
@@ -17,11 +17,10 @@ namespace SharpMIDI
             public SynthEvent* end;      // pointer to one past last event
         }
         
-        private static List<long> trackLocations = new List<long>();
-        private static List<uint> trackSizes = new List<uint>();
-        static Stream? midistream;
+        private static readonly List<long> trackLocations = new List<long>();
+        private static readonly List<uint> trackSizes = new List<uint>();
+        static Stream midistream;
         public static long totalNotes = 0;
-        public static long loadedNotes = 0;
         public static long eventCount = 0;
         public static int maxTick = 0;
         public static int trackAmount = 0;
@@ -40,7 +39,7 @@ namespace SharpMIDI
             throw new Exception();
         }
 
-        public static void LoadMIDI(string path, byte thres, int tracklimit)
+        public static void LoadMIDI(string path, int tracklimit)
         {   
             if (midiLoaded) UnloadMIDI();
             loadstatus = $"Loading MIDI file: {path}";
@@ -60,55 +59,44 @@ namespace SharpMIDI
                 if (!IndexTrack()) break;
                 loadstatus = $"Indexing MIDI tracks... {trackAmount} found..";
             }
-
+            int actualTrackCount = Math.Min(trackAmount, tracklimit + 1);
+            DiskReadProvider threadStream = new DiskReadProvider(midistream);
             unsafe
-            {
-                int actualTrackCount = Math.Min(trackAmount, tracklimit + 1);
-                
+            {                
                 // track properties for merging
                 TrackHeapData[] trackDataArray = new TrackHeapData[actualTrackCount];
-                
-                midistream.Position++;
                 if (tracklimit < ushort.MaxValue) 
                     Console.WriteLine($"track limit set to {tracklimit}. will exit early if reached.");
                 Parallel.For(0, actualTrackCount, (i) =>
                 {
-                    loadstatus = $"Loading {filename} ({loadedtracks + 1} / {actualTrackCount} tracks, {eventCount} events loaded)";
                     Console.Write($"\r{loadstatus}");
-
-                    FastTrack temp = new FastTrack(
-                        new BufferByteReader(midistream, 256 * 1024, trackLocations[i], trackSizes[i]) 
-                    );
-
-                    long estimate = Math.Max(trackSizes[i] / 4, 64);
+                    long estimate = trackSizes[i] / 3;
                     BigArray<SynthEvent> trackEvents = new BigArray<SynthEvent>((ulong)estimate);
-                    temp.ParseTrackEvents(thres, trackEvents.Pointer);
-                    if ((ulong)temp.eventAmount < trackEvents.Length)
-                    {
-                        trackEvents.Resize((ulong)temp.eventAmount);
-                    }
-                    
+                    FastTrack temp = new FastTrack(
+                        new BufferByteReader(threadStream, 256*1024, trackLocations[i], trackSizes[i]) 
+                    );
+                    temp.ParseTrackEvents(trackEvents.Pointer);
                     trackDataArray[i] = new TrackHeapData
                     {
                         events = trackEvents,
-                        eventCount = temp.eventAmount,
+                        eventCount = temp.eventCount,
                         trackIndex = i
                     };
                     
                     Renderer.NoteProcessor.ProcessTrackForRendering(
                         trackEvents.Pointer,
-                        temp.eventAmount,
+                        temp.eventCount,
                         i,
                         temp.trackMaxTick
                     );
                     
-                    loadedNotes += temp.loadedNotes;
                     totalNotes += temp.totalNotes;
-                    eventCount += temp.eventAmount;
+                    eventCount += temp.eventCount;
                     loadedtracks++;
+                    loadstatus = $"Loading {filename} ({loadedtracks} / {actualTrackCount} tracks, {eventCount} events loaded)";
                     temp.Dispose();
                 });
-                
+                threadStream.Dispose();
                 midistream.Close();
                 loadstatus = $"flattening event array";
                 Console.WriteLine($"\n{loadstatus}");
@@ -122,15 +110,19 @@ namespace SharpMIDI
                 // dummy events for no bounds checking
                 MIDI.temppos.Add(new Tempo { tick = uint.MaxValue });
                 MIDI.tickGroups.Add(new TickGroup { tick = uint.MaxValue, count = 0 });
+                //MIDI.SysEx.Add(new SysEx { tick = uint.MaxValue, message = [] });
             }
 
             MIDI.tempoEvents = [.. MIDI.temppos];
             MIDI.tickGroupArr = [.. MIDI.tickGroups];
+            //MIDI.SysExarr = [.. MIDI.SysEx];
             Array.Sort(MIDI.tempoEvents, (a,b) => a.tick.CompareTo(b.tick)); // it was this that fixed the issue. a literal one liner :sob:
+            //Array.Sort(MIDI.SysExarr, (a,b) => a.tick.CompareTo(b.tick)); 
             MIDI.temppos = null;
+            //MIDI.SysEx = null; 
             midiLoaded = true;
             loadstatus = filename;
-            Console.WriteLine("MIDI Loaded");
+            Console.WriteLine($"Loaded {filename} with {totalNotes} notes loaded from {actualTrackCount} tracks");
         }
 
         static unsafe BigArray<uint24> MergeAndSort(TrackHeapData[] tracks, int trackCount)
@@ -205,7 +197,6 @@ namespace SharpMIDI
             MIDIPlayer.stopping = true;
             midiLoaded = false;
             totalNotes = 0;
-            loadedNotes = 0;
             eventCount = 0;
             maxTick = 0;
             trackAmount = 0;
@@ -217,6 +208,8 @@ namespace SharpMIDI
             MIDI.tickGroups = null;
             MIDI.temppos = [];
             MIDI.tickGroupArr = [];
+            //MIDI.SysEx = [];
+            //MIDI.SysExarr = [];
             loadstatus = $"No MIDI Loaded";
             GC.Collect();
         }

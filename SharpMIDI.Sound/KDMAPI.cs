@@ -72,52 +72,52 @@ namespace SharpMIDI
             double ASIOOutputLatency;
         }
 
-        [DllImport("OmniMIDI.dll")]
+        [DllImport("libOmniMIDI.so")]
         public static extern bool ReturnKDMAPIVer(out Int32 Major, out Int32 Minor, out Int32 Build, out Int32 Revision);
 
-        [DllImport("OmniMIDI.dll")]
+        [DllImport("libOmniMIDI.so")]
         public static extern bool IsKDMAPIAvailable();
 
-        [DllImport("OmniMIDI.dll")]
+        [DllImport("libOmniMIDI.so")]
         public static extern int InitializeKDMAPIStream();
 
-        [DllImport("OmniMIDI.dll")]
+        [DllImport("libOmniMIDI.so")]
         public static extern int TerminateKDMAPIStream();
 
-        [DllImport("OmniMIDI.dll")]
+        [DllImport("libOmniMIDI.so")]
         public static extern void ResetKDMAPIStream();
 
-        [DllImport("OmniMIDI.dll")]
+        [DllImport("libOmniMIDI.so")]
         public static extern uint SendCustomEvent(uint eventtype, uint chan, uint param);
         
         public static delegate* unmanaged[SuppressGCTransition]<uint, void> _sendDirectData;
 
         public static void InitializeFunctionPointer()
         {
-            IntPtr module = NativeLibrary.Load("OmniMIDI.dll");
+            IntPtr module = NativeLibrary.Load("libOmniMIDI.so");
             IntPtr funcPtr = NativeLibrary.GetExport(module, "SendDirectData");
             _sendDirectData = (delegate* unmanaged[SuppressGCTransition]<uint, void>)funcPtr;
         }
 
-        [DllImport("OmniMIDI.dll")]
+        [DllImport("libOmniMIDI.so")]
         public static extern uint SendDirectLongData(MIDIHDR* IIMidiHdr, uint IIMidiHdrSize);
 
-        [DllImport("OmniMIDI.dll")]
+        [DllImport("libOmniMIDI.so")]
         public static extern uint SendDirectLongDataNoBuf(ref MIDIHDR IIMidiHdr);
 
-        [DllImport("OmniMIDI.dll")]
-        public static extern uint PrepareLongData(ref MIDIHDR IIMidiHdr);
+        [DllImport("libOmniMIDI.so")]
+        public static extern uint PrepareLongData(MIDIHDR* IIMidiHdr, uint MidiHdrSize);
 
-        [DllImport("OmniMIDI.dll")]
-        public static extern uint UnprepareLongData(ref MIDIHDR IIMidiHdr);
+        [DllImport("libOmniMIDI.so")]
+        public static extern uint UnprepareLongData(MIDIHDR* IIMidiHdr, uint MidiHdrSize);
 
-        [DllImport("OmniMIDI.dll")]
+        [DllImport("libOmniMIDI.so")]
         public static extern bool DriverSettings(OMSetting Setting, OMSettingMode Mode, IntPtr Value, Int32 cbValue);
 
-        [DllImport("OmniMIDI.dll")]
+        [DllImport("libOmniMIDI.so")]
         public static extern void LoadCustomSoundFontsList(ref String Directory);
 
-        [DllImport("OmniMIDI.dll")]
+        [DllImport("libOmniMIDI.so")]
         public static extern DebugInfo GetDriverDebugInfo();
     }
 }

@@ -1,4 +1,6 @@
-﻿using SharpMIDI.Renderer;
+﻿using System.ComponentModel;
+using System.Text;
+using SharpMIDI.Renderer;
 
 namespace SharpMIDI
 {
@@ -9,6 +11,7 @@ namespace SharpMIDI
         public static float MIDIFps = 0f;
         public static bool stopping = true;
         public static bool stalled = false;
+        public static bool skipping = false;
         public static void StartPlayback()
         {
             if (!Sound.issynthinitiated)
@@ -29,10 +32,12 @@ namespace SharpMIDI
             uint24* msgcur = msgptr;
             TickGroup[] tickGroupArr = MIDI.tickGroupArr;
             Tempo[] tevs = MIDI.tempoEvents;
+            //SysEx[] sysExes = MIDI.SysExarr;
             uint maxTick = (uint)MIDILoader.maxTick;
             uint clock = 0;
             uint24* buffer = Sound.ringbuffer;
             ushort writeptr = 0;
+            //uint sysexidx = 0;
             fixed(TickGroup* tg0 = tickGroupArr)
             {
                 fixed (Tempo* t0 = tevs)
@@ -45,7 +50,7 @@ namespace SharpMIDI
                     while (!stopping)
                     {
                         clock = (uint)MIDIClock.Update();
-                        if (!MIDIClock.skipping)
+                        if (!skipping)
                         {
                             while (currtg->tick <= clock)
                             {
@@ -70,6 +75,12 @@ namespace SharpMIDI
                             MIDIClock.SubmitBPM(currtev->tick, currtev->tempo);
                             currtev++;
                         }
+                        /*while (sysExes[sysexidx].tick <= clock)
+                        {
+                            SubmitSysEx(sysExes[sysexidx].message);
+                            sysexidx++;
+                            Console.WriteLine($"found sysex event at tick {clock}, sysex idx now at {sysexidx}");
+                        }*/
                         totalFrames++;
                         if (clock > maxTick) stopping = true;
                     }
@@ -80,14 +91,31 @@ namespace SharpMIDI
             Console.WriteLine("Playback finished...");
         }
 
+        /*public static void SubmitSysEx(byte[] message)
+        {
+            MIDIHDR data = new MIDIHDR
+            {
+                lpdata = message[0].ToString(),
+                dwBufferLength = (uint)message.Length,
+                dwBytesRecorded = (uint)message.Length
+            };
+            uint success = KDMAPI.PrepareLongData(&data, (uint)sizeof(MIDIHDR));
+            if (success == 0) 
+            {
+                uint sendsuccess = KDMAPI.SendDirectLongData(&data, (uint)sizeof(MIDIHDR));
+                if (sendsuccess == 0)
+                    KDMAPI.UnprepareLongData(&data, (uint)sizeof(MIDIHDR));
+            }
+        }*/
+
         public static void PlaybackStats()
         {
             while (!stopping)
             {
                 MIDIFps = totalFrames * 30;
                 eventspersec = (playedEvents - playedevents2) * 30;
-                if (stalled) Console.Write($"\rTick: {(int)MIDIClock.tick} / {MIDILoader.maxTick} | Played Events: {playedEvents} / {MIDILoader.eventCount} ({eventspersec}/s) | MIDI Thread: STALLED");
-                else Console.Write($"\rTick: {(int)MIDIClock.tick} / {MIDILoader.maxTick} | Played Events: {playedEvents} / {MIDILoader.eventCount} ({eventspersec}/s) | MIDI Thread: @{MIDIFps} fps");
+                if (stalled) Console.Write($"\rTick: {(int)MIDIClock.tick} / {MIDILoader.maxTick} | Played Events: {playedEvents} / {MIDILoader.eventCount} ({eventspersec}/s) | MIDI Thread: STALLED | Skip events?: {MIDIClock.skipevents}");
+                else Console.Write($"\rTick: {(int)MIDIClock.tick} / {MIDILoader.maxTick} | Played Events: {playedEvents} / {MIDILoader.eventCount} ({eventspersec}/s) | MIDI Thread: @{MIDIFps} fps | Skip events?: {MIDIClock.skipevents}");
                 playedevents2 = playedEvents;
                 totalFrames = 0;
                 Thread.Sleep(1000/30);

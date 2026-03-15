@@ -14,6 +14,12 @@ namespace SharpMIDI
         public uint tempo;
     }
     
+    /*public struct SysEx
+    {
+        public uint tick;
+        public byte[] message;
+    }*/
+
     public struct TickGroup
     {
         public uint tick;
@@ -22,11 +28,14 @@ namespace SharpMIDI
     
     static class MIDI
     {
+        // is there a better way to do this without bloating the midi class too much
         public static BigArray<uint24> synthEvents;
         public static List<TickGroup> tickGroups;
         public static TickGroup[] tickGroupArr = Array.Empty<TickGroup>();
         public static List<Tempo> temppos = new List<Tempo>();
         public static Tempo[] tempoEvents = Array.Empty<Tempo>();
+        //public static List<SysEx> SysEx = new List<SysEx>();
+        //public static SysEx[] SysExarr = Array.Empty<SysEx>();
     }
     
     public unsafe class BigArray<T> : IDisposable
@@ -38,14 +47,14 @@ namespace SharpMIDI
         public BigArray(ulong length)
         {
             Length = length;
-            ulong bytes = Length * (uint)sizeof(T);
+            ulong bytes = Length * (ulong)sizeof(T);
             ptr = (T*)NativeMemory.Alloc((nuint)bytes);
         }
 
         public void Resize(ulong newLength)
         {
             Length = newLength;
-            ulong bytes = Length * (uint)sizeof(T);
+            ulong bytes = Length * (ulong)sizeof(T);
             ptr = (T*)NativeMemory.Realloc(ptr, (nuint)bytes);
         }
 
@@ -75,7 +84,7 @@ namespace SharpMIDI
 
         public int Value
         {
-            get => b0 | (b1 << 8) | (b2 << 16);
+            readonly get => b0 | (b1 << 8) | (b2 << 16);
             set
             {
                 b0 = (byte)(value & 0xFF);

@@ -42,15 +42,7 @@ namespace SharpMIDI.Renderer
             {
                 UpdateWindowDimensions();
                 HandleInput();
-
-                //tick = UpdateRenderTick();
                 tick = (float)MIDIClock.tick;
-                if (MIDIPlayer.stopping) 
-                {
-                    tick = 0;
-                    NoteRenderer.lastTick = 0;
-                    NoteRenderer.forceRedraw = true;
-                }
 
                 //performance intensive since this forces a full rebuild every bpm change so hmmmm
                 if (dynascroll && NoteRenderer.Window != MIDIClock.tickscale) 
@@ -112,7 +104,7 @@ namespace SharpMIDI.Renderer
                     filepath = Marshal.PtrToStringUTF8((nint)droppedFiles.Paths[0]);
                 }
                 Raylib.UnloadDroppedFiles(droppedFiles);
-                Task.Run(() => MIDILoader.LoadMIDI(filepath, 0, ushort.MaxValue));
+                Task.Run(() => MIDILoader.LoadMIDI(filepath, ushort.MaxValue));
             }
             
             if (Raylib.IsKeyPressed(KeyboardKey.One))
@@ -149,7 +141,7 @@ namespace SharpMIDI.Renderer
             if (Raylib.IsKeyPressed(KeyboardKey.Space))
             { 
                 if (MIDIPlayer.stopping) Task.Run(MIDIPlayer.StartPlayback);
-                if (!MIDIClock.paused)MIDIClock.Stop();
+                if (!MIDIClock.paused) MIDIClock.Stop();
                 else MIDIClock.Resume();
             }
             if (Raylib.IsKeyPressed(KeyboardKey.R))
