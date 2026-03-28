@@ -3,6 +3,7 @@ using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 namespace SharpMIDI
 {
+    [StructLayout(LayoutKind.Sequential)]
     public unsafe struct MIDIHDR
     {
         public byte* lpData;
@@ -10,10 +11,6 @@ namespace SharpMIDI
         public uint dwBytesRecorded;
         public IntPtr dwUser;
         public uint dwFlags;
-        public IntPtr lpNext;
-        public IntPtr reserved;
-        public uint dwOffset;
-        public IntPtr dwReserved;
     }
     static unsafe class KDMAPI
     {
@@ -73,13 +70,11 @@ namespace SharpMIDI
         }
         static IntPtr lib;
         public static delegate* unmanaged[SuppressGCTransition]<uint, void> _sendDirectData;
-        public static delegate* unmanaged<out int, out int, out int, out int, bool> _returnKDMAPIVer;
         public static delegate* unmanaged<bool> _isKDMAPIAvailable;
         public static delegate* unmanaged<int> _initializeKDMAPIStream;
         public static delegate* unmanaged<int> _terminateKDMAPIStream;
         public static delegate* unmanaged<void> _resetKDMAPIStream;
         public static delegate* unmanaged<uint, uint, uint, uint> _sendCustomEvent;
-        public static delegate* unmanaged<MIDIHDR*, uint, uint> _winSendDirectLongData;
         public static delegate* unmanaged<MIDIHDR*, uint, uint> _sendDirectLongData;
         public static delegate* unmanaged<byte*, uint, uint> _sendDirectLongDataLinux;
         public static delegate* unmanaged<MIDIHDR*, uint, uint> _prepareLongData;
@@ -91,7 +86,6 @@ namespace SharpMIDI
             lib = NativeLibrary.Load("OmniMIDI.dll");
             Console.WriteLine("loading from OmniMIDI.dll");
             // these dont exist in the linux version apparently.
-            _returnKDMAPIVer = (delegate* unmanaged<out int, out int, out int, out int, bool>) NativeLibrary.GetExport(lib, "ReturnKDMAPIVer");
             _prepareLongData = (delegate* unmanaged<MIDIHDR*, uint, uint>) NativeLibrary.GetExport(lib, "PrepareLongData");
             _unprepareLongData = (delegate* unmanaged<MIDIHDR*, uint, uint>) NativeLibrary.GetExport(lib, "UnprepareLongData");
             _sendDirectLongData = (delegate* unmanaged<MIDIHDR*, uint, uint>) NativeLibrary.GetExport(lib, "SendDirectLongData");
@@ -105,7 +99,6 @@ namespace SharpMIDI
             _initializeKDMAPIStream = (delegate* unmanaged<int>) NativeLibrary.GetExport(lib, "InitializeKDMAPIStream");
             _terminateKDMAPIStream  = (delegate* unmanaged<int>) NativeLibrary.GetExport(lib, "TerminateKDMAPIStream");
             _resetKDMAPIStream = (delegate* unmanaged<void>) NativeLibrary.GetExport(lib, "ResetKDMAPIStream");
-            _sendCustomEvent = (delegate* unmanaged<uint, uint, uint, uint>) NativeLibrary.GetExport(lib, "SendCustomEvent");
         }
     }
 }

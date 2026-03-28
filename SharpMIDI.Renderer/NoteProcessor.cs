@@ -125,7 +125,7 @@ namespace SharpMIDI.Renderer
             }
         }
 
-        public static void ProcessTrackForRendering(SynthEvent* trackEvents, long trackEventCount, int trackIndex, int trackMaxTick)
+        public static void ProcessTrackForRendering(MIDIEvent* trackEvents, long trackEventCount, int trackIndex, int trackMaxTick)
         {
             if (trackEvents == null || trackEventCount == 0) return;
 
@@ -145,7 +145,7 @@ namespace SharpMIDI.Renderer
 
             for (long i = 0; i < trackEventCount; i++)
             {
-                SynthEvent evt = trackEvents[i];
+                MIDIEvent evt = trackEvents[i];
                 int tick = (int)evt.tick;
                 int val = (int)evt.message;
                 int status = val & 0xF0;
@@ -264,7 +264,6 @@ namespace SharpMIDI.Renderer
             }
 
             // Single native allocation via BigArray — no GC pressure, no per-bucket object headers.
-            FlatNotes?.Dispose();
             var flatArray = new BigArray<uint>((ulong)total);
             uint* flat = flatArray.Pointer;
 
@@ -290,7 +289,7 @@ namespace SharpMIDI.Renderer
         public static void Cleanup()
         {
             IsReady = false;
-            FlatNotes?.Dispose();
+            FlatNotes.Dispose();
             FlatNotes = null;
             BucketOffsets = Array.Empty<int>();
             BucketLengths = Array.Empty<int>();

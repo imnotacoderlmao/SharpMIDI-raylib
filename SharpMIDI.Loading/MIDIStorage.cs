@@ -2,7 +2,7 @@ using System.Runtime.InteropServices;
 namespace SharpMIDI
 {
     [StructLayout(LayoutKind.Sequential, Pack = 1)]
-    public struct SynthEvent
+    public struct MIDIEvent
     {
         public uint tick;
         public uint24 message;
@@ -29,7 +29,7 @@ namespace SharpMIDI
     static class MIDI
     {
         // is there a better way to do this without bloating the midi class too much
-        public static BigArray<uint24> synthEvents;
+        public static BigArray<uint24> MIDIEvents;
         public static List<TickGroup> tickGroups;
         public static TickGroup[] tickGroupArr = Array.Empty<TickGroup>();
         public static List<Tempo> temppos = new List<Tempo>();

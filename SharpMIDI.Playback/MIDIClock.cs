@@ -71,6 +71,7 @@ namespace SharpMIDI
             {
                 Update();
                 paused = true;
+                Sound.AllNotesOFF();
             }
         }
 

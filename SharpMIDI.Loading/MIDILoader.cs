@@ -4,21 +4,25 @@ namespace SharpMIDI
 {
     static class MIDILoader
     {
-        private struct TrackHeapData
+        private struct HeapMergeData
         {
-            public BigArray<SynthEvent> events;
+            public BigArray<MIDIEvent> events;
             public long eventCount;
             public int trackIndex;
         }
 
         private unsafe struct HeapNode
         {
-            public SynthEvent* current;  // direct pointer into track's event array
-            public SynthEvent* end;      // pointer to one past last event
+            public MIDIEvent* current;  // direct pointer into track's event array
+            public MIDIEvent* end;      // pointer to one past last event
         }
         
-        private static readonly List<long> trackLocations = new List<long>();
-        private static readonly List<uint> trackSizes = new List<uint>();
+        private struct TrackProperties
+        {
+            public long start;
+            public uint len;
+        }
+        private static readonly List<TrackProperties> trackProperties = new List<TrackProperties>();
         static Stream midistream;
         public static long totalNotes = 0;
         public static long eventCount = 0;
@@ -35,7 +39,7 @@ namespace SharpMIDI
 
         static void Crash(string test)
         {
-            Console.WriteLine(test);
+            loadstatus = test;
             throw new Exception();
         }
 
@@ -63,20 +67,18 @@ namespace SharpMIDI
             DiskReadProvider threadStream = new DiskReadProvider(midistream);
             unsafe
             {                
-                // track properties for merging
-                TrackHeapData[] trackDataArray = new TrackHeapData[actualTrackCount];
-                if (tracklimit < ushort.MaxValue) 
-                    Console.WriteLine($"track limit set to {tracklimit}. will exit early if reached.");
+                HeapMergeData[] trackDataArray = new HeapMergeData[actualTrackCount];
+                if (tracklimit < ushort.MaxValue) Console.WriteLine($"track limit set to {tracklimit}. will exit early if reached.");
                 Parallel.For(0, actualTrackCount, (i) =>
                 {
                     Console.Write($"\r{loadstatus}");
-                    long estimate = trackSizes[i] / 3;
-                    BigArray<SynthEvent> trackEvents = new BigArray<SynthEvent>((ulong)estimate);
+                    long estimate = trackProperties[i].len / 3;
+                    BigArray<MIDIEvent> trackEvents = new BigArray<MIDIEvent>((ulong)estimate);
                     FastTrack temp = new FastTrack(
-                        new BufferByteReader(threadStream, 256*1024, trackLocations[i], trackSizes[i]) 
+                        new BufferByteReader(threadStream, 256*1024, trackProperties[i].start, trackProperties[i].len) 
                     );
                     temp.ParseTrackEvents(trackEvents.Pointer);
-                    trackDataArray[i] = new TrackHeapData
+                    trackDataArray[i] = new HeapMergeData
                     {
                         events = trackEvents,
                         eventCount = temp.eventCount,
@@ -100,19 +102,18 @@ namespace SharpMIDI
                 midistream.Close();
                 loadstatus = $"flattening event array";
                 Console.WriteLine($"\n{loadstatus}");
-                MIDI.synthEvents = MergeAndSort(trackDataArray, actualTrackCount);
-                for (int i = 0; i < actualTrackCount; i++)
+                MIDI.MIDIEvents = MergeAndSort(trackDataArray, actualTrackCount);
+                for (int i = 0; i < loadedtracks; i++)
                 {
-                    trackDataArray[i].events?.Dispose();
+                    trackDataArray[i].events.Dispose();
                 }
+                trackDataArray = null;
                 Renderer.NoteProcessor.FinalizeBuckets();
-                
-                // dummy events for no bounds checking
-                MIDI.temppos.Add(new Tempo { tick = uint.MaxValue });
-                MIDI.tickGroups.Add(new TickGroup { tick = uint.MaxValue, count = 0 });
-                MIDI.SysEx.Add(new SysEx { tick = uint.MaxValue, message = [] });
             }
-
+            // dummy events for no bounds checking
+            MIDI.temppos.Add(new Tempo { tick = uint.MaxValue });
+            MIDI.tickGroups.Add(new TickGroup { tick = uint.MaxValue, count = 0 });
+            MIDI.SysEx.Add(new SysEx { tick = uint.MaxValue, message = [] });
             MIDI.tempoEvents = [.. MIDI.temppos];
             MIDI.tickGroupArr = [.. MIDI.tickGroups];
             MIDI.SysExarr = [.. MIDI.SysEx];
@@ -125,14 +126,14 @@ namespace SharpMIDI
             Console.WriteLine($"Loaded {filename} with {totalNotes} notes loaded from {actualTrackCount} tracks");
         }
 
-        static unsafe BigArray<uint24> MergeAndSort(TrackHeapData[] tracks, int trackCount)
+        static unsafe BigArray<uint24> MergeAndSort(HeapMergeData[] tracks, int trackCount)
         {   
             BigArray<uint24> messages = new((ulong)eventCount);
             HeapMerge(tracks, trackCount, out MIDI.tickGroups, messages);
             return messages;
         }
          
-        static unsafe void HeapMerge(TrackHeapData[] tracks, int trackCount, out List<TickGroup> tickGroups, BigArray<uint24> messages)
+        static unsafe void HeapMerge(HeapMergeData[] tracks, int trackCount, out List<TickGroup> tickGroups, BigArray<uint24> messages)
         {
             tickGroups = new List<TickGroup>(1024);
             uint24* msgPtr = messages.Pointer;
@@ -143,7 +144,7 @@ namespace SharpMIDI
             {
                 if (tracks[i].eventCount > 0)
                 {
-                    SynthEvent* ptr = tracks[i].events.Pointer;
+                    MIDIEvent* ptr = tracks[i].events.Pointer;
                     heap.Enqueue(new HeapNode { 
                         current = ptr, 
                         end = ptr + tracks[i].eventCount 
@@ -157,7 +158,7 @@ namespace SharpMIDI
             while (heap.Count > 0)
             {
                 var node = heap.Dequeue();
-                SynthEvent* ev = node.current;
+                MIDIEvent* ev = node.current;
 
                 if (ev->tick != currentTick)
                 {
@@ -192,10 +193,9 @@ namespace SharpMIDI
             eventCount = 0;
             maxTick = 0;
             trackAmount = 0;
-            trackLocations.Clear();
-            trackSizes.Clear();
+            trackProperties.Clear();
             Renderer.NoteProcessor.Cleanup();
-            MIDI.synthEvents.Dispose();
+            MIDI.MIDIEvents.Dispose();
             MIDI.tempoEvents = null;
             MIDI.tickGroups = null;
             MIDI.SysEx = [];
@@ -236,8 +236,11 @@ namespace SharpMIDI
             if (success)
             {
                 uint size = ReadUInt32();
-                trackLocations.Add(midistream.Position);
-                trackSizes.Add(size);
+                trackProperties.Add(new TrackProperties
+                {
+                    start = midistream.Position,
+                    len = size
+                });
                 midistream.Position += size;
                 trackAmount++;
                 return true;

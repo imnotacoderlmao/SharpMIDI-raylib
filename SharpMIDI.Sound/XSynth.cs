@@ -52,12 +52,12 @@ namespace SharpMIDI
 
         static IntPtr lib;
         public static delegate* unmanaged[SuppressGCTransition]<uint, void> _sendDirectData;
-        public static delegate* unmanaged<out int, out int, out int, out int, bool> _returnKDMAPIVer;
         public static delegate* unmanaged<bool> _isKDMAPIAvailable;
         public static delegate* unmanaged<int> _initializeKDMAPIStream;
         public static delegate* unmanaged<int> _terminateKDMAPIStream;
         public static delegate* unmanaged<void> _resetKDMAPIStream;
         public static delegate* unmanaged<uint, uint, uint, uint> _sendCustomEvent;
+        public static delegate* unmanaged<byte*, uint, uint> _sendDirectLongDataLinux;
         public static delegate* unmanaged<MIDIHDR*, uint, uint> _sendDirectLongData;
         public static delegate* unmanaged<MIDIHDR*, uint, uint> _prepareLongData;
         public static delegate* unmanaged<MIDIHDR*, uint, uint> _unprepareLongData;
@@ -67,20 +67,19 @@ namespace SharpMIDI
         #if WINDOWS
             lib = NativeLibrary.Load("XSynth.dll");
             Console.WriteLine("loading from XSynth.dll");
-            _returnKDMAPIVer = (delegate* unmanaged<out int, out int, out int, out int, bool>) NativeLibrary.GetExport(lib, "ReturnKDMAPIVer");
             _prepareLongData = (delegate* unmanaged<MIDIHDR*, uint, uint>) NativeLibrary.GetExport(lib, "PrepareLongData");
             _unprepareLongData = (delegate* unmanaged<MIDIHDR*, uint, uint>) NativeLibrary.GetExport(lib, "UnprepareLongData");
             _sendDirectLongData = (delegate* unmanaged<MIDIHDR*, uint, uint>) NativeLibrary.GetExport(lib, "SendDirectLongData");
         #elif LINUX
             lib = NativeLibrary.Load("libXSynth.so"); // if my brain is smart then it should be that if its compiled on linux
             Console.WriteLine("loading from libXSynth.so");
+            _sendDirectLongDataLinux = (delegate* unmanaged<byte*, uint, uint>) NativeLibrary.GetExport(lib, "SendDirectLongData");
         #endif
             _sendDirectData = (delegate* unmanaged[SuppressGCTransition]<uint, void>)  NativeLibrary.GetExport(lib, "SendDirectData");
             _isKDMAPIAvailable = (delegate* unmanaged<bool>) NativeLibrary.GetExport(lib, "IsKDMAPIAvailable");
             _initializeKDMAPIStream = (delegate* unmanaged<int>) NativeLibrary.GetExport(lib, "InitializeKDMAPIStream");
             _terminateKDMAPIStream  = (delegate* unmanaged<int>) NativeLibrary.GetExport(lib, "TerminateKDMAPIStream");
             _resetKDMAPIStream = (delegate* unmanaged<void>) NativeLibrary.GetExport(lib, "ResetKDMAPIStream");
-            _sendCustomEvent = (delegate* unmanaged<uint, uint, uint, uint>) NativeLibrary.GetExport(lib, "SendCustomEvent");
         }
     }
 }

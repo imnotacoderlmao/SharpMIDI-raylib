@@ -1,8 +1,10 @@
-﻿namespace SharpMIDI
+﻿using System.Runtime.InteropServices;
+
+namespace SharpMIDI
 {
     static unsafe class MIDIPlayer
     {
-        public static byte[] gmreset = {0xF0, 0x7E, 0x7F, 0x09, 0x01, 0xF7};
+        public static byte[] gmreset = [0xF0, 0x7E, 0x7F, 0x09, 0x01, 0xF7];
         public static long totalFrames = 0;
         public static long playedEvents, playedevents2, eventspersec = 0;
         public static float MIDIFps = 0f;
@@ -13,8 +15,8 @@
         {
             if (!Sound.issynthinitiated)
             { 
-                Console.WriteLine("NO synth initiated. trying OmniMIDI as a fallback");
-                Sound.InitSynth("KDMAPI"); // fallback since i kept forgetting to do both and it crashes the whole program lmao
+                Console.WriteLine("NO synth initiated. please load a synth first!!!");
+                return;
             }
             if (!MIDILoader.midiLoaded) 
             {
@@ -24,8 +26,8 @@
             playedEvents = 0;
             playedevents2 = 0;
             stopping = false;
-            var synthev = MIDI.synthEvents;
-            uint24* msgptr = MIDI.synthEvents.Pointer;
+            var midiev = MIDI.MIDIEvents;
+            uint24* msgptr = midiev.Pointer;
             uint24* msgcur = msgptr;
             TickGroup[] tickGroupArr = MIDI.tickGroupArr;
             Tempo[] tevs = MIDI.tempoEvents;
@@ -35,15 +37,15 @@
             uint24* buffer = Sound.ringbuffer;
             ushort writeptr = 0;
             uint sysexidx = 0;
+            Sound.StartAudioThread();
+            Task.Run(PlaybackStats);
+            MIDIClock.Start();
             fixed(TickGroup* tg0 = tickGroupArr)
             {
                 fixed (Tempo* t0 = tevs)
                 {
                     Tempo* currtev = t0;
                     TickGroup* currtg = tg0;
-                    Sound.StartAudioThread();
-                    Task.Run(PlaybackStats);
-                    MIDIClock.Start();
                     while (!stopping)
                     {
                         clock = (uint)MIDIClock.Update();
@@ -83,6 +85,7 @@
                 }
             }
             MIDIClock.Reset();
+            Sound.AllNotesOFF();
             Sound.KillAudioThread();
             SubmitSysEx(gmreset);
             Console.WriteLine("Playback finished...");
@@ -90,26 +93,37 @@
 
         public static void SubmitSysEx(byte[] message)
         {
-                fixed (byte* messageptr = message)
-                {
-                    MIDIHDR header = new MIDIHDR {
+            fixed (byte* messageptr = message)
+            {
+                #if WINDOWS 
+                    uint prepare = 255, send = 255, unprepare = 255; // fallback values
+                    MIDIHDR header = new MIDIHDR 
+                    {
                         lpData = messageptr,
                         dwBufferLength = (uint)message.Length,
                         dwBytesRecorded = (uint)message.Length,
                         dwFlags = 0
                     };
-                    #if WINDOWS 
-                        uint size = (uint)sizeof(MIDIHDR);
-                        uint prepare = KDMAPI._prepareLongData(&header, size); 
-                        uint send = KDMAPI._sendDirectLongData(&header, size);
-                        uint unprepare = KDMAPI._unprepareLongData(&header, size);
-                        Console.WriteLine($"sysex prepare,send,unprepare returned ({prepare},{send},{unprepare})");
-                    #elif LINUX
-                        uint size = (uint)(message.Length * sizeof(byte));
-                        uint send = KDMAPI._sendDirectLongDataLinux(messageptr, size);
-                        Console.WriteLine($"sysex send returned ({send})");
-                    #endif
-                }
+                    uint size = (uint)sizeof(MIDIHDR);
+                    Console.WriteLine($"\npreparing message {BitConverter.ToString(message)}\nwith length = {message.Length + 1}\nlpdata = {message[0]}\nsize = {size}");
+                    prepare = KDMAPI._prepareLongData(&header, size);
+                    if (prepare == 0)
+                    {
+                        send = KDMAPI._sendDirectLongData(&header, size);
+                        if (send == 0)
+                        {
+                            while (KDMAPI._unprepareLongData(&header, size) == 65) // MIDIERR_STILLPLAYING
+                                Thread.Sleep(1);
+                            unprepare = 0;
+                        }
+                    }
+                    Console.WriteLine($"sysex prepare,send,unprepare returned ({prepare},{send},{unprepare})");
+                #elif LINUX
+                    uint size = (uint)(message.Length * sizeof(byte));
+                    uint send = KDMAPI._sendDirectLongDataLinux(messageptr, size);
+                    Console.WriteLine($"sysex send returned ({send})");
+                #endif
+            }
         }
 
         public static void PlaybackStats()

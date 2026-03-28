@@ -90,9 +90,17 @@ namespace SharpMIDI
         {
             running = false;
             audthread?.Join(100);
-            for (int channel = 0; channel < 16; ++channel)
-                sendTo((uint)(0xB0 | channel) | (0x7B << 8)); 
         }
+
+        public static void AllNotesOFF()
+        {
+            if (issynthinitiated)
+            {
+                for (int channel = 0; channel < 16; ++channel)
+                    sendTo((uint)(0xB0 | channel) | (0x7B << 8));
+            } 
+        }
+
 
         static void Close()
         {

@@ -8,13 +8,13 @@ namespace SharpMIDI
         public long totalNotes = 0;
         public int trackMaxTick = 0;
         BufferByteReader stupid = reader;
-        byte prevEvent = 0;
-        public void ParseTrackEvents(SynthEvent* destination)
+        public void ParseTrackEvents(MIDIEvent* destination)
         {
-            SynthEvent* outputPtr = destination;
+            MIDIEvent* outputPtr = destination;
             uint absolutetime = 0;
             long eventAmount = 0;
             long notecount = 0;
+            byte prevEvent = 0;
             while (true)
             {
                 //this is huge zenith inspiration lol, if you can't beat 'em, join 'em
@@ -55,9 +55,6 @@ namespace SharpMIDI
                         break;
                     case 0xF3:
                         stupid.Skip(1);
-                        break;
-                    case 0xF7:
-                        stupid.Skip((int)ReadVariableLen());
                         break;
                     case 0xFF:
                         {
@@ -100,7 +97,7 @@ namespace SharpMIDI
                         {
                             byte note = stupid.Read();
                             byte vel = stupid.Read();
-                            outputPtr[eventAmount++] = new SynthEvent
+                            outputPtr[eventAmount++] = new MIDIEvent
                             {
                                 tick = absolutetime, 
                                 message = (uint24)(readEvent | (note << 8) | (vel << 16))
@@ -114,7 +111,7 @@ namespace SharpMIDI
                             if (vel != 0)
                             {
                                 notecount++;
-                                outputPtr[eventAmount++] = new SynthEvent
+                                outputPtr[eventAmount++] = new MIDIEvent
                                 {
                                     tick = absolutetime,
                                     message = (uint24)(readEvent | (note << 8) | (vel << 16))   
@@ -123,7 +120,7 @@ namespace SharpMIDI
                             else
                             {
                                 byte dummynoteoff = (byte)(0x80 | channel);
-                                outputPtr[eventAmount++] = new SynthEvent
+                                outputPtr[eventAmount++] = new MIDIEvent
                                 {
                                     tick = absolutetime,
                                     message =  (uint24)(dummynoteoff | (note << 8) | (64 << 16))
@@ -135,7 +132,7 @@ namespace SharpMIDI
                         {
                             byte note = stupid.Read();
                             byte pressure = stupid.Read();
-                            outputPtr[eventAmount++] = new SynthEvent 
+                            outputPtr[eventAmount++] = new MIDIEvent 
                             {
                                 tick = absolutetime,
                                 message = (uint24)(readEvent | (note << 8) | (pressure << 16))
@@ -146,7 +143,7 @@ namespace SharpMIDI
                         {
                             byte controller = stupid.Read();
                             byte value = stupid.Read();
-                            outputPtr[eventAmount++] = new SynthEvent
+                            outputPtr[eventAmount++] = new MIDIEvent
                             {
                                 tick = absolutetime, 
                                 message = (uint24)(readEvent | (controller << 8) | (value << 16))
@@ -156,7 +153,7 @@ namespace SharpMIDI
                     case 0xC0:
                         {
                             byte program = stupid.Read();
-                            outputPtr[eventAmount++] = new SynthEvent 
+                            outputPtr[eventAmount++] = new MIDIEvent 
                             {
                                 tick = absolutetime, 
                                 message  = (uint24)(readEvent | (program << 8))
@@ -166,7 +163,7 @@ namespace SharpMIDI
                     case 0xD0:
                         {
                             byte pressure = stupid.Read();
-                            outputPtr[eventAmount++] = new SynthEvent 
+                            outputPtr[eventAmount++] = new MIDIEvent 
                             {
                                 tick = absolutetime,
                                 message = (uint24)(readEvent | (pressure << 8))
@@ -177,7 +174,7 @@ namespace SharpMIDI
                         {
                             byte lsb = stupid.Read();
                             byte msb = stupid.Read();
-                            outputPtr[eventAmount++] = new SynthEvent
+                            outputPtr[eventAmount++] = new MIDIEvent
                             {
                                 tick = absolutetime, 
                                 message = (uint24)(readEvent | (lsb << 8) | (msb << 16))

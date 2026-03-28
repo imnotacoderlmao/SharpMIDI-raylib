@@ -11,10 +11,10 @@
         <DebugType>none</DebugType>
         <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     </PropertyGroup>
-    <PropertyGroup Condition="$([MSBuild]::IsOSPlatform('Windows'))">
+    <PropertyGroup Condition="$(RuntimeIdentifier.StartsWith('win'))">
         <DefineConstants>WINDOWS</DefineConstants>
     </PropertyGroup>
-    <PropertyGroup Condition="$([MSBuild]::IsOSPlatform('Linux'))">
+    <PropertyGroup Condition="$(RuntimeIdentifier.StartsWith('linux'))">
         <DefineConstants>LINUX</DefineConstants>
     </PropertyGroup>
     <ItemGroup>

@@ -1,4 +1,5 @@
 using System.Runtime.InteropServices;
+using System.Diagnostics;
 using Raylib_cs;
 
 namespace SharpMIDI.Renderer
@@ -8,6 +9,8 @@ namespace SharpMIDI.Renderer
         public const int PAD = 20;
         private static float scrollfactor = 1f;
         public static float tick = 0f;
+        public static int memusagecallcount = 0;
+        public static long memusage = 0;
         static string filepath;
         public static double lastrendernow;
         // Dynamic window dimensions
@@ -167,15 +170,12 @@ namespace SharpMIDI.Renderer
 
         public static string toMemoryText(long bytes)
         {
-            switch (bytes)
+            return bytes switch
             {
-                case var expression when bytes < 1000:
-                    return $"{bytes} B";
-                case var expression when bytes < 1000000:
-                    return $"{bytes/1000} KB";
-                default:
-                    return $"{bytes / 1000000} MB";
-            }
+                var expression when bytes < 1000 => $"{bytes} B",
+                var expression when bytes < 1000000 => $"{bytes / 1000} KB",
+                _ => $"{bytes / 1000000} MB",
+            };
         }
 
         private static void DrawUI()
@@ -186,8 +186,9 @@ namespace SharpMIDI.Renderer
             Raylib.DrawText(tickStr.ToString(), 12, 4, 16, Raylib_cs.Color.Green);
             if (Debug)
             {
+                GetMemoryUsage();
                 debugStr.Clear();
-                debugStr.Append($"DrawOps: {NoteRenderer.NotesDrawnLastFrame} | Memory: {toMemoryText(GC.GetTotalMemory(false))}")
+                debugStr.Append($"DrawOps: {NoteRenderer.NotesDrawnLastFrame} | Memory: {toMemoryText(memusage)}")
                         .Append(" | DynaScroll: ").Append(dynascroll ? $"({scrollfactor}x ticklen)" : "False");
                 Raylib.DrawText(debugStr.ToString(), 13, 23, 16, Raylib_cs.Color.SkyBlue);
             }
@@ -200,6 +201,17 @@ namespace SharpMIDI.Renderer
             if (Debug) Raylib.DrawText($"{MIDILoader.loadstatus} | MIDI: @{MIDIPlayer.MIDIFps} fps | Skip events?: {MIDIClock.skipevents}", 12, currentHeight - 19, 16, Raylib_cs.Color.SkyBlue);
             else Raylib.DrawText($"{MIDILoader.loadstatus}", 12, currentHeight - 19, 16, Raylib_cs.Color.SkyBlue);
         }
+        
+        public static void GetMemoryUsage()
+        {
+            memusagecallcount++;
+            if(memusagecallcount % 4 == 0) // should be fine this way so it dosent have to call many times
+            {
+                Process program = Process.GetCurrentProcess();
+                memusage = program.WorkingSet64;
+            }
+        }
+        
         public static void StopRenderer() => IsRunning = false;
     }
 }
