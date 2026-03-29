@@ -41,7 +41,7 @@ namespace SharpMIDI
                             b = stupid.Read();
                             data.Add(b);
                         }
-                        MIDI.SysEx.Add(new SysEx
+                        tempMIDIstorage.SysEx.Add(new SysEx
                         {
                             tick = absolutetime, 
                             message = [.. data]
@@ -65,7 +65,7 @@ namespace SharpMIDI
                                 uint tempo = 0;
                                 for (int i = 0; i != 3; i++)
                                     tempo = ((tempo << 8) | stupid.Read());
-                                MIDI.temppos.Add(new Tempo 
+                                tempMIDIstorage.temppos.Add(new Tempo 
                                 { 
                                     tick = absolutetime, 
                                     tempo = tempo
@@ -189,7 +189,7 @@ namespace SharpMIDI
 
         uint ReadVariableLen()
         {
-            int n = 0;
+            uint n = 0;
             while (true)
             {
                 byte curByte = stupid.Read();
@@ -199,7 +199,7 @@ namespace SharpMIDI
                     break;
                 }
             }
-            return (uint)n;
+            return n;
         }
         
         public void Dispose()

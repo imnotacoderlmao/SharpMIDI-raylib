@@ -21,7 +21,7 @@ namespace SharpMIDI.Renderer
         private static readonly System.Text.StringBuilder tickStr = new(256);
         private static readonly System.Text.StringBuilder debugStr = new(128);
         // Window state
-        private static bool vsync = true, controls = true, dynascroll = false;
+        private static bool vsync = true, controls = false, dynascroll = false;
         public static bool Debug { get; set; } = false;
         public static bool IsRunning { get; private set; } = false;
 
@@ -192,11 +192,9 @@ namespace SharpMIDI.Renderer
                         .Append(" | DynaScroll: ").Append(dynascroll ? $"({scrollfactor}x ticklen)" : "False");
                 Raylib.DrawText(debugStr.ToString(), 13, 23, 16, Raylib_cs.Color.SkyBlue);
             }
-            if (controls)
+            if (Timer.Seconds() < 4.0d || controls)
             {
                 Raylib.DrawText($"Up/Dn = zoom | V = vsync | Right = seek fwd\nLeft = skip bw (broken) | C = toggle this text | F = fullscreen\nD = debug | S = dynamic scrolling | U = unload midi | E = skip event toggle\nR = reset playback | Space = start, pause continue playback \nto load a midi file drag and drop a file into the window\nremember to init the synth via pressing your number keys\n(1 = KDMAPI, 2 = XSynth)", 12, 45, 16, Raylib_cs.Color.White);
-                if (Raylib.GetTime() >= 4.0 && Raylib.GetTime() <= 4.5)
-                    controls = false;
             }
             if (Debug) Raylib.DrawText($"{MIDILoader.loadstatus} | MIDI: @{MIDIPlayer.MIDIFps} fps | Skip events?: {MIDIClock.skipevents}", 12, currentHeight - 19, 16, Raylib_cs.Color.SkyBlue);
             else Raylib.DrawText($"{MIDILoader.loadstatus}", 12, currentHeight - 19, 16, Raylib_cs.Color.SkyBlue);

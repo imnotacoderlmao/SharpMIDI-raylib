@@ -29,13 +29,17 @@ namespace SharpMIDI
     static class MIDI
     {
         // is there a better way to do this without bloating the midi class too much
-        public static BigArray<uint24> MIDIEvents;
-        public static List<TickGroup> tickGroups;
-        public static TickGroup[] tickGroupArr = Array.Empty<TickGroup>();
+        public static BigArray<uint24> MIDIEventArray;
+        public static TickGroup[] TickGroupArray = Array.Empty<TickGroup>();
+        public static Tempo[] TempoEventArray = Array.Empty<Tempo>();
+        public static SysEx[] SysExArray = Array.Empty<SysEx>();
+    }
+
+    static class tempMIDIstorage
+    {
         public static List<Tempo> temppos = new List<Tempo>();
-        public static Tempo[] tempoEvents = Array.Empty<Tempo>();
         public static List<SysEx> SysEx = new List<SysEx>();
-        public static SysEx[] SysExarr = Array.Empty<SysEx>();
+        public static List<TickGroup> tickGroups;
     }
     
     public unsafe class BigArray<T> : IDisposable

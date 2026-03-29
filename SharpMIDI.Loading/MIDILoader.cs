@@ -40,6 +40,7 @@ namespace SharpMIDI
         static void Crash(string test)
         {
             loadstatus = test;
+            Console.WriteLine(loadstatus);
             throw new Exception();
         }
 
@@ -102,7 +103,7 @@ namespace SharpMIDI
                 midistream.Close();
                 loadstatus = $"flattening event array";
                 Console.WriteLine($"\n{loadstatus}");
-                MIDI.MIDIEvents = MergeAndSort(trackDataArray, actualTrackCount);
+                MIDI.MIDIEventArray = HeapMerge(trackDataArray, actualTrackCount, out tempMIDIstorage.tickGroups);
                 for (int i = 0; i < loadedtracks; i++)
                 {
                     trackDataArray[i].events.Dispose();
@@ -111,30 +112,24 @@ namespace SharpMIDI
                 Renderer.NoteProcessor.FinalizeBuckets();
             }
             // dummy events for no bounds checking
-            MIDI.temppos.Add(new Tempo { tick = uint.MaxValue });
-            MIDI.tickGroups.Add(new TickGroup { tick = uint.MaxValue, count = 0 });
-            MIDI.SysEx.Add(new SysEx { tick = uint.MaxValue, message = [] });
-            MIDI.tempoEvents = [.. MIDI.temppos];
-            MIDI.tickGroupArr = [.. MIDI.tickGroups];
-            MIDI.SysExarr = [.. MIDI.SysEx];
-            Array.Sort(MIDI.tempoEvents, (a,b) => a.tick.CompareTo(b.tick)); // it was this that fixed the issue. a literal one liner :sob:
-            Array.Sort(MIDI.SysExarr, (a,b) => a.tick.CompareTo(b.tick)); 
-            MIDI.temppos = null;
-            MIDI.SysEx = null; 
+            tempMIDIstorage.temppos.Add(new Tempo { tick = uint.MaxValue });
+            tempMIDIstorage.tickGroups.Add(new TickGroup { tick = uint.MaxValue, count = 0 });
+            tempMIDIstorage.SysEx.Add(new SysEx { tick = uint.MaxValue, message = [] });
+            MIDI.TempoEventArray = [.. tempMIDIstorage.temppos];
+            MIDI.TickGroupArray = [.. tempMIDIstorage.tickGroups];
+            MIDI.SysExArray = [.. tempMIDIstorage.SysEx];
+            Array.Sort(MIDI.TempoEventArray, (a,b) => a.tick.CompareTo(b.tick)); // it was this that fixed the issue. a literal one liner :sob:
+            Array.Sort(MIDI.SysExArray, (a,b) => a.tick.CompareTo(b.tick)); 
+            tempMIDIstorage.temppos = null;
+            tempMIDIstorage.SysEx = null; 
             midiLoaded = true;
             loadstatus = filename;
             Console.WriteLine($"Loaded {filename} with {totalNotes} notes loaded from {actualTrackCount} tracks");
         }
-
-        static unsafe BigArray<uint24> MergeAndSort(HeapMergeData[] tracks, int trackCount)
-        {   
-            BigArray<uint24> messages = new((ulong)eventCount);
-            HeapMerge(tracks, trackCount, out MIDI.tickGroups, messages);
-            return messages;
-        }
          
-        static unsafe void HeapMerge(HeapMergeData[] tracks, int trackCount, out List<TickGroup> tickGroups, BigArray<uint24> messages)
+        static unsafe BigArray<uint24> HeapMerge(HeapMergeData[] tracks, int trackCount, out List<TickGroup> tickGroups)
         {
+            BigArray<uint24> messages = new((ulong)eventCount);
             tickGroups = new List<TickGroup>(1024);
             uint24* msgPtr = messages.Pointer;
             long writePos = 0;
@@ -180,6 +175,7 @@ namespace SharpMIDI
             // flush last group
             if (currentCount > 0)
                 tickGroups.Add(new TickGroup { tick = currentTick, count = currentCount });
+            return messages;
         }
 
         public static void UnloadMIDI()
@@ -195,13 +191,13 @@ namespace SharpMIDI
             trackAmount = 0;
             trackProperties.Clear();
             Renderer.NoteProcessor.Cleanup();
-            MIDI.MIDIEvents.Dispose();
-            MIDI.tempoEvents = null;
-            MIDI.tickGroups = null;
-            MIDI.SysEx = [];
-            MIDI.SysExarr = null;
-            MIDI.temppos = [];
-            MIDI.tickGroupArr = null;
+            tempMIDIstorage.tickGroups = null;
+            tempMIDIstorage.SysEx = [];
+            tempMIDIstorage.temppos = [];
+            MIDI.MIDIEventArray.Dispose();
+            MIDI.TempoEventArray = null;
+            MIDI.SysExArray = null;
+            MIDI.TickGroupArray = null;
             loadstatus = $"No MIDI Loaded";
             GC.Collect();
         }

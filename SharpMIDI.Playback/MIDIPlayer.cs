@@ -7,7 +7,8 @@ namespace SharpMIDI
         public static byte[] gmreset = [0xF0, 0x7E, 0x7F, 0x09, 0x01, 0xF7];
         public static long totalFrames = 0;
         public static long playedEvents, playedevents2, eventspersec = 0;
-        public static float MIDIFps = 0f;
+        public static long MIDIFps = 0;
+        public static double last = 0d;
         public static bool stopping = true;
         public static bool stalled = false;
         public static bool skipping = false;
@@ -26,19 +27,18 @@ namespace SharpMIDI
             playedEvents = 0;
             playedevents2 = 0;
             stopping = false;
-            var midiev = MIDI.MIDIEvents;
+            var midiev = MIDI.MIDIEventArray;
             uint24* msgptr = midiev.Pointer;
             uint24* msgcur = msgptr;
-            TickGroup[] tickGroupArr = MIDI.tickGroupArr;
-            Tempo[] tevs = MIDI.tempoEvents;
-            SysEx[] sysExes = MIDI.SysExarr;
+            TickGroup[] tickGroupArr = MIDI.TickGroupArray;
+            Tempo[] tevs = MIDI.TempoEventArray;
+            SysEx[] sysExes = MIDI.SysExArray;
             uint maxTick = (uint)MIDILoader.maxTick;
             uint clock = 0;
             uint24* buffer = Sound.ringbuffer;
             ushort writeptr = 0;
             uint sysexidx = 0;
             Sound.StartAudioThread();
-            Task.Run(PlaybackStats);
             MIDIClock.Start();
             fixed(TickGroup* tg0 = tickGroupArr)
             {
@@ -80,7 +80,10 @@ namespace SharpMIDI
                             sysexidx++;
                         }
                         totalFrames++;
-                        if (clock > maxTick) stopping = true;
+                        if (clock > maxTick) 
+                            stopping = true;
+                        if (clock % 100 == 0) 
+                            UpdatePlaybackStats(clock);
                     }
                 }
             }
@@ -126,18 +129,19 @@ namespace SharpMIDI
             }
         }
 
-        public static void PlaybackStats()
+        public static void UpdatePlaybackStats(uint tick)
         {
-            while (!stopping)
+            const double updateperiod = 0.1d;
+            double delta = Timer.Seconds() - last;
+            if (delta > updateperiod)
             {
-                MIDIFps = totalFrames * 30;
-                eventspersec = (playedEvents - playedevents2) * 30;
-                if (stalled) Console.Write($"\rTick: {(int)MIDIClock.tick} / {MIDILoader.maxTick} | Played Events: {playedEvents} / {MIDILoader.eventCount} ({eventspersec}/s) | MIDI Thread: STALLED | Skip events?: {MIDIClock.skipevents}          ");
-                else Console.Write($"\rTick: {(int)MIDIClock.tick} / {MIDILoader.maxTick} | Played Events: {playedEvents} / {MIDILoader.eventCount} ({eventspersec}/s) | MIDI Thread: @{MIDIFps} fps | Skip events?: {MIDIClock.skipevents}          ");
+                MIDIFps = (long)(totalFrames / delta);
+                eventspersec = (long)((playedEvents - playedevents2) / delta);
                 playedevents2 = playedEvents;
                 totalFrames = 0;
-                Thread.Sleep(1000/30);
+                last = Timer.Seconds();
             }
+            Console.Write($"\rTick: {tick} / {MIDILoader.maxTick} | Played Events: {playedEvents} / {MIDILoader.eventCount} ({eventspersec}/s) | MIDI Thread: @{MIDIFps} fps | Skip events?: {MIDIClock.skipevents}          ");
         }
     }
 }
