@@ -39,7 +39,6 @@ namespace SharpMIDI
     {
         public static List<Tempo> temppos = new List<Tempo>();
         public static List<SysEx> SysEx = new List<SysEx>();
-        public static List<TickGroup> tickGroups;
     }
     
     public unsafe class BigArray<T> : IDisposable

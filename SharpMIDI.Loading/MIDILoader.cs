@@ -103,7 +103,7 @@ namespace SharpMIDI
                 midistream.Close();
                 loadstatus = $"flattening event array";
                 Console.WriteLine($"\n{loadstatus}");
-                MIDI.MIDIEventArray = HeapMerge(trackDataArray, actualTrackCount, out tempMIDIstorage.tickGroups);
+                MIDI.MIDIEventArray = HeapMerge(trackDataArray, actualTrackCount, out MIDI.TickGroupArray);
                 for (int i = 0; i < loadedtracks; i++)
                 {
                     trackDataArray[i].events.Dispose();
@@ -113,10 +113,8 @@ namespace SharpMIDI
             }
             // dummy events for no bounds checking
             tempMIDIstorage.temppos.Add(new Tempo { tick = uint.MaxValue });
-            tempMIDIstorage.tickGroups.Add(new TickGroup { tick = uint.MaxValue, count = 0 });
             tempMIDIstorage.SysEx.Add(new SysEx { tick = uint.MaxValue, message = [] });
             MIDI.TempoEventArray = [.. tempMIDIstorage.temppos];
-            MIDI.TickGroupArray = [.. tempMIDIstorage.tickGroups];
             MIDI.SysExArray = [.. tempMIDIstorage.SysEx];
             Array.Sort(MIDI.TempoEventArray, (a,b) => a.tick.CompareTo(b.tick)); // it was this that fixed the issue. a literal one liner :sob:
             Array.Sort(MIDI.SysExArray, (a,b) => a.tick.CompareTo(b.tick)); 
@@ -127,10 +125,10 @@ namespace SharpMIDI
             Console.WriteLine($"Loaded {filename} with {totalNotes} notes loaded from {actualTrackCount} tracks");
         }
          
-        static unsafe BigArray<uint24> HeapMerge(HeapMergeData[] tracks, int trackCount, out List<TickGroup> tickGroups)
+        static unsafe BigArray<uint24> HeapMerge(HeapMergeData[] tracks, int trackCount, out TickGroup[] tickGroups)
         {
             BigArray<uint24> messages = new((ulong)eventCount);
-            tickGroups = new List<TickGroup>(1024);
+            tickGroups = new TickGroup[maxTick + 1]; // i lowkey forgot maxTick exists so this is it being used outside of playback lmao
             uint24* msgPtr = messages.Pointer;
             long writePos = 0;
 
@@ -159,7 +157,7 @@ namespace SharpMIDI
                 {
                     // flush previous group
                     if (currentCount > 0)
-                        tickGroups.Add(new TickGroup { tick = currentTick, count = currentCount });
+                        tickGroups[currentTick] = new TickGroup { tick = currentTick, count = currentCount };
                     currentTick = ev->tick;
                     currentCount = 0;
                 }
@@ -174,7 +172,10 @@ namespace SharpMIDI
 
             // flush last group
             if (currentCount > 0)
-                tickGroups.Add(new TickGroup { tick = currentTick, count = currentCount });
+            {
+                tickGroups[currentTick] = new TickGroup { tick = currentTick, count = currentCount };
+            }
+            tickGroups[maxTick] = new TickGroup { tick = int.MaxValue, count = 0 };
             return messages;
         }
 
@@ -191,7 +192,6 @@ namespace SharpMIDI
             trackAmount = 0;
             trackProperties.Clear();
             Renderer.NoteProcessor.Cleanup();
-            tempMIDIstorage.tickGroups = null;
             tempMIDIstorage.SysEx = [];
             tempMIDIstorage.temppos = [];
             MIDI.MIDIEventArray.Dispose();
