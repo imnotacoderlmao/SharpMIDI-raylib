@@ -33,7 +33,6 @@ namespace SharpMIDI
             TickGroup[] tickGroupArr = MIDI.TickGroupArray;
             Tempo[] tevs = MIDI.TempoEventArray;
             SysEx[] sysExes = MIDI.SysExArray;
-            uint maxTick = (uint)MIDILoader.maxTick;
             uint clock = 0;
             uint24* buffer = Sound.ringbuffer;
             ushort writeptr = 0;
@@ -80,10 +79,6 @@ namespace SharpMIDI
                             sysexidx++;
                         }
                         totalFrames++;
-                        if (clock > maxTick) 
-                            stopping = true;
-                        if (clock % 100 == 0) 
-                            UpdatePlaybackStats(clock);
                     }
                 }
             }
@@ -129,7 +124,7 @@ namespace SharpMIDI
             }
         }
 
-        public static void UpdatePlaybackStats(uint tick)
+        public static void UpdatePlaybackStats(int tick)
         {
             const double updateperiod = 0.1d;
             double delta = Timer.Seconds() - last;

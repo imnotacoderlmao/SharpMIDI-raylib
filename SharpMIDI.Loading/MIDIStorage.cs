@@ -70,29 +70,26 @@ namespace SharpMIDI
             }
         }
     }
-    
+
     [StructLayout(LayoutKind.Sequential, Pack = 1)]
     public struct uint24
     {
-        private byte b0;
-        private byte b1;
-        private byte b2;
+        private ushort val1;
+        private byte val2;
 
         public uint24(int value)
         {
-            b0 = (byte)(value & 0xFF);
-            b1 = (byte)((value >> 8) & 0xFF);
-            b2 = (byte)((value >> 16) & 0xFF);
+            val1 = (ushort)(value & 0xFFFF);
+            val2 = (byte)((value >> 16) & 0xFF);
         }
 
         public int Value
         {
-            readonly get => b0 | (b1 << 8) | (b2 << 16);
+            readonly get => val1 | (val2 << 16);
             set
             {
-                b0 = (byte)(value & 0xFF);
-                b1 = (byte)((value >> 8) & 0xFF);
-                b2 = (byte)((value >> 16) & 0xFF);
+                val1 = (ushort)(value & 0xFFFF);
+                val2 = (byte)((value >> 16) & 0xFF);
             }
         }
 

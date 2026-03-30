@@ -11,7 +11,7 @@ namespace SharpMIDI
         public static bool issynthinitiated = false;
         static Thread? audthread; 
         private static int engine = 0;
-        static delegate* unmanaged[SuppressGCTransition]<uint,void> sendTo;
+        public static delegate* unmanaged[SuppressGCTransition]<uint,void> sendTo;
         public static void InitSynth(string synth)
         {
             Close();

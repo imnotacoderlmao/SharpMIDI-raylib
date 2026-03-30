@@ -51,6 +51,7 @@ namespace SharpMIDI.Renderer
                 if (dynascroll && NoteRenderer.Window != MIDIClock.tickscale) 
                     NoteRenderer.SetWindow((float)MIDIClock.tickscale * scrollfactor); 
 
+                HandlePlaybackStatus((int)tick);
                 NoteRenderer.UpdateStreaming(tick);
                 Raylib.BeginDrawing();
                 Raylib.ClearBackground(Raylib_cs.Color.Black);
@@ -78,24 +79,13 @@ namespace SharpMIDI.Renderer
             }
         }
 
-        /*
-        this is the result of trying to decouple renderer tick from player tick
-        public static float UpdateRenderTick()
+        private static void HandlePlaybackStatus(int clock)
         {
-            if (MIDIClock.paused || MIDIPlayer.stopping) return tick;
-            double localnow = Timer.Seconds();
-            double advancetime = localnow - lastrendernow;
-            if(!MIDIClock.stalled) 
-            {
-                tick = (float)MIDIClock.tick;
-            }
-            else
-            {
-                tick += (float)(advancetime * MIDIClock.tickscale);
-            }
-            lastrendernow = localnow;
-            return tick;
-        }*/
+            if (clock > MIDILoader.maxTick)
+                MIDIPlayer.stopping = true;
+            if (!MIDIPlayer.stopping)
+                MIDIPlayer.UpdatePlaybackStats(clock);
+        }
 
         private static void HandleInput()
         {

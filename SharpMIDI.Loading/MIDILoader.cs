@@ -22,6 +22,7 @@ namespace SharpMIDI
             public long start;
             public uint len;
         }
+
         private static readonly List<TrackProperties> trackProperties = new List<TrackProperties>();
         static Stream midistream;
         public static long totalNotes = 0;
@@ -46,7 +47,7 @@ namespace SharpMIDI
 
         public static void LoadMIDI(string path, int tracklimit)
         {   
-            if (midiLoaded) UnloadMIDI();
+            UnloadMIDI();
             loadstatus = $"Loading MIDI file: {path}";
             Console.WriteLine(loadstatus);
             midistream = File.Open(path, FileMode.Open);
