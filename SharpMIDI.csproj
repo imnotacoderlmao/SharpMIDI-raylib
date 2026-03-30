@@ -8,7 +8,7 @@
         <PublishTrimmed>true</PublishTrimmed>
         <PublishAOT>true</PublishAOT>
         <Optimize>true</Optimize>
-        <DebugType>none</DebugType>
+        <DebugType>full</DebugType>
         <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     </PropertyGroup>
     <PropertyGroup Condition="$(RuntimeIdentifier.StartsWith('win'))">

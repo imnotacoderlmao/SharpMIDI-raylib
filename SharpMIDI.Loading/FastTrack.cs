@@ -2,15 +2,16 @@
 using MIDIModificationFramework;
 namespace SharpMIDI
 {
-    public unsafe class FastTrack (BufferByteReader reader) : IDisposable
+    public unsafe class FastTrack (BufferByteReader bbr) : IDisposable
     {
         public long eventCount = 0;
         public long totalNotes = 0;
         public int trackMaxTick = 0;
-        BufferByteReader stupid = reader;
+        BufferByteReader reader = bbr;
         public void ParseTrackEvents(MIDIEvent* destination)
         {
             MIDIEvent* outputPtr = destination;
+            BufferByteReader stupid = reader;
             uint absolutetime = 0;
             long eventAmount = 0;
             long notecount = 0;
@@ -64,7 +65,7 @@ namespace SharpMIDI
                             {
                                 uint tempo = 0;
                                 for (int i = 0; i != 3; i++)
-                                    tempo = ((tempo << 8) | stupid.Read());
+                                    tempo = (tempo << 8) | stupid.Read();
                                 tempMIDIstorage.temppos.Add(new Tempo 
                                 { 
                                     tick = absolutetime, 
@@ -192,7 +193,7 @@ namespace SharpMIDI
             uint n = 0;
             while (true)
             {
-                byte curByte = stupid.Read();
+                byte curByte = reader.Read();
                 n = (n << 7) | (byte)(curByte & 0x7F);
                 if ((curByte & 0x80) == 0)
                 {
@@ -204,8 +205,8 @@ namespace SharpMIDI
         
         public void Dispose()
         {
-            stupid.Dispose();
-            stupid = null;
+            reader.Dispose();
+            reader = null;
         }
     }
 }

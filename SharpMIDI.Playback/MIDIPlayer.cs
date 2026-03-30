@@ -35,7 +35,6 @@ namespace SharpMIDI
             SysEx[] sysExes = MIDI.SysExArray;
             uint clock = 0;
             uint24* buffer = Sound.ringbuffer;
-            ushort writeptr = 0;
             uint sysexidx = 0;
             Sound.StartAudioThread();
             MIDIClock.Start();
@@ -54,7 +53,7 @@ namespace SharpMIDI
                             {
                                 uint24* groupEnd = msgcur + currtg->count;
                                 while (msgcur < groupEnd)
-                                    buffer[writeptr++] = *msgcur++;
+                                    buffer[(ushort)(msgcur - msgptr)] = *msgcur++;
                                 playedEvents += currtg->count;
                                 currtg++;
                             }
