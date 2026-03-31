@@ -47,18 +47,8 @@ namespace SharpMIDI
                     while (!stopping)
                     {
                         clock = (uint)MIDIClock.Update();
-                        if (!skipping)
-                        {
-                            while (currtg->tick <= clock)
-                            {
-                                uint24* groupEnd = msgcur + currtg->count;
-                                while (msgcur < groupEnd)
-                                    buffer[(ushort)(msgcur - msgptr)] = *msgcur++;
-                                playedEvents += currtg->count;
-                                currtg++;
-                            }
-                        }
-                        else
+                        totalFrames++;
+                        if (skipping)
                         {
                             while (currtg->tick <= clock)
                             {
@@ -66,6 +56,15 @@ namespace SharpMIDI
                                 playedEvents += currtg->count;
                                 currtg++;
                             }
+                            continue;
+                        }
+                        while (currtg->tick <= clock)
+                        {
+                            uint24* groupEnd = msgcur + currtg->count;
+                            while (msgcur < groupEnd)
+                                buffer[(ushort)msgcur] = *msgcur++;
+                            playedEvents += currtg->count;
+                            currtg++;
                         }
                         while (currtev->tick <= clock)
                         {
@@ -77,7 +76,6 @@ namespace SharpMIDI
                             SubmitSysEx(sysExes[sysexidx].message);
                             sysexidx++;
                         }
-                        totalFrames++;
                     }
                 }
             }

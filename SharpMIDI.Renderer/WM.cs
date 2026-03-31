@@ -158,16 +158,6 @@ namespace SharpMIDI.Renderer
                 MIDILoader.UnloadMIDI();
         }
 
-        public static string toMemoryText(long bytes)
-        {
-            return bytes switch
-            {
-                var expression when bytes < 1000 => $"{bytes} B",
-                var expression when bytes < 1000000 => $"{bytes / 1000} KB",
-                _ => $"{bytes / 1000000} MB",
-            };
-        }
-
         private static void DrawUI()
         {
             // Main UI
@@ -178,7 +168,7 @@ namespace SharpMIDI.Renderer
             {
                 GetMemoryUsage();
                 debugStr.Clear();
-                debugStr.Append($"DrawOps: {NoteRenderer.NotesDrawnLastFrame} | Memory: {toMemoryText(memusage)}")
+                debugStr.Append($"DrawOps: {NoteRenderer.NotesDrawnLastFrame} | Memory: {Starter.toMemoryText(memusage)}")
                         .Append(" | DynaScroll: ").Append(dynascroll ? $"({scrollfactor}x ticklen)" : "False");
                 Raylib.DrawText(debugStr.ToString(), 13, 23, 16, Raylib_cs.Color.SkyBlue);
             }

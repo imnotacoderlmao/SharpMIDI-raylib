@@ -40,7 +40,7 @@ namespace SharpMIDI
             if (paused || MIDIPlayer.stopping) return tick;
             double now = Timer.Seconds();
             double advancetime = now - lastnow;
-            MIDIPlayer.stalled = advancetime > 0.0166666 || MIDIPlayer.MIDIFps < 60;
+            MIDIPlayer.stalled = advancetime > 0.0166666;
             if (throttle && MIDIPlayer.stalled)
             {
                 advancetime = 0.0166666;

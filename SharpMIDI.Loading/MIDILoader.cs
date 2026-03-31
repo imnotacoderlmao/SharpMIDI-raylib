@@ -1,5 +1,6 @@
 #pragma warning disable 8602
 using MIDIModificationFramework;
+using System.Diagnostics;
 namespace SharpMIDI
 {
     static class MIDILoader
@@ -105,10 +106,6 @@ namespace SharpMIDI
                 loadstatus = $"flattening event array";
                 Console.WriteLine($"\n{loadstatus}");
                 MIDI.MIDIEventArray = HeapMerge(trackDataArray, actualTrackCount, out MIDI.TickGroupArray);
-                for (int i = 0; i < loadedtracks; i++)
-                {
-                    trackDataArray[i].events.Dispose();
-                }
                 trackDataArray = null;
                 Renderer.NoteProcessor.FinalizeBuckets();
             }
@@ -117,66 +114,62 @@ namespace SharpMIDI
             tempMIDIstorage.SysEx.Add(new SysEx { tick = uint.MaxValue, message = [] });
             MIDI.TempoEventArray = [.. tempMIDIstorage.temppos];
             MIDI.SysExArray = [.. tempMIDIstorage.SysEx];
-            Array.Sort(MIDI.TempoEventArray, (a,b) => a.tick.CompareTo(b.tick)); // it was this that fixed the issue. a literal one liner :sob:
+            Array.Sort(MIDI.TempoEventArray, (a, b) => a.tick.CompareTo(b.tick)); // some problems in one specific midi that have 38432899 tempo events at the same tick for some reason sets them to abnromally low bpm'es
             Array.Sort(MIDI.SysExArray, (a,b) => a.tick.CompareTo(b.tick)); 
             tempMIDIstorage.temppos = null;
             tempMIDIstorage.SysEx = null; 
             midiLoaded = true;
             loadstatus = filename;
             Console.WriteLine($"Loaded {filename} with {totalNotes} notes loaded from {actualTrackCount} tracks");
+            unsafe 
+            { 
+                Process program = Process.GetCurrentProcess();
+                long memusage = program.WorkingSet64;
+                Console.WriteLine($"current memory usage: {Starter.toMemoryText(memusage)} | events: {Starter.toMemoryText((long)MIDI.MIDIEventArray.Length * sizeof(uint24))}\ntiming: {Starter.toMemoryText(MIDI.TickGroupArray.Length * sizeof(TickGroup))} | renderer: {Starter.toMemoryText((long)Renderer.NoteProcessor.FlatNotes.Length * sizeof(uint))}"); 
+            }
         }
          
         static unsafe BigArray<uint24> HeapMerge(HeapMergeData[] tracks, int trackCount, out TickGroup[] tickGroups)
         {
-            BigArray<uint24> messages = new((ulong)eventCount);
-            tickGroups = new TickGroup[maxTick + 1]; // i lowkey forgot maxTick exists so this is it being used outside of playback lmao
+            TickGroup[] tg = new TickGroup[maxTick + 2];
+            long[] writeCursors = new long[maxTick + 2];
+
+            // parallel histogram
+            Parallel.For(0, trackCount, i =>
+            {
+                MIDIEvent* ptr = tracks[i].events.Pointer;
+                long count = tracks[i].eventCount;
+                for (long j = 0; j < count; j++)
+                    Interlocked.Increment(ref tg[ptr[j].tick].count);
+            });
+
+            // prefix sum
+            long running = 0;
+            for (uint t = 0; t <= maxTick; t++)
+            {
+                writeCursors[t] = running;
+                tg[t].tick = t; 
+                running += tg[t].count;
+            }
+
+            // parallel scatter
+            BigArray<uint24> messages = new((ulong)eventCount + 1);
             uint24* msgPtr = messages.Pointer;
-            long writePos = 0;
-
-            var heap = new PriorityQueue<HeapNode, uint>(trackCount);
-            for (int i = 0; i < trackCount; i++)
+            Parallel.For(0, trackCount, i =>
             {
-                if (tracks[i].eventCount > 0)
+                MIDIEvent* ptr = tracks[i].events.Pointer;
+                long count = tracks[i].eventCount;
+                for (long j = 0; j < count; j++)
                 {
-                    MIDIEvent* ptr = tracks[i].events.Pointer;
-                    heap.Enqueue(new HeapNode { 
-                        current = ptr, 
-                        end = ptr + tracks[i].eventCount 
-                    }, ptr->tick);
+                    uint tick = ptr[j].tick;
+                    long pos = Interlocked.Increment(ref writeCursors[tick]) - 1;
+                    msgPtr[pos] = ptr[j].message;
                 }
-            }
+                tracks[i].events.Dispose();
+            });
 
-            uint currentTick = uint.MaxValue;
-            uint currentCount = 0;
-
-            while (heap.Count > 0)
-            {
-                var node = heap.Dequeue();
-                MIDIEvent* ev = node.current;
-
-                if (ev->tick != currentTick)
-                {
-                    // flush previous group
-                    if (currentCount > 0)
-                        tickGroups[currentTick] = new TickGroup { tick = currentTick, count = currentCount };
-                    currentTick = ev->tick;
-                    currentCount = 0;
-                }
-
-                msgPtr[writePos++] = ev->message;
-                currentCount++;
-
-                node.current++;
-                if (node.current < node.end)
-                    heap.Enqueue(node, node.current->tick);
-            }
-
-            // flush last group
-            if (currentCount > 0)
-            {
-                tickGroups[currentTick] = new TickGroup { tick = currentTick, count = currentCount };
-            }
-            tickGroups[maxTick] = new TickGroup { tick = int.MaxValue, count = 0 };
+            tg[maxTick + 1] = new TickGroup { tick = uint.MaxValue, count = 0 };
+            tickGroups = tg;
             return messages;
         }
 
@@ -195,7 +188,7 @@ namespace SharpMIDI
             Renderer.NoteProcessor.Cleanup();
             tempMIDIstorage.SysEx = [];
             tempMIDIstorage.temppos = [];
-            MIDI.MIDIEventArray.Dispose();
+            MIDI.MIDIEventArray?.Dispose();
             MIDI.TempoEventArray = null;
             MIDI.SysExArray = null;
             MIDI.TickGroupArray = null;
