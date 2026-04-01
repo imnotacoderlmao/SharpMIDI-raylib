@@ -1,6 +1,7 @@
 using System.Runtime.InteropServices;
 using System.Diagnostics;
 using Raylib_cs;
+using System.Threading.Tasks;
 
 namespace SharpMIDI.Renderer
 {
@@ -87,17 +88,47 @@ namespace SharpMIDI.Renderer
                 MIDIPlayer.UpdatePlaybackStats(clock);
         }
 
+        static async Task PlayMIDIsSequentially(string[] filepaths)
+        {
+            for (int idx = 0; idx < filepaths.Length && MIDIPlayer.stopping; idx++)
+            {
+                await Task.Run(() => MIDILoader.LoadMIDI(filepaths[idx]));
+                Console.WriteLine($"next in queue: {filepaths[idx+1]}");
+                await Task.Run(MIDIPlayer.StartPlayback);
+            }
+            return;
+        }
+
         private static void HandleInput()
         {
             if (Raylib.IsFileDropped())
             {
-                FilePathList droppedFiles = Raylib.LoadDroppedFiles();
-                unsafe
-                {
-                    filepath = Marshal.PtrToStringUTF8((nint)droppedFiles.Paths[0]);
+                if (!Sound.issynthinitiated)
+                { 
+                    MIDILoader.loadstatus = "initialize a synth first to continue";
                 }
-                Raylib.UnloadDroppedFiles(droppedFiles);
-                Task.Run(() => MIDILoader.LoadMIDI(filepath, ushort.MaxValue));
+                else
+                {
+                    unsafe
+                    {
+                        FilePathList droppedFiles = Raylib.LoadDroppedFiles();
+                        if(droppedFiles.Count > 1)
+                        {
+                            Console.WriteLine("multiple files dropped. playing each sequentially");
+                            string[] filepaths = new string[droppedFiles.Count];
+                            for (int files = 0; files < droppedFiles.Count; files++)
+                                filepaths[files] = Marshal.PtrToStringUTF8((nint)droppedFiles.Paths[files]);
+                            Raylib.UnloadDroppedFiles(droppedFiles);
+                            _ = PlayMIDIsSequentially(filepaths);
+                        }
+                        else 
+                        {
+                            filepath = Marshal.PtrToStringUTF8((nint)droppedFiles.Paths[0]);
+                            Task.Run(() => MIDILoader.LoadMIDI(filepath));
+                            Raylib.UnloadDroppedFiles(droppedFiles);
+                        }
+                    }
+                }
             }
             
             if (Raylib.IsKeyPressed(KeyboardKey.One))
@@ -172,7 +203,7 @@ namespace SharpMIDI.Renderer
                         .Append(" | DynaScroll: ").Append(dynascroll ? $"({scrollfactor}x ticklen)" : "False");
                 Raylib.DrawText(debugStr.ToString(), 13, 23, 16, Raylib_cs.Color.SkyBlue);
             }
-            if (Timer.Seconds() < 4.0d || controls)
+            if (controls)
             {
                 Raylib.DrawText($"Up/Dn = zoom | V = vsync | Right = seek fwd\nLeft = skip bw (broken) | C = toggle this text | F = fullscreen\nD = debug | S = dynamic scrolling | U = unload midi | E = skip event toggle\nR = reset playback | Space = start, pause continue playback \nto load a midi file drag and drop a file into the window\nremember to init the synth via pressing your number keys\n(1 = KDMAPI, 2 = XSynth)", 12, 45, 16, Raylib_cs.Color.White);
             }

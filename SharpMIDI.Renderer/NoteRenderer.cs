@@ -146,7 +146,7 @@ namespace SharpMIDI.Renderer
 
         private static void RenderRegion(int startX, int width, float startTick, bool advanceCursors)
         {
-            if (width <= 0 || NoteProcessor.BucketCount == 0) return;
+            if (!NoteProcessor.IsReady || width <= 0 || NoteProcessor.BucketCount == 0) return;
 
             NotesDrawnLastFrame = 0;
 

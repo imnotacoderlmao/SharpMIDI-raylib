@@ -19,7 +19,8 @@ namespace SharpMIDI
         public uint tick;
         public byte[] message;
     }
-
+    
+    [StructLayout(LayoutKind.Sequential, Pack = 1)]
     public struct TickGroup
     {
         public uint tick;

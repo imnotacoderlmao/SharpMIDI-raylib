@@ -4,7 +4,7 @@ namespace SharpMIDI
 {
     public static class Timer
     {
-        const double tickToSeconds = 0.000000001d; // (1 / stopwatch.frequency) basically, dont think thisll improve performance much since getting the time itself is the most expensive at playback
+        static readonly double tickToSeconds = 1.0d / Stopwatch.Frequency;
 
         public static double Seconds()
         {
