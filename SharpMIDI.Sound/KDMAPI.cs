@@ -1,5 +1,4 @@
 #pragma warning disable 169
-using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 namespace SharpMIDI
 {

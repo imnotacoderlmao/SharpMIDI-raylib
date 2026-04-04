@@ -4,8 +4,8 @@ namespace SharpMIDI
     [StructLayout(LayoutKind.Sequential, Pack = 1)]
     public struct MIDIEvent
     {
-        public uint tick;
         public uint24 message;
+        public ushort track;
     }
     
     public struct Tempo
@@ -25,12 +25,13 @@ namespace SharpMIDI
     {
         public uint tick;
         public uint count;
+        public long offset;
     }
     
     static class MIDI
     {
         // is there a better way to do this without bloating the midi class too much
-        public static BigArray<uint24> MIDIEventArray;
+        public static BigArray<MIDIEvent> MIDIEventArray;
         public static TickGroup[] TickGroupArray = Array.Empty<TickGroup>();
         public static Tempo[] TempoEventArray = Array.Empty<Tempo>();
         public static SysEx[] SysExArray = Array.Empty<SysEx>();

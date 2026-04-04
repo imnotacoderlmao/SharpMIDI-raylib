@@ -1,6 +1,4 @@
-
 using System.Runtime.InteropServices;
-
 namespace SharpMIDI
 {
     static unsafe class Sound
@@ -76,10 +74,10 @@ namespace SharpMIDI
             
             while (running)
             {
-                uint val = (uint)buffer[readidx].Value;
+                uint24 val = buffer[readidx];
                 if (val != 0)
                 {
-                    sendfn(val);
+                    sendfn((uint)val.Value);
                     buffer[readidx] = 0;
                 }
                 readidx++;

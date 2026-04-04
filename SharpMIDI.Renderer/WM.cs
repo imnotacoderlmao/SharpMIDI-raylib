@@ -1,15 +1,14 @@
 using System.Runtime.InteropServices;
 using System.Diagnostics;
 using Raylib_cs;
-using System.Threading.Tasks;
 
-namespace SharpMIDI.Renderer
+namespace SharpMIDI
 {
     public static class WindowManager
     {
         public const int PAD = 20;
         private static float scrollfactor = 1f;
-        public static float tick = 0f;
+        public static int tick = 0;
         public static int memusagecallcount = 0;
         public static long memusage = 0;
         static string filepath;
@@ -21,8 +20,8 @@ namespace SharpMIDI.Renderer
         // Pre-allocated buffers for UI strings
         private static readonly System.Text.StringBuilder tickStr = new(256);
         private static readonly System.Text.StringBuilder debugStr = new(128);
-        // Window state
-        private static bool vsync = true, controls = false, dynascroll = false;
+        // WindowTicks state
+        private static bool vsync = true, controls = true, dynascroll = false;
         public static bool Debug { get; set; } = false;
         public static bool IsRunning { get; private set; } = false;
 
@@ -37,7 +36,7 @@ namespace SharpMIDI.Renderer
         {
             Raylib.SetConfigFlags(ConfigFlags.ResizableWindow);
             Raylib.InitWindow(currentWidth, currentHeight, "SharpMIDI");
-            NoteRenderer.Initialize(currentWidth, currentHeight);
+            MIDIRenderer.Initialize(currentWidth);
 
             int targetFPS = Raylib.GetMonitorRefreshRate(Raylib.GetCurrentMonitor());
             Raylib.SetTargetFPS(vsync ? targetFPS : 0);
@@ -46,17 +45,16 @@ namespace SharpMIDI.Renderer
             {
                 UpdateWindowDimensions();
                 HandleInput();
-                tick = (float)MIDIClock.tick;
+                tick = (int)MIDIClock.tick;
 
                 //performance intensive since this forces a full rebuild every bpm change so hmmmm
-                if (dynascroll && NoteRenderer.Window != MIDIClock.tickscale) 
-                    NoteRenderer.SetWindow((float)MIDIClock.tickscale * scrollfactor); 
-
-                HandlePlaybackStatus((int)tick);
-                NoteRenderer.UpdateStreaming(tick);
+                if (dynascroll && MIDIRenderer.WindowTicks != MIDIClock.tickscale) 
+                    MIDIRenderer.SetWindow((float)MIDIClock.tickscale * scrollfactor); 
+                if(!MIDIPlayer.stopping) MIDIPlayer.UpdatePlaybackStats(tick);
+                MIDIRenderer.UpdateStreaming(tick);
                 Raylib.BeginDrawing();
                 Raylib.ClearBackground(Raylib_cs.Color.Black);
-                NoteRenderer.Render(currentWidth, currentHeight, PAD);
+                MIDIRenderer.Render(currentWidth, currentHeight, PAD);
                 Raylib.DrawLine(currentWidth >> 1, 0, currentWidth >> 1, currentHeight, Raylib_cs.Color.Red);
                 DrawUI();
 
@@ -76,18 +74,10 @@ namespace SharpMIDI.Renderer
             {
                 currentWidth = newWidth;
                 currentHeight = newHeight;
-                NoteRenderer.Initialize(currentWidth, currentHeight);
+                MIDIRenderer.Initialize(currentWidth);
             }
         }
-
-        private static void HandlePlaybackStatus(int clock)
-        {
-            if (clock > MIDILoader.maxTick)
-                MIDIPlayer.stopping = true;
-            if (!MIDIPlayer.stopping)
-                MIDIPlayer.UpdatePlaybackStats(clock);
-        }
-
+        
         static async Task PlayMIDIsSequentially(string[] filepaths)
         {
             for (int idx = 0; idx < filepaths.Length && MIDIPlayer.stopping; idx++)
@@ -103,33 +93,34 @@ namespace SharpMIDI.Renderer
         {
             if (Raylib.IsFileDropped())
             {
-                if (!Sound.issynthinitiated)
-                { 
-                    MIDILoader.loadstatus = "initialize a synth first to continue";
-                }
-                else
+                unsafe
                 {
-                    unsafe
+                    FilePathList droppedFiles = Raylib.LoadDroppedFiles();
+                    if(droppedFiles.Count > 1)
                     {
-                        FilePathList droppedFiles = Raylib.LoadDroppedFiles();
-                        if(droppedFiles.Count > 1)
+                        Console.WriteLine($"multiple files dropped ({droppedFiles.Count} to be exact) playing each sequentially");
+                        if (!Sound.issynthinitiated)
+                        { 
+                            MIDILoader.loadstatus = "initialize a synth first to continue with playlist playback";
+                        }
+                        else
                         {
-                            Console.WriteLine("multiple files dropped. playing each sequentially");
                             string[] filepaths = new string[droppedFiles.Count];
                             for (int files = 0; files < droppedFiles.Count; files++)
                                 filepaths[files] = Marshal.PtrToStringUTF8((nint)droppedFiles.Paths[files]);
                             Raylib.UnloadDroppedFiles(droppedFiles);
                             _ = PlayMIDIsSequentially(filepaths);
                         }
-                        else 
-                        {
-                            filepath = Marshal.PtrToStringUTF8((nint)droppedFiles.Paths[0]);
-                            Task.Run(() => MIDILoader.LoadMIDI(filepath));
-                            Raylib.UnloadDroppedFiles(droppedFiles);
-                        }
+                    }
+                    else 
+                    {
+                        filepath = Marshal.PtrToStringUTF8((nint)droppedFiles.Paths[0]);
+                        Task.Run(() => MIDILoader.LoadMIDI(filepath));
+                        Raylib.UnloadDroppedFiles(droppedFiles);
                     }
                 }
             }
+            
             
             if (Raylib.IsKeyPressed(KeyboardKey.One))
                 Sound.InitSynth("KDMAPI");
@@ -143,8 +134,8 @@ namespace SharpMIDI.Renderer
                     if (scrollfactor <= 1) scrollfactor /= 2;
                     else scrollfactor -= 0.5f;
                 }
-                float newWindow = Math.Max(100f, NoteRenderer.Window * 0.9f);
-                NoteRenderer.SetWindow(newWindow);
+                float newWindow = Math.Max(100f, MIDIRenderer.WindowTicks * 0.9f);
+                MIDIRenderer.SetWindow(newWindow);
             }
             if (Raylib.IsKeyPressed(KeyboardKey.Down) || Raylib.IsKeyPressedRepeat(KeyboardKey.Down))
             {
@@ -153,13 +144,14 @@ namespace SharpMIDI.Renderer
                     if (scrollfactor <= 1) scrollfactor *= 2;
                     else scrollfactor += 0.5f;
                 }
-                float newWindow = Math.Min(100000f, NoteRenderer.Window * 1.1f);
-                NoteRenderer.SetWindow(newWindow);
+                float newWindow = Math.Min(100000f, MIDIRenderer.WindowTicks * 1.1f);
+                MIDIRenderer.SetWindow(newWindow);
             }
             
             if (Raylib.IsKeyPressed(KeyboardKey.Right) || Raylib.IsKeyPressedRepeat(KeyboardKey.Right))
             { 
                 MIDIClock.tick += MIDIClock.tickscale;
+                MIDIRenderer.forceFullRedraw = true;
             }
 
             if (Raylib.IsKeyPressed(KeyboardKey.Space))
@@ -193,19 +185,21 @@ namespace SharpMIDI.Renderer
         {
             // Main UI
             tickStr.Clear();
-            tickStr.Append($"Tick: {(int)tick} | Tempo: {MIDIClock.bpm.ToString("F1")} | Zoom: {(int)NoteRenderer.Window} | FPS: {Raylib.GetFPS()}");
+            tickStr.Append($"Tick: {tick} | Tempo: {MIDIClock.bpm.ToString("F1")} | Zoom: {(int)MIDIRenderer.WindowTicks} | FPS: {Raylib.GetFPS()}");
             Raylib.DrawText(tickStr.ToString(), 12, 4, 16, Raylib_cs.Color.Green);
             if (Debug)
             {
                 GetMemoryUsage();
                 debugStr.Clear();
-                debugStr.Append($"DrawOps: {NoteRenderer.NotesDrawnLastFrame} | Memory: {Starter.toMemoryText(memusage)}")
+                debugStr.Append($"DrawOps: {MIDIRenderer.NotesDrawnLastFrame} | Memory: {Starter.toMemoryText(memusage)}")
                         .Append(" | DynaScroll: ").Append(dynascroll ? $"({scrollfactor}x ticklen)" : "False");
                 Raylib.DrawText(debugStr.ToString(), 13, 23, 16, Raylib_cs.Color.SkyBlue);
             }
             if (controls)
             {
                 Raylib.DrawText($"Up/Dn = zoom | V = vsync | Right = seek fwd\nLeft = skip bw (broken) | C = toggle this text | F = fullscreen\nD = debug | S = dynamic scrolling | U = unload midi | E = skip event toggle\nR = reset playback | Space = start, pause continue playback \nto load a midi file drag and drop a file into the window\nremember to init the synth via pressing your number keys\n(1 = KDMAPI, 2 = XSynth)", 12, 45, 16, Raylib_cs.Color.White);
+                if (Raylib.GetTime() >= 4.0 && Raylib.GetTime() <= 4.5)
+                    controls = false;
             }
             if (Debug) Raylib.DrawText($"{MIDILoader.loadstatus} | MIDI: @{MIDIPlayer.MIDIFps} fps | Skip events?: {MIDIClock.skipevents}", 12, currentHeight - 19, 16, Raylib_cs.Color.SkyBlue);
             else Raylib.DrawText($"{MIDILoader.loadstatus}", 12, currentHeight - 19, 16, Raylib_cs.Color.SkyBlue);

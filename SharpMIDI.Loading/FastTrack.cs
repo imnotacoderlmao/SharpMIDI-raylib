@@ -1,4 +1,5 @@
 #pragma warning disable 8625
+using System.Runtime.CompilerServices;
 using MIDIModificationFramework;
 namespace SharpMIDI
 {
@@ -8,183 +9,201 @@ namespace SharpMIDI
         public long totalNotes = 0;
         public int trackMaxTick = 0;
         BufferByteReader reader = bbr;
-        public void ParseTrackEvents(MIDIEvent* destination)
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public void ParseTrackEvents(MIDIEvent* msgPtr, long* writeCursors, ushort track)
         {
-            MIDIEvent* outputPtr = destination;
             BufferByteReader stupid = reader;
             uint absolutetime = 0;
-            long eventAmount = 0;
             long notecount = 0;
             byte prevEvent = 0;
             while (true)
             {
-                //this is huge zenith inspiration lol, if you can't beat 'em, join 'em
                 uint delta = ReadVariableLen();
                 absolutetime += delta;
                 byte readEvent = stupid.ReadFast();
-                if (readEvent < 0x80)
-                {
-                    stupid.Pushback = readEvent;
-                    readEvent = prevEvent;
-                }
+                if (readEvent < 0x80) { stupid.Pushback = readEvent; readEvent = prevEvent; }
                 byte status = (byte)(readEvent & 0xF0);
                 byte channel = (byte)(readEvent & 0x0F);
                 prevEvent = readEvent;
-                // is this the right way in ordering sake? meta then midi events?
                 switch (readEvent)
                 {
                     case 0xF0:
-                        // thank you mmf
                         List<byte> data = new List<byte>() { readEvent };
                         byte b = 0;
-                        while (b != 0xF7)
-                        {
-                            b = stupid.Read();
-                            data.Add(b);
-                        }
-                        tempMIDIstorage.SysEx.Add(new SysEx
-                        {
-                            tick = absolutetime, 
-                            message = [.. data]
-                        });
+                        while (b != 0xF7) { b = stupid.Read(); data.Add(b); }
+                        tempMIDIstorage.SysEx.Add(new SysEx { tick = absolutetime, message = [.. data] });
                         break;
-                    case 0xF1:
-                        stupid.Skip(1);
-                        break;
-                    case 0xF2:
-                        stupid.Skip(2);
-                        break;
-                    case 0xF3:
-                        stupid.Skip(1);
-                        break;
+                    case 0xF1: stupid.Skip(1); break;
+                    case 0xF2: stupid.Skip(2); break;
+                    case 0xF3: stupid.Skip(1); break;
                     case 0xFF:
+                        readEvent = stupid.Read();
+                        int metaLength = (int)ReadVariableLen();
+                        if (readEvent == 0x51)
                         {
-                            readEvent = stupid.Read();
-                            int metaLength = (int)ReadVariableLen();
-                            if (readEvent == 0x51)
-                            {
-                                uint tempo = 0;
-                                for (int i = 0; i != 3; i++)
-                                    tempo = (tempo << 8) | stupid.Read();
-                                tempMIDIstorage.temppos.Add(new Tempo 
-                                { 
-                                    tick = absolutetime, 
-                                    tempo = tempo
-                                });
-                            }
-                            else if (readEvent == 0x2F)
-                            {
-                                if (absolutetime > MIDILoader.maxTick)
-                                {
-                                    MIDILoader.maxTick = (int)absolutetime;
-                                }
-                                trackMaxTick = (int)absolutetime;
-                                eventCount = eventAmount;
-                                totalNotes = notecount;
-                                return;
-                            }
-                            else
-                            {
-                                stupid.Skip(metaLength);
-                            }
+                            uint tempo = 0;
+                            for (int i = 0; i != 3; i++) tempo = (tempo << 8) | stupid.Read();
+                            tempMIDIstorage.temppos.Add(new Tempo { tick = absolutetime, tempo = tempo });
                         }
-                        break;
-                    default:
+                        else if (readEvent == 0x2F)
+                        {
+                            totalNotes = notecount;
+                            return;
+                        }
+                        else stupid.Skip(metaLength);
                         break;
                 }
                 switch (status)
                 {
                     case 0x80:
-                        {
-                            byte note = stupid.Read();
-                            byte vel = stupid.Read();
-                            outputPtr[eventAmount++] = new MIDIEvent
-                            {
-                                tick = absolutetime, 
-                                message = (uint24)(readEvent | (note << 8) | (vel << 16))
-                            };
-                        }
+                    {
+                        byte note = stupid.Read(); 
+                        byte vel = stupid.Read();
+                        long pos = Interlocked.Increment(ref writeCursors[absolutetime]) - 1;
+                        msgPtr[pos].message = (uint24)(readEvent | (note << 8) | (vel << 16) | (track << 24));
+                        msgPtr[pos].track = track;
                         break;
+                    }
                     case 0x90:
+                    {
+                        byte note = stupid.Read();
+                        byte vel = stupid.Read();
+                        if (vel != 0)
+                        { 
+                            notecount++; 
+                            long pos = Interlocked.Increment(ref writeCursors[absolutetime]) - 1; 
+                            msgPtr[pos].message = (uint24)(readEvent | (note << 8) | (vel << 16) | (track << 24));
+                            msgPtr[pos].track = track;
+                        }
+                        else 
+                        { 
+                            byte dummynoteoff = (byte)(0x80 | channel); 
+                            long pos = Interlocked.Increment(ref writeCursors[absolutetime]) - 1; 
+                            msgPtr[pos].message = (uint24)(dummynoteoff | (note << 8) | (64 << 16) | (track << 24));
+                            msgPtr[pos].track = track; 
+                        }
+                        break;
+                    }
+                    case 0xA0: 
+                    { 
+                        byte note = stupid.Read();
+                        byte pressure = stupid.Read(); 
+                        long pos = Interlocked.Increment(ref writeCursors[absolutetime]) - 1; 
+                        msgPtr[pos].message = (uint24)(readEvent | (note << 8) | (pressure << 16) | (track << 24));
+                        msgPtr[pos].track = track; 
+                        break; 
+                    }
+                    case 0xB0: 
+                    { 
+                        byte controller = stupid.Read();
+                        byte val = stupid.Read();      
+                        long pos = Interlocked.Increment(ref writeCursors[absolutetime]) - 1; 
+                        msgPtr[pos].message = (uint24)(readEvent | (controller << 8) | (val << 16) | (track << 24));
+                        msgPtr[pos].track = track; 
+                        break; 
+                    }
+                    case 0xC0: 
+                    { 
+                        byte prog = stupid.Read();                            
+                        long pos = Interlocked.Increment(ref writeCursors[absolutetime]) - 1; 
+                        msgPtr[pos].message = (uint24)(readEvent | (prog << 8) | (track << 16));
+                        msgPtr[pos].track = track; 
+                        break; 
+                    }
+                    case 0xD0: 
+                    { 
+                        byte pres = stupid.Read();                            
+                        long pos = Interlocked.Increment(ref writeCursors[absolutetime]) - 1; 
+                        msgPtr[pos].message = (uint24)(readEvent | (pres << 8) | (track << 16));
+                        msgPtr[pos].track = track; 
+                        break; 
+                    }
+                    case 0xE0: 
+                    { 
+                        byte lsb  = stupid.Read(); 
+                        byte msb = stupid.Read();      
+                        long pos = Interlocked.Increment(ref writeCursors[absolutetime]) - 1; 
+                        msgPtr[pos].message = (uint24)(readEvent | (lsb << 8) | (msb << 16) );
+                        msgPtr[pos].track = track; 
+                        break; 
+                    }
+                }
+            }
+        }
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public void ScanEvents(List<TickGroup> tickCounts)
+        {
+            BufferByteReader stupid = reader;
+            uint absolutetime = 0;
+            byte prevEvent = 0;
+            uint count = 0;
+            while (true)
+            {
+                uint delta = ReadVariableLen();
+                absolutetime += delta;
+                byte readEvent = stupid.ReadFast();
+                if (readEvent < 0x80) { stupid.Pushback = readEvent; readEvent = prevEvent; }
+                byte status = (byte)(readEvent & 0xF0);
+                prevEvent = readEvent;
+                switch (readEvent)
+                {
+                    case 0xF1: 
+                        stupid.Skip(1); 
+                    break;
+                    case 0xF2: 
+                        stupid.Skip(2); 
+                    break;
+                    case 0xF3: 
+                        stupid.Skip(1); 
+                    break;
+                    case 0xFF:
+                        readEvent = stupid.Read();
+                        int len = (int)ReadVariableLen();
+                        if (readEvent == 0x2F)
                         {
-                            byte note = stupid.Read();
-                            byte vel = stupid.Read();
-                            if (vel != 0)
+                            trackMaxTick = (int)absolutetime;
+                            if (trackMaxTick > MIDILoader.maxTick)
                             {
-                                notecount++;
-                                outputPtr[eventAmount++] = new MIDIEvent
-                                {
-                                    tick = absolutetime,
-                                    message = (uint24)(readEvent | (note << 8) | (vel << 16))   
-                                };
+                                MIDILoader.maxTick = trackMaxTick;
                             }
-                            else
+                            if (count > 0)
                             {
-                                byte dummynoteoff = (byte)(0x80 | channel);
-                                outputPtr[eventAmount++] = new MIDIEvent
-                                {
-                                    tick = absolutetime,
-                                    message =  (uint24)(dummynoteoff | (note << 8) | (64 << 16))
-                                };
+                                tickCounts.Add(new TickGroup{tick = absolutetime, count = count});
+                                eventCount += count;
                             }
+                            return;
                         }
+                        else stupid.Skip(len);
                         break;
-                    case 0xA0:
+                }
+                switch (status)
+                {
+                    case 0x80: case 0x90: case 0xA0: case 0xB0: case 0xE0: 
+                        stupid.Read(); stupid.Read(); 
+                        if (delta > 0) 
                         {
-                            byte note = stupid.Read();
-                            byte pressure = stupid.Read();
-                            outputPtr[eventAmount++] = new MIDIEvent 
-                            {
-                                tick = absolutetime,
-                                message = (uint24)(readEvent | (note << 8) | (pressure << 16))
-                            };
+                            uint last = absolutetime - delta;
+                            tickCounts.Add(new TickGroup{tick = last, count = count});
+                            eventCount += count;
+                            //Console.WriteLine($"scanned tick {absolutetime} at track {trackidx} w/count {count}. maxtick = {MIDILoader.maxTick}");
+                            count = 0;
                         }
-                        break;
-                    case 0xB0:
+                        count++;
+                    break;
+                    case 0xC0: case 0xD0: 
+                        stupid.Read(); 
+                        if (delta > 0) 
                         {
-                            byte controller = stupid.Read();
-                            byte value = stupid.Read();
-                            outputPtr[eventAmount++] = new MIDIEvent
-                            {
-                                tick = absolutetime, 
-                                message = (uint24)(readEvent | (controller << 8) | (value << 16))
-                            };
+                            uint last = absolutetime - delta;
+                            tickCounts.Add(new TickGroup{tick = last, count = count});
+                            eventCount += count;
+                            //Console.WriteLine($"scanned tick {absolutetime} at track {trackidx} w/count {count}. maxtick = {MIDILoader.maxTick}");
+                            count = 0;
                         }
-                        break;
-                    case 0xC0:
-                        {
-                            byte program = stupid.Read();
-                            outputPtr[eventAmount++] = new MIDIEvent 
-                            {
-                                tick = absolutetime, 
-                                message  = (uint24)(readEvent | (program << 8))
-                            };
-                        }
-                        break;
-                    case 0xD0:
-                        {
-                            byte pressure = stupid.Read();
-                            outputPtr[eventAmount++] = new MIDIEvent 
-                            {
-                                tick = absolutetime,
-                                message = (uint24)(readEvent | (pressure << 8))
-                            };
-                        }
-                        break;
-                    case 0xE0:
-                        {
-                            byte lsb = stupid.Read();
-                            byte msb = stupid.Read();
-                            outputPtr[eventAmount++] = new MIDIEvent
-                            {
-                                tick = absolutetime, 
-                                message = (uint24)(readEvent | (lsb << 8) | (msb << 16))
-                            };
-                        }
-                        break;
-                    default:
-                        break;
-                }   
+                        count++;
+                    break;
+                }
+
             }
         }
 

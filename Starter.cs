@@ -4,7 +4,7 @@ namespace SharpMIDI
     {
         static void Main()
         {
-            Renderer.WindowManager.StartRenderer();
+            WindowManager.StartRenderer();
             MIDILoader.UnloadMIDI();
         }
         public static string toMemoryText(long bytes)
