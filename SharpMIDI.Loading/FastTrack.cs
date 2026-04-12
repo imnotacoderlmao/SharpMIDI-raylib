@@ -37,10 +37,10 @@ namespace SharpMIDI
                         // thank you mmf
                         List<byte> data = new List<byte>() { readEvent };
                         byte b = 0;
-                        while (b != 0xF7)
+                        uint size = ReadVariableLen();
+                        for(uint i = 0; i < size; i++)
                         {
-                            b = stupid.Read();
-                            data.Add(b);
+                            data.Add(stupid.Read());
                         }
                         tempMIDIstorage.SysEx.Add(new SysEx
                         {

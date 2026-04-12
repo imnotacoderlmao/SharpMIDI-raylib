@@ -100,7 +100,7 @@ namespace SharpMIDI
                         dwFlags = 0
                     };
                     uint size = (uint)sizeof(MIDIHDR);
-                    Console.WriteLine($"\npreparing message {BitConverter.ToString(message)}\nwith length = {message.Length + 1}\nlpdata = {message[0]}\nsize = {size}");
+                    Console.WriteLine($"\nSending SysEx message: {BitConverter.ToString(message)}");
                     prepare = KDMAPI._prepareLongData(&header, size);
                     if (prepare == 0)
                     {
@@ -112,7 +112,10 @@ namespace SharpMIDI
                             unprepare = 0;
                         }
                     }
-                    Console.WriteLine($"sysex prepare,send,unprepare returned ({prepare},{send},{unprepare})");
+                    if (prepare != 0 || send != 0 || unprepare != 0)
+                    {
+                        Console.WriteLine($"sysex prepare,send,unprepare returned ({prepare},{send},{unprepare})");
+                    }
                 #elif LINUX
                     uint size = (uint)(message.Length * sizeof(byte));
                     uint send = KDMAPI._sendDirectLongDataLinux(messageptr, size);
