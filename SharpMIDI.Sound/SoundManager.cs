@@ -74,10 +74,10 @@ namespace SharpMIDI
             
             while (running)
             {
-                uint24 val = buffer[readidx];
+                uint val = (uint)buffer[readidx].Value;
                 if (val != 0)
                 {
-                    sendfn((uint)val.Value);
+                    sendfn(val);
                     buffer[readidx] = 0;
                 }
                 readidx++;

@@ -29,21 +29,37 @@ namespace SharpMIDI
                 {
                     case 0xF0:
                         List<byte> data = new List<byte>() { readEvent };
-                        byte b = 0;
-                        while (b != 0xF7) { b = stupid.Read(); data.Add(b); }
-                        tempMIDIstorage.SysEx.Add(new SysEx { tick = absolutetime, message = [.. data] });
+                        uint size = ReadVariableLen();
+                        for(uint i = 0; i < size; i++)
+                            data.Add(stupid.Read());
+                        tempMIDIstorage.SysEx.Add(new SysEx
+                        {
+                            tick = absolutetime, 
+                            message = [.. data]
+                        });
                         break;
-                    case 0xF1: stupid.Skip(1); break;
-                    case 0xF2: stupid.Skip(2); break;
-                    case 0xF3: stupid.Skip(1); break;
+                    case 0xF1: 
+                        stupid.Skip(1); 
+                        break;
+                    case 0xF2: 
+                        stupid.Skip(2); 
+                        break;
+                    case 0xF3: 
+                        stupid.Skip(1); 
+                        break;
                     case 0xFF:
                         readEvent = stupid.Read();
                         int metaLength = (int)ReadVariableLen();
                         if (readEvent == 0x51)
                         {
                             uint tempo = 0;
-                            for (int i = 0; i != 3; i++) tempo = (tempo << 8) | stupid.Read();
-                            tempMIDIstorage.temppos.Add(new Tempo { tick = absolutetime, tempo = tempo });
+                            for (int i = 0; i != 3; i++) 
+                                tempo = (tempo << 8) | stupid.Read();
+                            tempMIDIstorage.temppos.Add(new Tempo 
+                            { 
+                                tick = absolutetime, 
+                                tempo = tempo 
+                            });
                         }
                         else if (readEvent == 0x2F)
                         {
@@ -135,75 +151,93 @@ namespace SharpMIDI
         {
             BufferByteReader stupid = reader;
             uint absolutetime = 0;
+            uint lastTick = 0;
             byte prevEvent = 0;
             uint count = 0;
+
             while (true)
             {
                 uint delta = ReadVariableLen();
                 absolutetime += delta;
                 byte readEvent = stupid.ReadFast();
-                if (readEvent < 0x80) { stupid.Pushback = readEvent; readEvent = prevEvent; }
+
+                if (readEvent < 0x80) 
+                { 
+                    stupid.Pushback = readEvent; 
+                    readEvent = prevEvent; 
+                }
+
                 byte status = (byte)(readEvent & 0xF0);
                 prevEvent = readEvent;
                 switch (readEvent)
                 {
+                    case 0xF0:
+                        byte b;
+                        do { b = stupid.Read(); } while (b != 0xF7);
+                        continue;
                     case 0xF1: 
                         stupid.Skip(1); 
-                    break;
+                        continue;
                     case 0xF2: 
                         stupid.Skip(2); 
-                    break;
+                        continue;
                     case 0xF3: 
                         stupid.Skip(1); 
-                    break;
+                        continue;
                     case 0xFF:
                         readEvent = stupid.Read();
                         int len = (int)ReadVariableLen();
+
                         if (readEvent == 0x2F)
                         {
                             trackMaxTick = (int)absolutetime;
                             if (trackMaxTick > MIDILoader.maxTick)
-                            {
                                 MIDILoader.maxTick = trackMaxTick;
-                            }
                             if (count > 0)
                             {
-                                tickCounts.Add(new TickGroup{tick = absolutetime, count = count});
+                                tickCounts.Add(new TickGroup { tick = lastTick, count = count });
                                 eventCount += count;
                             }
                             return;
                         }
-                        else stupid.Skip(len);
-                        break;
+                        else 
+                        {
+                            stupid.Skip(len);
+                        }
+                        continue;
                 }
+                
+                bool isChannelEvent = false;
                 switch (status)
                 {
-                    case 0x80: case 0x90: case 0xA0: case 0xB0: case 0xE0: 
-                        stupid.Read(); stupid.Read(); 
-                        if (delta > 0) 
-                        {
-                            uint last = absolutetime - delta;
-                            tickCounts.Add(new TickGroup{tick = last, count = count});
-                            eventCount += count;
-                            //Console.WriteLine($"scanned tick {absolutetime} at track {trackidx} w/count {count}. maxtick = {MIDILoader.maxTick}");
-                            count = 0;
-                        }
-                        count++;
-                    break;
-                    case 0xC0: case 0xD0: 
-                        stupid.Read(); 
-                        if (delta > 0) 
-                        {
-                            uint last = absolutetime - delta;
-                            tickCounts.Add(new TickGroup{tick = last, count = count});
-                            eventCount += count;
-                            //Console.WriteLine($"scanned tick {absolutetime} at track {trackidx} w/count {count}. maxtick = {MIDILoader.maxTick}");
-                            count = 0;
-                        }
-                        count++;
-                    break;
+                    case 0x80:
+                    case 0x90:
+                    case 0xA0:
+                    case 0xB0:
+                    case 0xE0:
+                        stupid.Skip(2);
+                        isChannelEvent = true;
+                        break;
+
+                    case 0xC0:
+                    case 0xD0:
+                        stupid.Skip(1);
+                        isChannelEvent = true;
+                        break;
                 }
 
+                if (isChannelEvent)
+                {
+                    if (delta > 0 && count > 0)
+                    {
+                        tickCounts.Add(new TickGroup { tick = lastTick, count = count });
+                        eventCount += count;
+                        count = 0;
+                    }
+
+                    lastTick = absolutetime;
+                    count++;
+                }
             }
         }
 

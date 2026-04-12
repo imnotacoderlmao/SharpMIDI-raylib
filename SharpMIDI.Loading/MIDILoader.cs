@@ -73,7 +73,7 @@ namespace SharpMIDI
                     Console.WriteLine($"scanned track {i}/{trackAmount} event count = {t.eventCount}, total = {eventCount}");
                     t.Dispose();
                 }
-                
+                histogram.TrimExcess();
                 Console.WriteLine($"finished scanning {trackAmount} tracks. building tick groups for events");
                 long[] writeCursors = new long[maxTick + 2];
                 TickGroup[] tickgroup = new TickGroup[maxTick + 2];
@@ -93,9 +93,8 @@ namespace SharpMIDI
                     running += count;
                     count = 0;
                 }
-                histogram.Clear();
                 histogram = null;
-                Console.WriteLine($"eventcount = {eventCount} now that sums of ticks prefixed");
+                Console.WriteLine($"eventcount = {eventCount} now that sums of events per tick are prefixed");
                 BigArray<MIDIEvent> messages = new BigArray<MIDIEvent>((ulong)eventCount);
                 MIDIEvent* msgPtr = messages.Pointer;
                 loadstatus = $"actually parsing events now";

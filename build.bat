@@ -1,5 +1,4 @@
-rem this is way too simple lol
+rem this is la compile option, if you want to compile then choose what your os corresponds to
 
 dotnet publish -c Release -r win-x64
-dotnet publish -c Release -r win-x64 /p:PublishReadyToRun=true
-dotnet publish -c Release -r win-x86
+dotnet publish -c Release -r linux-x64

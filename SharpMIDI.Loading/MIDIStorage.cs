@@ -96,6 +96,5 @@ namespace SharpMIDI
         }
 
         public static implicit operator uint24(int value) => new uint24(value);
-        public static implicit operator int(uint24 value) => value.Value;
     }
 }

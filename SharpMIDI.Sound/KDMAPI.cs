@@ -1,8 +1,9 @@
 #pragma warning disable 169
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 namespace SharpMIDI
 {
-    [StructLayout(LayoutKind.Sequential)]
+    [StructLayout(LayoutKind.Sequential, Pack = 1)]
     public unsafe struct MIDIHDR
     {
         public byte* lpData;
@@ -10,6 +11,18 @@ namespace SharpMIDI
         public uint dwBytesRecorded;
         public IntPtr dwUser;
         public uint dwFlags;
+        public MIDIHDR* lpNext;
+        public IntPtr reserved;
+        public uint dwOffset;
+
+        public IntPtr dwReserved0;
+        public IntPtr dwReserved1;
+        public IntPtr dwReserved2;
+        public IntPtr dwReserved3;
+        public IntPtr dwReserved4;
+        public IntPtr dwReserved5;
+        public IntPtr dwReserved6;
+        public IntPtr dwReserved7;
     }
     static unsafe class KDMAPI
     {
