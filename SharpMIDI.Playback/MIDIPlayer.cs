@@ -5,6 +5,7 @@ namespace SharpMIDI
     static unsafe class MIDIPlayer
     {
         public static byte[] gmreset = [0xF0, 0x7E, 0x7F, 0x09, 0x01, 0xF7];
+        public static byte[] rolandreset = [0xF0, 0x41, 0x10, 0x42, 0x12, 0x40, 0x00, 0x7F, 0x00, 0x41, 0xF7];
         public static long totalFrames = 0;
         public static long playedEvents, playedevents2, eventspersec = 0;
         public static long MIDIFps = 0;
@@ -80,9 +81,10 @@ namespace SharpMIDI
                 }
             }
             MIDIClock.Reset();
+            SubmitSysEx(gmreset);
+            SubmitSysEx(rolandreset);
             Sound.AllNotesOFF();
             Sound.KillAudioThread();
-            SubmitSysEx(gmreset);
             Console.WriteLine("Playback finished...");
         }
 

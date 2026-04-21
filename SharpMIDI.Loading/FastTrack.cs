@@ -36,7 +36,6 @@ namespace SharpMIDI
                     case 0xF0:
                         // thank you mmf
                         List<byte> data = new List<byte>() { readEvent };
-                        byte b = 0;
                         uint size = ReadVariableLen();
                         for(uint i = 0; i < size; i++)
                         {
