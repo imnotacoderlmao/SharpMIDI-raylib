@@ -65,16 +65,17 @@ namespace SharpMIDI
                 loadstatus = $"scanning events for grouping";
                 // this will very severely overallocate. for now ill just let it since it wont be as big of an allocation as the events itself
                 // plus itll get freed after building the actual tickgroup, it does become a problem at huge track counts though
-                for (int i = 0; i < trackAmount; i++)
+                Parallel.For (0, trackAmount, i =>
                 {
                     FastTrack t = new FastTrack(new BufferByteReader(threadStream, 64*1024, trackProperties[i].start, trackProperties[i].len));
                     t.ScanEvents(histogram);
                     eventCount += t.eventCount;
-                    Console.WriteLine($"scanned track {i}/{trackAmount} event count = {t.eventCount}, total = {eventCount}");
+                    loadedtracks++;
+                    Console.WriteLine($"scanned track {loadedtracks}/{trackAmount} event count = {t.eventCount}, total = {eventCount}");
                     t.Dispose();
-                }
+                });
                 histogram.TrimExcess();
-                Console.WriteLine($"finished scanning {trackAmount} tracks. building tick groups for events");
+                Console.WriteLine($"finished scanning {trackAmount} tracks with {eventCount} events, building tick groups for events");
                 long[] writeCursors = new long[maxTick + 2];
                 TickGroup[] tickgroup = new TickGroup[maxTick + 2];
                 histogram.Sort((a, b) => a.tick.CompareTo(b.tick));
@@ -94,16 +95,18 @@ namespace SharpMIDI
                     count = 0;
                 }
                 histogram = null;
-                Console.WriteLine($"eventcount = {eventCount} now that sums of events per tick are prefixed");
-                BigArray<MIDIEvent> messages = new BigArray<MIDIEvent>((ulong)eventCount);
-                MIDIEvent* msgPtr = messages.Pointer;
+                SynthEvent.Alloc(eventCount);
+                uint24* msgPtr = SynthEvent.messages.Pointer;
+                ushort* trackPtr = SynthEvent.track.Pointer;
                 loadstatus = $"actually parsing events now";
+                Console.WriteLine(loadstatus);
+                loadedtracks = 0;
                 Parallel.For(0, trackAmount, i =>
                 {
                     fixed (long* wc = writeCursors)
                     {
                         FastTrack t = new FastTrack(new BufferByteReader(threadStream, 256*1024, trackProperties[i].start, trackProperties[i].len));
-                        t.ParseTrackEvents(msgPtr, wc, (ushort)i);
+                        t.ParseTrackEvents(msgPtr, trackPtr, wc, (ushort)i);
                         totalNotes += t.totalNotes;
                         loadedtracks++;
                         loadstatus = $"Loading {filename} ({loadedtracks}/{trackAmount} tracks, {totalNotes} notes loaded)";
@@ -114,22 +117,22 @@ namespace SharpMIDI
                 threadStream.Dispose();
                 midistream.Close();
                 tickgroup[maxTick + 1] = new TickGroup { tick = uint.MaxValue, count = 0, offset = running };
-                MIDI.MIDIEventArray = messages;
-                MIDI.TickGroupArray = tickgroup;
+                MIDIEvent.TickGroupArray = tickgroup;
                 MIDIRenderer.InitializeForMIDI();
                 Console.WriteLine($"\nLoaded {filename} with {totalNotes} notes loaded from {trackAmount} tracks");
                 string memusage = Starter.toMemoryText(Process.GetCurrentProcess().WorkingSet64);
-                string eventmemusage = Starter.toMemoryText((long)MIDI.MIDIEventArray.Length * sizeof(uint));
-                string timingmemusage = Starter.toMemoryText((long)MIDI.TickGroupArray.Length * sizeof(uint));
-                Console.WriteLine($"current memory usage: {memusage} | events: {eventmemusage}\ntiming: {timingmemusage}");
+                string eventmemusage = Starter.toMemoryText(SynthEvent.messages.Length * sizeof(uint24));
+                string trackmemusage = Starter.toMemoryText(SynthEvent.track.Length * sizeof(ushort));
+                string timingmemusage = Starter.toMemoryText(MIDIEvent.TickGroupArray.Length * sizeof(uint));
+                Console.WriteLine($"current memory usage: {memusage} | events: {eventmemusage}\ntrack index: {trackmemusage} timing: {timingmemusage}");
             }
 
             tempMIDIstorage.temppos.Add(new Tempo { tick = uint.MaxValue });
             tempMIDIstorage.SysEx.Add(new SysEx { tick = uint.MaxValue, message = [] });
-            MIDI.TempoEventArray = [.. tempMIDIstorage.temppos];
-            MIDI.SysExArray = [.. tempMIDIstorage.SysEx];
-            Array.Sort(MIDI.TempoEventArray, (a, b) => a.tick.CompareTo(b.tick));
-            Array.Sort(MIDI.SysExArray, (a, b) => a.tick.CompareTo(b.tick));
+            MIDIEvent.TempoEventArray = [.. tempMIDIstorage.temppos];
+            MIDIEvent.SysExArray = [.. tempMIDIstorage.SysEx];
+            Array.Sort(MIDIEvent.TempoEventArray, (a, b) => a.tick.CompareTo(b.tick));
+            Array.Sort(MIDIEvent.SysExArray, (a, b) => a.tick.CompareTo(b.tick));
             tempMIDIstorage.temppos = null;
             tempMIDIstorage.SysEx = null;
             midiLoaded = true;
@@ -151,10 +154,10 @@ namespace SharpMIDI
             MIDIRenderer.ResetForUnload();
             tempMIDIstorage.SysEx = [];
             tempMIDIstorage.temppos = [];
-            MIDI.MIDIEventArray?.Dispose();
-            MIDI.TempoEventArray = null;
-            MIDI.SysExArray = null;
-            MIDI.TickGroupArray = null;
+            SynthEvent.Dispose();
+            MIDIEvent.TempoEventArray = null;
+            MIDIEvent.SysExArray = null;
+            MIDIEvent.TickGroupArray = null;
             loadstatus = $"No MIDI Loaded";
             GC.Collect();
         }

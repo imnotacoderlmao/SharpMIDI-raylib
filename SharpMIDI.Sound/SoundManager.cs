@@ -1,15 +1,41 @@
 using System.Runtime.InteropServices;
 namespace SharpMIDI
 {
+    [StructLayout(LayoutKind.Sequential, Pack = 1)]
+    public unsafe struct MIDIHDR
+    {
+        public byte* lpData;
+        public uint dwBufferLength;
+        public uint dwBytesRecorded;
+        public IntPtr dwUser;
+        public uint dwFlags;
+        public MIDIHDR* lpNext;
+        public IntPtr reserved;
+        public uint dwOffset;
+
+        public IntPtr dwReserved0;
+        public IntPtr dwReserved1;
+        public IntPtr dwReserved2;
+        public IntPtr dwReserved3;
+        public IntPtr dwReserved4;
+        public IntPtr dwReserved5;
+        public IntPtr dwReserved6;
+        public IntPtr dwReserved7;
+    }
+    
     static unsafe class Sound
     {
         public static uint24* ringbuffer;
         public const int bufferSize = ushort.MaxValue;
         static bool running = false;
         public static bool issynthinitiated = false;
+        //static string lastWinMMDevice = "";
         static Thread? audthread; 
+        //private static IntPtr? handle;
         private static int engine = 0;
-        public static delegate* unmanaged[SuppressGCTransition]<uint,void> sendTo;
+        public static delegate* unmanaged[SuppressGCTransition]<uint, void> sendTo;
+        //public static delegate* unmanaged[SuppressGCTransition]<IntPtr, uint, uint> sendToWinMM
+        //public static void InitSynth(string synth, string WinMMDevice)
         public static void InitSynth(string synth)
         {
             Close();
@@ -27,26 +53,25 @@ namespace SharpMIDI
                         return;
                     } catch (DllNotFoundException) 
                     { 
-                        Console.WriteLine("KDMAPI is not available.");
+                        Console.WriteLine($"{synth} is not available.");
+                        MIDILoader.loadstatus = $"{synth} is not available."; 
                         return;
                     }
-                case "XSynth":
-                    try 
+                /*case "WinMM":
+                    (bool, string, string, IntPtr?, MidiOutCaps?) result = WinMM.Setup(WinMMDevice);
+                    if (!result.Item1)
                     {
-                        XSynth.Load();
-                        XSynth._initializeKDMAPIStream();
-                        engine = 3;
-                        sendTo = XSynth._sendDirectData;
-                        issynthinitiated = true; 
+                        Console.WriteLine(result.Item3);
                         return;
-                    } catch (DllNotFoundException) 
-                    { 
-                        Console.WriteLine("XSynth is not available."); 
-                        return; 
                     }
-                default:
-                    Console.WriteLine($"{synth} is not a valid option!");
-                    return;
+                    else
+                    {
+                        engine = 2;
+                        sendToWinMM = WinMM._midiOutShortMsg;
+                        handle = result.Item4;
+                        lastWinMMDevice = WinMMDevice;
+                        return;
+                    }*/
             }
         }
 
@@ -107,9 +132,9 @@ namespace SharpMIDI
                 case 1:
                     KDMAPI._terminateKDMAPIStream();
                     return;
-                case 2:
-                    XSynth._terminateKDMAPIStream();
-                    return;
+                /*case 2:
+                    WinMM._midiOutClose();
+                    return;*/
             }
         }
     }

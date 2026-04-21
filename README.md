@@ -12,7 +12,7 @@ midi files maybe
 
 IF you want pretty fast MIDI playback, Download [OmniMIDI](https://github.com/KeppySoftware/OmniMIDI/releases) to leverage [KDMAPI](https://github.com/KeppySoftware/OmniMIDI/blob/master/DeveloperContent/KDMAPI.md).
 
-(Also supports XSynth DLLs on x64 builds of SharpMIDI. Make sure they are named "XSynth.dll"!!1111)
+~~(Also supports XSynth DLLs on x64 builds of SharpMIDI. Make sure they are named "XSynth.dll"!!1111)~~
 
 ## Build Info
 

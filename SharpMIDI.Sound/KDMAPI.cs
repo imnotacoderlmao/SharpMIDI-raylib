@@ -1,32 +1,9 @@
 #pragma warning disable 169
-using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 namespace SharpMIDI
 {
-    [StructLayout(LayoutKind.Sequential, Pack = 1)]
-    public unsafe struct MIDIHDR
-    {
-        public byte* lpData;
-        public uint dwBufferLength;
-        public uint dwBytesRecorded;
-        public IntPtr dwUser;
-        public uint dwFlags;
-        public MIDIHDR* lpNext;
-        public IntPtr reserved;
-        public uint dwOffset;
-
-        public IntPtr dwReserved0;
-        public IntPtr dwReserved1;
-        public IntPtr dwReserved2;
-        public IntPtr dwReserved3;
-        public IntPtr dwReserved4;
-        public IntPtr dwReserved5;
-        public IntPtr dwReserved6;
-        public IntPtr dwReserved7;
-    }
     static unsafe class KDMAPI
     {
-
         public enum OMSettingMode
         {
             OM_SET = 0x0,
@@ -82,6 +59,7 @@ namespace SharpMIDI
         }
         static IntPtr lib;
         public static delegate* unmanaged[SuppressGCTransition]<uint, void> _sendDirectData;
+        //public static delegate* unmanaged<int> _getActiveVoices;
         public static delegate* unmanaged<bool> _isKDMAPIAvailable;
         public static delegate* unmanaged<int> _initializeKDMAPIStream;
         public static delegate* unmanaged<int> _terminateKDMAPIStream;
@@ -111,6 +89,7 @@ namespace SharpMIDI
             _initializeKDMAPIStream = (delegate* unmanaged<int>) NativeLibrary.GetExport(lib, "InitializeKDMAPIStream");
             _terminateKDMAPIStream  = (delegate* unmanaged<int>) NativeLibrary.GetExport(lib, "TerminateKDMAPIStream");
             _resetKDMAPIStream = (delegate* unmanaged<void>) NativeLibrary.GetExport(lib, "ResetKDMAPIStream");
+            //_getActiveVoices = (delegate* unmanaged<int>) NativeLibrary.GetExport(lib, "GetVoiceCount");
         }
     }
 }

@@ -1,11 +1,24 @@
 using System.Runtime.InteropServices;
 namespace SharpMIDI
 {
-    [StructLayout(LayoutKind.Sequential, Pack = 1)]
-    public struct MIDIEvent
+    public static class SynthEvent
     {
-        public uint24 message;
-        public ushort track;
+        public static BigArray<uint24> messages;
+        public static BigArray<ushort> track;
+
+        public static void Alloc(long length)
+        {
+            messages = new BigArray<uint24>(length);
+            track = new BigArray<ushort>(length);
+        }
+
+        public static void Dispose()
+        {
+            messages?.Dispose(); 
+            messages = null;
+            track?.Dispose();   
+            track = null;
+        }
     }
     
     public struct Tempo
@@ -28,10 +41,8 @@ namespace SharpMIDI
         public long offset;
     }
     
-    static class MIDI
+    static class MIDIEvent
     {
-        // is there a better way to do this without bloating the midi class too much
-        public static BigArray<MIDIEvent> MIDIEventArray;
         public static TickGroup[] TickGroupArray = Array.Empty<TickGroup>();
         public static Tempo[] TempoEventArray = Array.Empty<Tempo>();
         public static SysEx[] SysExArray = Array.Empty<SysEx>();
@@ -45,21 +56,21 @@ namespace SharpMIDI
     
     public unsafe class BigArray<T> : IDisposable
     {
-        public ulong Length;
+        public long Length;
         private T* ptr;
         public T* Pointer => ptr;
         
-        public BigArray(ulong length)
+        public BigArray(long length)
         {
             Length = length;
-            ulong bytes = Length * (ulong)sizeof(T);
+            long bytes = Length * sizeof(T);
             ptr = (T*)NativeMemory.Alloc((nuint)bytes);
         }
 
-        public void Resize(ulong newLength)
+        public void Resize(long newLength)
         {
             Length = newLength;
-            ulong bytes = Length * (ulong)sizeof(T);
+            long bytes = Length * sizeof(T);
             ptr = (T*)NativeMemory.Realloc(ptr, (nuint)bytes);
         }
 

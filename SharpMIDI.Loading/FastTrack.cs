@@ -10,7 +10,7 @@ namespace SharpMIDI
         public int trackMaxTick = 0;
         BufferByteReader reader = bbr;
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public void ParseTrackEvents(MIDIEvent* msgPtr, long* writeCursors, ushort track)
+        public void ParseTrackEvents(uint24* msgPtr, ushort* trackPtr, long* writeCursors, ushort track)
         {
             BufferByteReader stupid = reader;
             uint absolutetime = 0;
@@ -21,7 +21,11 @@ namespace SharpMIDI
                 uint delta = ReadVariableLen();
                 absolutetime += delta;
                 byte readEvent = stupid.ReadFast();
-                if (readEvent < 0x80) { stupid.Pushback = readEvent; readEvent = prevEvent; }
+                if (readEvent < 0x80) 
+                { 
+                    stupid.Pushback = readEvent; 
+                    readEvent = prevEvent; 
+                }
                 byte status = (byte)(readEvent & 0xF0);
                 byte channel = (byte)(readEvent & 0x0F);
                 prevEvent = readEvent;
@@ -49,11 +53,11 @@ namespace SharpMIDI
                         break;
                     case 0xFF:
                         readEvent = stupid.Read();
-                        int metaLength = (int)ReadVariableLen();
                         if (readEvent == 0x51)
                         {
+                            uint len = ReadVariableLen();
                             uint tempo = 0;
-                            for (int i = 0; i != 3; i++) 
+                            for (int i = 0; i < len; i++) 
                                 tempo = (tempo << 8) | stupid.Read();
                             tempMIDIstorage.temppos.Add(new Tempo 
                             { 
@@ -66,7 +70,7 @@ namespace SharpMIDI
                             totalNotes = notecount;
                             return;
                         }
-                        else stupid.Skip(metaLength);
+                        else stupid.Skip((int)ReadVariableLen());
                         break;
                 }
                 switch (status)
@@ -76,8 +80,8 @@ namespace SharpMIDI
                         byte note = stupid.Read(); 
                         byte vel = stupid.Read();
                         long pos = Interlocked.Increment(ref writeCursors[absolutetime]) - 1;
-                        msgPtr[pos].message = (uint24)(readEvent | (note << 8) | (vel << 16) | (track << 24));
-                        msgPtr[pos].track = track;
+                        msgPtr[pos] = (uint24)(readEvent | (note << 8) | (vel << 16));
+                        trackPtr[pos] = track;
                         break;
                     }
                     case 0x90:
@@ -88,15 +92,15 @@ namespace SharpMIDI
                         { 
                             notecount++; 
                             long pos = Interlocked.Increment(ref writeCursors[absolutetime]) - 1; 
-                            msgPtr[pos].message = (uint24)(readEvent | (note << 8) | (vel << 16) | (track << 24));
-                            msgPtr[pos].track = track;
+                            msgPtr[pos] = (uint24)(readEvent | (note << 8) | (vel << 16));
+                            trackPtr[pos] = track;
                         }
                         else 
                         { 
                             byte dummynoteoff = (byte)(0x80 | channel); 
                             long pos = Interlocked.Increment(ref writeCursors[absolutetime]) - 1; 
-                            msgPtr[pos].message = (uint24)(dummynoteoff | (note << 8) | (64 << 16) | (track << 24));
-                            msgPtr[pos].track = track; 
+                            msgPtr[pos] = (uint24)(dummynoteoff | (note << 8) | (64 << 16));
+                            trackPtr[pos] = track; 
                         }
                         break;
                     }
@@ -105,8 +109,8 @@ namespace SharpMIDI
                         byte note = stupid.Read();
                         byte pressure = stupid.Read(); 
                         long pos = Interlocked.Increment(ref writeCursors[absolutetime]) - 1; 
-                        msgPtr[pos].message = (uint24)(readEvent | (note << 8) | (pressure << 16) | (track << 24));
-                        msgPtr[pos].track = track; 
+                        msgPtr[pos] = (uint24)(readEvent | (note << 8) | (pressure << 16));
+                        trackPtr[pos] = track; 
                         break; 
                     }
                     case 0xB0: 
@@ -114,24 +118,24 @@ namespace SharpMIDI
                         byte controller = stupid.Read();
                         byte val = stupid.Read();      
                         long pos = Interlocked.Increment(ref writeCursors[absolutetime]) - 1; 
-                        msgPtr[pos].message = (uint24)(readEvent | (controller << 8) | (val << 16) | (track << 24));
-                        msgPtr[pos].track = track; 
+                        msgPtr[pos] = (uint24)(readEvent | (controller << 8) | (val << 16));
+                        trackPtr[pos] = track; 
                         break; 
                     }
                     case 0xC0: 
                     { 
                         byte prog = stupid.Read();                            
                         long pos = Interlocked.Increment(ref writeCursors[absolutetime]) - 1; 
-                        msgPtr[pos].message = (uint24)(readEvent | (prog << 8) | (track << 16));
-                        msgPtr[pos].track = track; 
+                        msgPtr[pos] = (uint24)(readEvent | (prog << 8));
+                        trackPtr[pos] = track; 
                         break; 
                     }
                     case 0xD0: 
                     { 
                         byte pres = stupid.Read();                            
                         long pos = Interlocked.Increment(ref writeCursors[absolutetime]) - 1; 
-                        msgPtr[pos].message = (uint24)(readEvent | (pres << 8) | (track << 16));
-                        msgPtr[pos].track = track; 
+                        msgPtr[pos] = (uint24)(readEvent | (pres << 8));
+                        trackPtr[pos] = track; 
                         break; 
                     }
                     case 0xE0: 
@@ -139,8 +143,8 @@ namespace SharpMIDI
                         byte lsb  = stupid.Read(); 
                         byte msb = stupid.Read();      
                         long pos = Interlocked.Increment(ref writeCursors[absolutetime]) - 1; 
-                        msgPtr[pos].message = (uint24)(readEvent | (lsb << 8) | (msb << 16) );
-                        msgPtr[pos].track = track; 
+                        msgPtr[pos] = (uint24)(readEvent | (lsb << 8) | (msb << 16));
+                        trackPtr[pos] = track; 
                         break; 
                     }
                 }
@@ -195,8 +199,11 @@ namespace SharpMIDI
                                 MIDILoader.maxTick = trackMaxTick;
                             if (count > 0)
                             {
-                                tickCounts.Add(new TickGroup { tick = lastTick, count = count });
-                                eventCount += count;
+                                lock(tickCounts)
+                                {
+                                    tickCounts.Add(new TickGroup { tick = lastTick, count = count });
+                                    eventCount += count;
+                                }
                             }
                             return;
                         }
@@ -230,9 +237,12 @@ namespace SharpMIDI
                 {
                     if (delta > 0 && count > 0)
                     {
-                        tickCounts.Add(new TickGroup { tick = lastTick, count = count });
-                        eventCount += count;
-                        count = 0;
+                        lock(tickCounts)
+                        {
+                            tickCounts.Add(new TickGroup { tick = lastTick, count = count });
+                            eventCount += count;
+                            count = 0;
+                        }
                     }
 
                     lastTick = absolutetime;

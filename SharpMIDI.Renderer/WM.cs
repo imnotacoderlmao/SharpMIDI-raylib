@@ -9,7 +9,6 @@ namespace SharpMIDI
     {
         public const int PAD = 20;
         private static float scrollfactor = 1f;
-        public static double tick = 0;
         public static int  memusagecallcount = 0;
         public static long memusage = 0;
         static string filepath;
@@ -43,13 +42,12 @@ namespace SharpMIDI
             {
                 UpdateWindowDimensions();
                 HandleInput();
-                tick = MIDIClock.tick;
 
                 if (dynascroll && MIDIRenderer.WindowTicks != MIDIClock.tickscale)
                     MIDIRenderer.SetWindow((float)MIDIClock.tickscale * scrollfactor);
 
-                if (!MIDIPlayer.stopping) MIDIPlayer.UpdatePlaybackStats((int)tick);
-                MIDIRenderer.UpdateStreaming(tick);
+                if (!MIDIPlayer.stopping) MIDIPlayer.UpdatePlaybackStats((int)MIDIClock.tick);
+                MIDIRenderer.UpdateStreaming(MIDIClock.tick);
 
                 Raylib.BeginDrawing();
                 Raylib.ClearBackground(Raylib_cs.Color.Black);
@@ -58,7 +56,8 @@ namespace SharpMIDI
                 DrawUI();
                 Raylib.EndDrawing();
             }
-
+            
+            MIDILoader.UnloadMIDI();
             Raylib.CloseWindow();
             IsRunning = false;
         }
@@ -126,8 +125,12 @@ namespace SharpMIDI
 
             if (Raylib.IsKeyPressed(KeyboardKey.One))
                 Sound.InitSynth("KDMAPI");
-            if (Raylib.IsKeyPressed(KeyboardKey.Two))
-                Sound.InitSynth("XSynth");
+            
+            /*if (Raylib.IsKeyPressed(KeyboardKey.Two))
+            {
+                List<string> devs = WinMM.GetDevices();
+                Sound.InitSynth("WinMM");
+            }*/
 
             if (Raylib.IsKeyPressed(KeyboardKey.Up) || Raylib.IsKeyPressedRepeat(KeyboardKey.Up))
             {
@@ -153,8 +156,6 @@ namespace SharpMIDI
             if (Raylib.IsKeyPressed(KeyboardKey.Right) || Raylib.IsKeyPressedRepeat(KeyboardKey.Right))
             {
                 MIDIClock.tick += MIDIClock.tickscale;
-                // FIX: must force a full redraw after seeking — without this the renderer
-                //      sees a huge newColCount and tries to scroll for one garbage frame.
                 MIDIRenderer.forceFullRedraw = true;
             }
 
@@ -188,7 +189,7 @@ namespace SharpMIDI
 
         private static void DrawUI()
         {
-            Raylib.DrawText($"Tick: {(long)tick} | Tempo: {MIDIClock.bpm:F1} | Zoom: {(int)MIDIRenderer.WindowTicks} | FPS: {Raylib.GetFPS()}", 12, 4, 16, Raylib_cs.Color.Green);
+            Raylib.DrawText($"Tick: {(long)MIDIClock.tick} | Tempo: {MIDIClock.bpm:F1} | Zoom: {(int)MIDIRenderer.WindowTicks} | FPS: {Raylib.GetFPS()}", 12, 4, 16, Raylib_cs.Color.Green);
             if (controls)
             {
                 Raylib.DrawText(
@@ -198,7 +199,7 @@ namespace SharpMIDI
                     "R = reset playback | Space = start, pause continue playback\n" +
                     "to load a midi file drag and drop a file into the window\n" +
                     "remember to init the synth via pressing your number keys\n" +
-                    "(1 = KDMAPI, 2 = XSynth)",
+                    "(1 = KDMAPI)",
                     12, 45, 16, Raylib_cs.Color.White);
                 if (Raylib.GetTime() >= 4.0 && Raylib.GetTime() <= 4.5)
                     controls = false;

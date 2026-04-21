@@ -1,6 +1,4 @@
-﻿using System.Runtime.InteropServices;
-
-namespace SharpMIDI
+﻿namespace SharpMIDI
 {
     static unsafe class MIDIPlayer
     {
@@ -27,14 +25,14 @@ namespace SharpMIDI
             playedEvents = 0;
             playedevents2 = 0;
             stopping = false;
-            var midiev = MIDI.MIDIEventArray;
-            MIDIEvent* msgptr = midiev.Pointer;
-            MIDIEvent* msgcur = msgptr;
-            TickGroup[] tickGroupArr = MIDI.TickGroupArray;
-            Tempo[] tevs = MIDI.TempoEventArray;
-            SysEx[] sysExes = MIDI.SysExArray;
-            uint clock = 0;
+            var midiev = SynthEvent.messages;
+            uint24* msgptr = midiev.Pointer;
+            uint24* msgcur = msgptr;
             uint24* buffer = Sound.ringbuffer;
+            TickGroup[] tickGroupArr = MIDIEvent.TickGroupArray;
+            Tempo[] tevs = MIDIEvent.TempoEventArray;
+            SysEx[] sysExes = MIDIEvent.SysExArray;
+            uint clock = 0;
             uint sysexidx = 0;
             Sound.StartAudioThread();
             MIDIClock.Start();
@@ -60,9 +58,9 @@ namespace SharpMIDI
                         }
                         while (currtg->tick <= clock)
                         {
-                            MIDIEvent* groupEnd = msgcur + currtg->count;
+                            uint24* groupEnd = msgcur + currtg->count;
                             while (msgcur < groupEnd)
-                                buffer[(ushort)msgcur] = msgcur++->message;
+                                buffer[(ushort)msgcur] = *msgcur++;
                             playedEvents += currtg->count;
                             currtg++;
                         }
@@ -79,10 +77,10 @@ namespace SharpMIDI
                     }
                 }
             }
+            SubmitSysEx(gmreset);
             MIDIClock.Reset();
             Sound.AllNotesOFF();
             Sound.KillAudioThread();
-            SubmitSysEx(gmreset);
             Console.WriteLine("Playback finished...");
         }
 
@@ -90,17 +88,20 @@ namespace SharpMIDI
         {
             fixed (byte* messageptr = message)
             {
-                #if WINDOWS 
+                MIDIHDR header = new MIDIHDR 
+                {
+                    lpData = messageptr,
+                    dwBufferLength = (uint)message.Length,
+                    dwBytesRecorded = (uint)message.Length,
+                    dwFlags = 0
+                };
+                uint size = (uint)sizeof(MIDIHDR);
+                Console.WriteLine($"\nSending SysEx message: {BitConverter.ToString(message)}");
+                #if LINUX
+                    uint send = KDMAPI._sendDirectLongDataLinux(messageptr, (uint)(sizeof(byte) * message.Length));
+                    Console.WriteLine($"sysex send returned ({send})");
+                #elif WINDOWS 
                     uint prepare = 255, send = 255, unprepare = 255; // fallback values
-                    MIDIHDR header = new MIDIHDR 
-                    {
-                        lpData = messageptr,
-                        dwBufferLength = (uint)message.Length,
-                        dwBytesRecorded = (uint)message.Length,
-                        dwFlags = 0
-                    };
-                    uint size = (uint)sizeof(MIDIHDR);
-                    Console.WriteLine($"\nSending SysEx message: {BitConverter.ToString(message)}");
                     prepare = KDMAPI._prepareLongData(&header, size);
                     if (prepare == 0)
                     {
@@ -116,10 +117,6 @@ namespace SharpMIDI
                     {
                         Console.WriteLine($"sysex prepare,send,unprepare returned ({prepare},{send},{unprepare})");
                     }
-                #elif LINUX
-                    uint size = (uint)(message.Length * sizeof(byte));
-                    uint send = KDMAPI._sendDirectLongDataLinux(messageptr, size);
-                    Console.WriteLine($"sysex send returned ({send})");
                 #endif
             }
         }
@@ -137,7 +134,7 @@ namespace SharpMIDI
                 totalFrames = 0;
                 last = Timer.Seconds();
             }
-            Console.Write($"\rTick: {tick} / {MIDILoader.maxTick} | Played Events: {playedEvents} / {MIDILoader.eventCount} ({eventspersec}/s) | MIDI Thread: @{MIDIFps} fps | Skip events?: {MIDIClock.skipevents}          ");
+            Console.Write($"\rTick: {tick} / {MIDILoader.maxTick} | Played Events: {playedEvents} / {MIDILoader.eventCount} ({eventspersec}/s) | MIDI Thread: @{MIDIFps} fps | Skip events?: {MIDIClock.skipevents}         ");
         }
     }
 }
