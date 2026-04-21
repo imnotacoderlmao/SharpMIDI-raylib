@@ -35,7 +35,9 @@ namespace SharpMIDI
                         List<byte> data = new List<byte>() { readEvent };
                         uint size = ReadVariableLen();
                         for(uint i = 0; i < size; i++)
+                        {
                             data.Add(stupid.Read());
+                        }
                         tempMIDIstorage.SysEx.Add(new SysEx
                         {
                             tick = absolutetime, 

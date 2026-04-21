@@ -3,6 +3,7 @@
     static unsafe class MIDIPlayer
     {
         public static byte[] gmreset = [0xF0, 0x7E, 0x7F, 0x09, 0x01, 0xF7];
+        public static byte[] rolandreset = [0xF0, 0x41, 0x10, 0x42, 0x12, 0x40, 0x00, 0x7F, 0x00, 0x41, 0xF7];
         public static long totalFrames = 0;
         public static long playedEvents, playedevents2, eventspersec = 0;
         public static long MIDIFps = 0;
@@ -79,6 +80,8 @@
             }
             SubmitSysEx(gmreset);
             MIDIClock.Reset();
+            SubmitSysEx(gmreset);
+            SubmitSysEx(rolandreset);
             Sound.AllNotesOFF();
             Sound.KillAudioThread();
             Console.WriteLine("Playback finished...");
@@ -88,20 +91,21 @@
         {
             fixed (byte* messageptr = message)
             {
-                MIDIHDR header = new MIDIHDR 
-                {
-                    lpData = messageptr,
-                    dwBufferLength = (uint)message.Length,
-                    dwBytesRecorded = (uint)message.Length,
-                    dwFlags = 0
-                };
-                uint size = (uint)sizeof(MIDIHDR);
                 Console.WriteLine($"\nSending SysEx message: {BitConverter.ToString(message)}");
                 #if LINUX
                     uint send = KDMAPI._sendDirectLongDataLinux(messageptr, (uint)(sizeof(byte) * message.Length));
                     Console.WriteLine($"sysex send returned ({send})");
                 #elif WINDOWS 
                     uint prepare = 255, send = 255, unprepare = 255; // fallback values
+                    MIDIHDR header = new MIDIHDR 
+                    {
+                        lpData = messageptr,
+                        dwBufferLength = (uint)message.Length,
+                        dwBytesRecorded = (uint)message.Length,
+                        dwFlags = 0
+                    };
+                    uint size = (uint)sizeof(MIDIHDR);
+                    Console.WriteLine($"\nSending SysEx message: {BitConverter.ToString(message)}");
                     prepare = KDMAPI._prepareLongData(&header, size);
                     if (prepare == 0)
                     {
