@@ -106,7 +106,9 @@ namespace SharpMIDI
             tempMIDIstorage.SysEx.Add(new SysEx { tick = uint.MaxValue, message = [] });
             MIDI.TempoEventArray = [.. tempMIDIstorage.temppos];
             MIDI.SysExArray = [.. tempMIDIstorage.SysEx];
-            Array.Sort(MIDI.TempoEventArray, (a, b) => a.tick.CompareTo(b.tick)); // need to fix some problems in one specific midi that have 38432899 tempo events at the same tick for some reason sets them to abnromally low bpm'es
+            // this should hopefulyl fix overlapping tempos from not playing properly
+            Array.Sort(MIDI.TempoEventArray, (a, b) => b.tempo.CompareTo(a.tempo));
+            Array.Sort(MIDI.TempoEventArray, (a, b) => a.tick.CompareTo(b.tick));
             Array.Sort(MIDI.SysExArray, (a,b) => a.tick.CompareTo(b.tick)); 
             tempMIDIstorage.temppos = null;
             tempMIDIstorage.SysEx = null; 
