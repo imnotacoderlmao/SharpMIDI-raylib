@@ -15,8 +15,8 @@
         {
             if (!Sound.issynthinitiated)
             { 
-                Console.WriteLine("NO synth initiated. please load a synth first!!!");
-                return;
+                Console.WriteLine("NO synth initiated. please load a synth first!!! trying kdmapi");
+                Sound.InitSynth("KDMAPI");
             }
             if (!MIDILoader.midiLoaded) 
             {
@@ -48,6 +48,7 @@
                     {
                         clock = (uint)MIDIClock.Update();
                         totalFrames++;
+                        if(MIDIClock.paused) Thread.Sleep(1);
                         if (skipping)
                         {
                             while (currtg->tick <= clock)

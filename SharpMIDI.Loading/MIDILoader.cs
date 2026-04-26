@@ -67,7 +67,7 @@ namespace SharpMIDI
                 // plus itll get freed after building the actual tickgroup, it does become a problem at huge track counts though
                 Parallel.For (0, trackAmount, i =>
                 {
-                    FastTrack t = new FastTrack(new BufferByteReader(threadStream, 64*1024, trackProperties[i].start, trackProperties[i].len));
+                    FastTrack t = new FastTrack(new BufferByteReader(threadStream, 3072*1024, trackProperties[i].start, trackProperties[i].len));
                     t.ScanEvents(histogram);
                     eventCount += t.eventCount;
                     loadedtracks++;
@@ -105,7 +105,7 @@ namespace SharpMIDI
                 {
                     fixed (long* wc = writeCursors)
                     {
-                        FastTrack t = new FastTrack(new BufferByteReader(threadStream, 256*1024, trackProperties[i].start, trackProperties[i].len));
+                        FastTrack t = new FastTrack(new BufferByteReader(threadStream, 3072*1024, trackProperties[i].start, trackProperties[i].len));
                         t.ParseTrackEvents(msgPtr, trackPtr, wc, (ushort)i);
                         totalNotes += t.totalNotes;
                         loadedtracks++;

@@ -102,7 +102,7 @@ namespace SharpMIDI
                             byte dummynoteoff = (byte)(0x80 | channel); 
                             long pos = Interlocked.Increment(ref writeCursors[absolutetime]) - 1; 
                             msgPtr[pos] = (uint24)(dummynoteoff | (note << 8) | (64 << 16));
-                            trackPtr[pos] = track; 
+                            trackPtr[pos] = track;
                         }
                         break;
                     }
@@ -112,7 +112,7 @@ namespace SharpMIDI
                         byte pressure = stupid.Read(); 
                         long pos = Interlocked.Increment(ref writeCursors[absolutetime]) - 1; 
                         msgPtr[pos] = (uint24)(readEvent | (note << 8) | (pressure << 16));
-                        trackPtr[pos] = track; 
+                        trackPtr[pos] = track;
                         break; 
                     }
                     case 0xB0: 
@@ -121,7 +121,7 @@ namespace SharpMIDI
                         byte val = stupid.Read();      
                         long pos = Interlocked.Increment(ref writeCursors[absolutetime]) - 1; 
                         msgPtr[pos] = (uint24)(readEvent | (controller << 8) | (val << 16));
-                        trackPtr[pos] = track; 
+                        trackPtr[pos] = track;
                         break; 
                     }
                     case 0xC0: 
@@ -129,7 +129,7 @@ namespace SharpMIDI
                         byte prog = stupid.Read();                            
                         long pos = Interlocked.Increment(ref writeCursors[absolutetime]) - 1; 
                         msgPtr[pos] = (uint24)(readEvent | (prog << 8));
-                        trackPtr[pos] = track; 
+                        trackPtr[pos] = track;
                         break; 
                     }
                     case 0xD0: 
@@ -137,7 +137,7 @@ namespace SharpMIDI
                         byte pres = stupid.Read();                            
                         long pos = Interlocked.Increment(ref writeCursors[absolutetime]) - 1; 
                         msgPtr[pos] = (uint24)(readEvent | (pres << 8));
-                        trackPtr[pos] = track; 
+                        trackPtr[pos] = track;
                         break; 
                     }
                     case 0xE0: 
@@ -146,7 +146,7 @@ namespace SharpMIDI
                         byte msb = stupid.Read();      
                         long pos = Interlocked.Increment(ref writeCursors[absolutetime]) - 1; 
                         msgPtr[pos] = (uint24)(readEvent | (lsb << 8) | (msb << 16));
-                        trackPtr[pos] = track; 
+                        trackPtr[pos] = track;
                         break; 
                     }
                 }
