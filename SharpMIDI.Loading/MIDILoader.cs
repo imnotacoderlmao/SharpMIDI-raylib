@@ -131,6 +131,7 @@ namespace SharpMIDI
             tempMIDIstorage.SysEx.Add(new SysEx { tick = uint.MaxValue, message = [] });
             MIDIEvent.TempoEventArray = [.. tempMIDIstorage.temppos];
             MIDIEvent.SysExArray = [.. tempMIDIstorage.SysEx];
+            Array.Sort(MIDIEvent.TempoEventArray, (a, b) => b.tempo.CompareTo(a.tempo));
             Array.Sort(MIDIEvent.TempoEventArray, (a, b) => a.tick.CompareTo(b.tick));
             Array.Sort(MIDIEvent.SysExArray, (a, b) => a.tick.CompareTo(b.tick));
             tempMIDIstorage.temppos = null;
