@@ -154,9 +154,11 @@ namespace SharpMIDI
 
             while (tickGroupCursor <= itick)
             {
-                uint count = groups[tickGroupCursor++].count;
-                for (uint i = 0; i < count; i++, msgIdx++)
+                tickGroupCursor++;
+                long offset = groups[tickGroupCursor].offset;
+                while(msgIdx < offset)
                 {
+                    msgIdx++;
                     byte* synthev = messages + msgIdx * 3;
                     byte status = (byte)(synthev[0] & 0xF0);
                     if ((status - 0x80u) > 0x10u) continue;
@@ -292,9 +294,10 @@ namespace SharpMIDI
             {
                 if (tick > viewEnd && openCount == 0) break;
 
-                uint count = groups[tick].count;
-                for (uint i = 0; i < count && msgIdx < eventlen; i++, msgIdx++)
+                long offset = groups[tick].offset;
+                while(msgIdx < offset)
                 {
+                    msgIdx++;
                     byte* synthev = messages + msgIdx * 3;
                     byte status = (byte)(synthev[0] & 0xF0);
                     if ((status - 0x80u) > 0x10u) continue;
@@ -366,11 +369,10 @@ namespace SharpMIDI
 
             for (int tick = renderTickCursor; tick <= tickEnd; tick++)
             {
-                uint count = groups[tick].count;
-                if (count == 0) continue;
-
-                for (uint i = 0; i < count && msgIdx < eventlen; i++, msgIdx++)
+                long offset = groups[tick].offset;
+                while(msgIdx < offset)
                 {
+                    msgIdx++;
                     byte* synthev = messages + msgIdx * 3;
                     byte status = (byte)(synthev[0] & 0xF0);
                     if ((status - 0x80u) > 0x10u) continue;

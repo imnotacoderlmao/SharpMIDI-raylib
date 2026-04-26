@@ -1,7 +1,6 @@
 using System.Runtime.InteropServices;
 using System.Diagnostics;
 using Raylib_cs;
-using System.Net;
 
 namespace SharpMIDI
 {
@@ -9,7 +8,7 @@ namespace SharpMIDI
     {
         public const int PAD = 20;
         private static float scrollfactor = 1f;
-        public static int  memusagecallcount = 0;
+        public static int memusagecallcount = 0;
         public static long memusage = 0;
         static string filepath;
         public static double lastrendernow;
@@ -53,7 +52,7 @@ namespace SharpMIDI
                 Raylib.ClearBackground(Raylib_cs.Color.Black);
                 MIDIRenderer.Render(currentWidth, currentHeight, PAD);
                 Raylib.DrawLine(currentWidth >> 1, 0, currentWidth >> 1, currentHeight, Raylib_cs.Color.Red);
-                DrawUI();
+                DrawText();
                 Raylib.EndDrawing();
             }
             
@@ -187,7 +186,7 @@ namespace SharpMIDI
                 MIDILoader.UnloadMIDI();
         }
 
-        private static void DrawUI()
+        private static void DrawText()
         {
             Raylib.DrawText($"Tick: {(long)MIDIClock.tick} | Tempo: {MIDIClock.bpm:F1} | Zoom: {(int)MIDIRenderer.WindowTicks} | FPS: {Raylib.GetFPS()}", 12, 4, 16, Raylib_cs.Color.Green);
             if (controls)

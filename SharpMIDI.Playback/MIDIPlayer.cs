@@ -35,6 +35,7 @@
             SysEx[] sysExes = MIDIEvent.SysExArray;
             uint clock = 0;
             uint sysexidx = 0;
+            //var sendfn = Sound.sendTo;
             Sound.StartAudioThread();
             MIDIClock.Start();
             fixed(TickGroup* tg0 = tickGroupArr)
@@ -79,9 +80,8 @@
                 }
             }
             SubmitSysEx(gmreset);
-            MIDIClock.Reset();
-            SubmitSysEx(gmreset);
             SubmitSysEx(rolandreset);
+            MIDIClock.Reset();
             Sound.AllNotesOFF();
             Sound.KillAudioThread();
             Console.WriteLine("Playback finished...");
