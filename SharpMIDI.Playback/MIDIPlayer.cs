@@ -35,6 +35,7 @@
             SysEx[] sysExes = MIDIEvent.SysExArray;
             uint clock = 0;
             uint sysexidx = 0;
+            Task.Run(UpdatePlaybackStats);
             //var sendfn = Sound.sendTo;
             Sound.StartAudioThread();
             MIDIClock.Start();
@@ -48,7 +49,11 @@
                     {
                         clock = (uint)MIDIClock.Update();
                         totalFrames++;
-                        if(MIDIClock.paused) Thread.Sleep(1);
+                        if(MIDIClock.paused) 
+                        {
+                            Thread.Sleep(1);
+                            continue;
+                        }
                         if (skipping)
                         {
                             while (currtg->tick <= clock)
@@ -126,20 +131,24 @@
             }
         }
 
-        public static void UpdatePlaybackStats(int tick)
+        public static void UpdatePlaybackStats()
         {
             const double updateperiod = 0.1d;
-            double delta = Timer.Seconds() - last;
-            if (MIDIClock.tick > MIDILoader.maxTick) stopping = true;
-            if (delta > updateperiod)
+            while(true)
             {
-                MIDIFps = (long)(totalFrames / delta);
-                eventspersec = (long)((playedEvents - playedevents2) / delta);
-                playedevents2 = playedEvents;
-                totalFrames = 0;
-                last = Timer.Seconds();
+                double delta = Timer.Seconds() - last;
+                if (MIDIClock.tick > MIDILoader.maxTick) stopping = true;
+                if (delta > updateperiod)
+                {
+                    MIDIFps = (long)(totalFrames / delta);
+                    eventspersec = (long)((playedEvents - playedevents2) / delta);
+                    playedevents2 = playedEvents;
+                    totalFrames = 0;
+                    last = Timer.Seconds();
+                }
+                Console.Write($"\rTick: {(int)MIDIClock.tick} / {MIDILoader.maxTick} | Played Events: {playedEvents} / {MIDILoader.eventCount} ({eventspersec}/s) | MIDI Thread: @{MIDIFps} fps | Skip events?: {MIDIClock.skipevents}         ");
+                Thread.Sleep(1000/60);
             }
-            Console.Write($"\rTick: {tick} / {MIDILoader.maxTick} | Played Events: {playedEvents} / {MIDILoader.eventCount} ({eventspersec}/s) | MIDI Thread: @{MIDIFps} fps | Skip events?: {MIDIClock.skipevents}         ");
         }
     }
 }

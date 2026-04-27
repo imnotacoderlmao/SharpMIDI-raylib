@@ -45,7 +45,7 @@ namespace SharpMIDI
                 if (dynascroll && MIDIRenderer.WindowTicks != MIDIClock.tickscale)
                     MIDIRenderer.SetWindow((float)MIDIClock.tickscale * scrollfactor);
 
-                if (!MIDIPlayer.stopping) MIDIPlayer.UpdatePlaybackStats((int)MIDIClock.tick);
+                //if (!MIDIPlayer.stopping) MIDIPlayer.UpdatePlaybackStats((int)MIDIClock.tick);
                 MIDIRenderer.UpdateStreaming(MIDIClock.tick);
 
                 Raylib.BeginDrawing();
@@ -155,7 +155,6 @@ namespace SharpMIDI
             if (Raylib.IsKeyPressed(KeyboardKey.Right) || Raylib.IsKeyPressedRepeat(KeyboardKey.Right))
             {
                 MIDIClock.tick += MIDIClock.tickscale;
-                MIDIRenderer.forceFullRedraw = true;
             }
 
             if (Raylib.IsKeyPressed(KeyboardKey.Space))
