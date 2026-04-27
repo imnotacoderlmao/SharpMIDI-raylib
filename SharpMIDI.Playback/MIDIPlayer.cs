@@ -135,7 +135,7 @@
         public static void UpdatePlaybackStats()
         {
             const double updateperiod = 0.1d;
-            while(true)
+            while(!stopping)
             {
                 double delta = Timer.Seconds() - last;
                 if (MIDIClock.tick > MIDILoader.maxTick) stopping = true;
