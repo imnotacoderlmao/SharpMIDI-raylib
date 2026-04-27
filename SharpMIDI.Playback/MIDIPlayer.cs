@@ -90,6 +90,7 @@
             MIDIClock.Reset();
             Sound.AllNotesOFF();
             Sound.KillAudioThread();
+            MIDIRenderer.ResetToTick(0d);
             Console.WriteLine("Playback finished...");
         }
 
