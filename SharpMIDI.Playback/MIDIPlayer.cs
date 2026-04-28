@@ -33,7 +33,7 @@
             TickGroup[] tickGroupArr = MIDIEvent.TickGroupArray;
             Tempo[] tevs = MIDIEvent.TempoEventArray;
             SysEx[] sysExes = MIDIEvent.SysExArray;
-            uint clock = 0;
+            uint clock = 0, lastclock = 0;
             uint sysexidx = 0;
             Task.Run(UpdatePlaybackStats);
             //var sendfn = Sound.sendTo;
@@ -64,6 +64,18 @@
                             }
                             continue;
                         }
+                        if(lastclock > clock)
+                        {
+                            while (currtg->tick > clock)
+                            {
+                                currtg--;
+                                msgcur -= currtg->count;
+                                playedEvents -= currtg->count;
+                            }
+                            while (currtev->tick > clock)
+                                currtev--;
+                            MIDIRenderer.ResetToTick(clock);
+                        }
                         while (currtg->tick <= clock)
                         {
                             uint24* groupEnd = msgcur + currtg->count;
@@ -82,6 +94,7 @@
                             SubmitSysEx(sysExes[sysexidx].message);
                             sysexidx++;
                         }
+                        lastclock = clock;
                     }
                 }
             }
