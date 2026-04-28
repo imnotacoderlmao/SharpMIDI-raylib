@@ -45,12 +45,9 @@ namespace SharpMIDI
                 if (dynascroll && MIDIRenderer.WindowTicks != MIDIClock.tickscale)
                     MIDIRenderer.SetWindow((float)MIDIClock.tickscale * scrollfactor);
 
-                //if (!MIDIPlayer.stopping) MIDIPlayer.UpdatePlaybackStats((int)MIDIClock.tick);
-                MIDIRenderer.UpdateStreaming(MIDIClock.tick);
-
                 Raylib.BeginDrawing();
                 Raylib.ClearBackground(Raylib_cs.Color.Black);
-                MIDIRenderer.Render(currentWidth, currentHeight, PAD);
+                MIDIRenderer.Render(currentWidth, currentHeight, MIDIClock.tick, PAD);
                 Raylib.DrawLine(currentWidth >> 1, 0, currentWidth >> 1, currentHeight, Raylib_cs.Color.Red);
                 DrawText();
                 Raylib.EndDrawing();
@@ -155,7 +152,7 @@ namespace SharpMIDI
 
             if (Raylib.IsKeyPressed(KeyboardKey.Left) || Raylib.IsKeyPressedRepeat(KeyboardKey.Left))
             {
-                if(!MIDIPlayer.stopping) 
+                if(!MIDIPlayer.stopping)
                     MIDIClock.tick -= MIDIClock.tickscale;
             }
             if (Raylib.IsKeyPressed(KeyboardKey.Right) || Raylib.IsKeyPressedRepeat(KeyboardKey.Right))

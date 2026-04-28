@@ -72,9 +72,7 @@
                                 msgcur -= currtg->count;
                                 playedEvents -= currtg->count;
                             }
-                            while (currtev->tick > clock)
-                                currtev--;
-                            MIDIRenderer.ResetToTick(clock);
+                            while (currtev->tick > clock) currtev--;
                         }
                         while (currtg->tick <= clock)
                         {
@@ -103,7 +101,6 @@
             MIDIClock.Reset();
             Sound.AllNotesOFF();
             Sound.KillAudioThread();
-            MIDIRenderer.ResetToTick(0d);
             Console.WriteLine("Playback finished...");
         }
 
