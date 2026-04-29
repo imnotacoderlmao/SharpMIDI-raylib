@@ -1,6 +1,9 @@
 using System.Runtime.InteropServices;
 using System.Diagnostics;
+using System.Numerics;
 using Raylib_cs;
+using rlImGui_cs;
+using ImGuiNET;
 
 namespace SharpMIDI
 {
@@ -16,10 +19,15 @@ namespace SharpMIDI
         private static int currentWidth  = 1280;
         private static int currentHeight = 720;
 
-        // WindowTicks state
-        private static bool vsync = true, controls = true, dynascroll = false, looping = false;
-        public static bool Debug    { get; set; } = false;
+        private static bool vsync = true;
+        private static bool dynascroll = false; 
+        private static bool looping = false; 
+        private static bool uivisible = false;
+        private static bool isborderless = false;
+        static string selectedwinmmout = "";
+        public static bool Debug = false;
         public static bool IsRunning { get; private set; } = false;
+        public static bool[] initiatedsynth = new bool[Sound.synths.Length];
 
         public static void StartRenderer()
         {
@@ -33,27 +41,31 @@ namespace SharpMIDI
             Raylib.SetConfigFlags(ConfigFlags.ResizableWindow);
             Raylib.InitWindow(currentWidth, currentHeight, "SharpMIDI");
             MIDIRenderer.Initialize(currentWidth);
-
-            int targetFPS = Raylib.GetMonitorRefreshRate(Raylib.GetCurrentMonitor());
-            Raylib.SetTargetFPS(vsync ? targetFPS : 0);
-
+            Raylib.SetTargetFPS(Raylib.GetMonitorRefreshRate(Raylib.GetCurrentMonitor()));
+            
+            rlImGui.Setup(true);
             while (!Raylib.WindowShouldClose())
             {
                 UpdateWindowDimensions();
                 HandleInput();
 
                 if (dynascroll && MIDIRenderer.WindowTicks != MIDIClock.tickscale)
-                    MIDIRenderer.SetWindow((float)MIDIClock.tickscale * scrollfactor);
+                    MIDIRenderer.WindowTicks = (float)MIDIClock.tickscale * scrollfactor;
 
                 Raylib.BeginDrawing();
+                
                 Raylib.ClearBackground(Raylib_cs.Color.Black);
                 MIDIRenderer.Render(currentWidth, currentHeight, MIDIClock.tick, PAD);
                 Raylib.DrawLine(currentWidth >> 1, 0, currentWidth >> 1, currentHeight, Raylib_cs.Color.Red);
                 DrawText();
+                
+                DrawUI(uivisible);
+                
                 Raylib.EndDrawing();
             }
-            
             MIDILoader.UnloadMIDI();
+            rlImGui.Shutdown();
+            
             Raylib.CloseWindow();
             IsRunning = false;
         }
@@ -65,8 +77,8 @@ namespace SharpMIDI
 
             if (newWidth != currentWidth || newHeight != currentHeight)
             {
-                currentWidth  = newWidth;
-                currentHeight = newHeight;
+                currentWidth   = newWidth;
+                currentHeight  = newHeight;
                 MIDIRenderer.Initialize(currentWidth);
             }
         }
@@ -118,9 +130,6 @@ namespace SharpMIDI
                     }
                 }
             }
-
-            if (Raylib.IsKeyPressed(KeyboardKey.One))
-                Sound.InitSynth("KDMAPI");
             
             /*if (Raylib.IsKeyPressed(KeyboardKey.Two))
             {
@@ -135,8 +144,7 @@ namespace SharpMIDI
                     if (scrollfactor <= 1) scrollfactor /= 2;
                     else scrollfactor -= 0.5f;
                 }
-                float newWindow = Math.Max(100f, MIDIRenderer.WindowTicks * 0.9f);
-                MIDIRenderer.SetWindow(newWindow);
+                MIDIRenderer.WindowTicks = Math.Max(100f, MIDIRenderer.WindowTicks * 0.9f);
             }
             if (Raylib.IsKeyPressed(KeyboardKey.Down) || Raylib.IsKeyPressedRepeat(KeyboardKey.Down))
             {
@@ -145,10 +153,8 @@ namespace SharpMIDI
                     if (scrollfactor <= 1) scrollfactor *= 2;
                     else scrollfactor += 0.5f;
                 }
-                float newWindow = Math.Min(100000f, MIDIRenderer.WindowTicks * 1.1f);
-                MIDIRenderer.SetWindow(newWindow);
+                MIDIRenderer.WindowTicks = Math.Min(100000f, MIDIRenderer.WindowTicks * 1.1f);
             }
-
 
             if (Raylib.IsKeyPressed(KeyboardKey.Left) || Raylib.IsKeyPressedRepeat(KeyboardKey.Left))
             {
@@ -169,43 +175,17 @@ namespace SharpMIDI
             }
             if (Raylib.IsKeyPressed(KeyboardKey.R))
                 MIDIPlayer.stopping = true;
-            if (Raylib.IsKeyPressed(KeyboardKey.E))
-                MIDIClock.skipevents = !MIDIClock.skipevents;
 
-            if (Raylib.IsKeyPressed(KeyboardKey.S)) dynascroll = !dynascroll;
-            if (Raylib.IsKeyPressed(KeyboardKey.D)) Debug = !Debug;
-            if (Raylib.IsKeyPressed(KeyboardKey.V))
-            {
-                vsync = !vsync;
-                Raylib.SetTargetFPS(vsync ? Raylib.GetMonitorRefreshRate(Raylib.GetCurrentMonitor()) : 0);
-            }
-            if (Raylib.IsKeyPressed(KeyboardKey.F))
-                Raylib.ToggleBorderlessWindowed();
-            if (Raylib.IsKeyPressed(KeyboardKey.L))
-                looping = !looping;
-            if (Raylib.IsKeyPressed(KeyboardKey.C))
-                controls = !controls;
             if (Raylib.IsKeyPressed(KeyboardKey.U))
                 MIDILoader.UnloadMIDI();
+            
+            if (Raylib.IsKeyPressed(KeyboardKey.Q))
+                uivisible = !uivisible;
         }
 
         private static void DrawText()
         {
             Raylib.DrawText($"Tick: {(long)MIDIClock.tick} | Tempo: {MIDIClock.bpm:F1} | Zoom: {(int)MIDIRenderer.WindowTicks} | FPS: {Raylib.GetFPS()}", 12, 4, 16, Raylib_cs.Color.Green);
-            if (controls)
-            {
-                Raylib.DrawText(
-                    "Up/Dn = zoom | V = vsync | Right = seek fwd\n" +
-                    "Left = skip bw (broken) | C = toggle this text | F = fullscreen\n" +
-                    "D = debug | S = dynamic scrolling | U = unload midi | E = skip event toggle\n" +
-                    "R = reset playback | Space = start, pause continue playback\n" +
-                    "to load a midi file drag and drop a file into the window\n" +
-                    "remember to init the synth via pressing your number keys\n" +
-                    "(1 = KDMAPI)",
-                    12, 45, 16, Raylib_cs.Color.White);
-                if (Raylib.GetTime() >= 4.0 && Raylib.GetTime() <= 4.5)
-                    controls = false;
-            }
             if (Debug)
             {
                 GetMemoryUsage();
@@ -214,6 +194,88 @@ namespace SharpMIDI
                 Raylib.DrawText($"{MIDILoader.loadstatus} | Skip events?: {MIDIClock.skipevents} | MIDI: @{MIDIPlayer.MIDIFps} fps", 12, currentHeight - 19, 16, Raylib_cs.Color.SkyBlue);
             }
             else Raylib.DrawText($"{MIDILoader.loadstatus}", 12, currentHeight - 19, 16, Raylib_cs.Color.SkyBlue);
+        }
+        
+        public static void DrawUI(bool visible)
+        {
+            if (!visible) return;
+            rlImGui.Begin();
+            ImGui.SetNextWindowSize(new Vector2(450, 250), ImGuiCond.Always);
+            ImGui.Begin("Settings", ImGuiWindowFlags.NoResize);
+            if (ImGui.BeginTabBar(string.Empty))
+            {
+                if (ImGui.BeginTabItem("Renderer"))
+                {
+                    if (!dynascroll)
+                        ImGui.SliderFloat("Renderer zoom", ref MIDIRenderer.WindowTicks, 0, 100000);
+                    else
+                        ImGui.SliderFloat("Scroll factor", ref scrollfactor, 0, 10);
+                    if (ImGui.Checkbox("Fullscreen (borderless)", ref isborderless))
+                        Raylib.ToggleBorderlessWindowed();
+                    if (ImGui.Checkbox("Vsync", ref vsync))
+                        Raylib.SetTargetFPS(vsync ? Raylib.GetMonitorRefreshRate(Raylib.GetCurrentMonitor()) : 0);
+                    ImGui.Checkbox("Dynamic scrolling", ref dynascroll);
+                    ImGui.EndTabItem();
+                }
+                if (ImGui.BeginTabItem("Playback"))
+                {
+                    ImGui.Checkbox("Playlist looping", ref looping);
+                    ImGui.Checkbox("Event skipping", ref MIDIClock.skipevents);
+                    ImGui.Checkbox("Debug stats", ref Debug);   
+                    ImGui.EndTabItem();
+                }
+                if (ImGui.BeginTabItem("Synthesizer"))
+                {
+                    // dear god
+                    if (ImGui.Checkbox("Empty", ref initiatedsynth[0]))
+                    {
+                        Sound.Close();
+                        initiatedsynth[1] = false;
+                        initiatedsynth[2] = false;
+                    }
+                    if (ImGui.Checkbox("KDMAPI", ref initiatedsynth[1]))
+                    {
+                        Sound.InitSynth("KDMAPI", "");
+                        initiatedsynth[0] = false;
+                        initiatedsynth[2] = false;
+                    }
+                    #if WINDOWS
+                    if (ImGui.Checkbox("WinMM", ref initiatedsynth[2]))
+                    {
+                        initiatedsynth[0] = false;
+                        initiatedsynth[1] = false;
+                    }
+                    if (initiatedsynth[2] && ImGui.BeginCombo("WinMM Device", selectedwinmmout))
+                    {
+                        foreach (string i in WinMM.winMMDevices)
+                        {
+                            bool is_selected = (selectedwinmmout == i);
+                            if (ImGui.Selectable(i, is_selected))
+                            {
+                                selectedwinmmout = i;
+                                Sound.InitSynth("WinMM", i);
+                            }
+                            if (is_selected)
+                                ImGui.SetItemDefaultFocus();
+                        }
+                        ImGui.EndCombo();
+                    }
+                    #endif
+                    ImGui.EndTabItem();
+                }
+                if (ImGui.BeginTabItem("Controls"))
+                {
+                    ImGui.Text("Up/dn arrow = zoom");
+                    ImGui.Text("Space: Start/Stop playback");
+                    ImGui.Text("R = Reset Playback");
+                    ImGui.Text("U = Unload MIDI");
+                    ImGui.Text("To load a midi file, drag and drop one to the player window");
+                    ImGui.EndTabItem();
+                }
+                ImGui.EndTabBar();
+            }
+            ImGui.End();
+            rlImGui.End();
         }
 
         public static void GetMemoryUsage()

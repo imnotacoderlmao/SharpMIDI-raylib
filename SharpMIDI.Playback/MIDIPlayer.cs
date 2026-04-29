@@ -16,7 +16,7 @@
             if (!Sound.issynthinitiated)
             { 
                 Console.WriteLine("NO synth initiated. please load a synth first!!! trying kdmapi");
-                Sound.InitSynth("KDMAPI");
+                if (!Sound.InitSynth("KDMAPI", "")) return;
             }
             if (!MIDILoader.midiLoaded) 
             {
@@ -123,21 +123,8 @@
                     };
                     uint size = (uint)sizeof(MIDIHDR);
                     Console.WriteLine($"\nSending SysEx message: {BitConverter.ToString(message)}");
-                    prepare = KDMAPI._prepareLongData(&header, size);
-                    if (prepare == 0)
-                    {
-                        send = KDMAPI._sendDirectLongData(&header, size);
-                        if (send == 0)
-                        {
-                            while (KDMAPI._unprepareLongData(&header, size) == 65) // MIDIERR_STILLPLAYING
-                                Thread.Sleep(1);
-                            unprepare = 0;
-                        }
-                    }
-                    if (prepare != 0 || send != 0 || unprepare != 0)
-                    {
-                        Console.WriteLine($"sysex prepare,send,unprepare returned ({prepare},{send},{unprepare})");
-                    }
+                    if (Sound.prevsynth == "KDMAPI") KDMAPI.KDMAPI_SendSysEx(&header, size);
+                    if (Sound.prevsynth == "WinMM") WinMM.Winmm_SendSysEx(&header, size);
                 #endif
             }
         }

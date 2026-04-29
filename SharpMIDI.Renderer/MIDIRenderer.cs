@@ -40,6 +40,7 @@ namespace SharpMIDI
         };
 
         public static float WindowTicks = 2000f;
+        private static float lastwindowticks = WindowTicks;
         public static int NotesDrawnLastFrame;
 
         private static Texture2D renderTex;
@@ -100,16 +101,6 @@ namespace SharpMIDI
         {
             if (persistentKeys != null) { NativeMemory.AlignedFree(persistentKeys); persistentKeys = null; }
             if (openKeyBits != null) { NativeMemory.AlignedFree(openKeyBits); openKeyBits = null; }
-        }
-
-        public static void SetWindow(float ticks)
-        {
-            if (Math.Abs(WindowTicks - ticks) > 0.1f)
-            {
-                WindowTicks = ticks;
-                forceFullRedraw = true;
-                lastColumn = -1;
-            }
         }
         
         private static void SetOpen(int key) => openKeyBits[key >> 6] |= (1ul << (key & 63));
@@ -182,6 +173,13 @@ namespace SharpMIDI
                       : newColumn >= lastColumn ? newColumn - lastColumn
                       : (texWidth - lastColumn) + newColumn;
 
+            
+            if (Math.Abs(WindowTicks - lastwindowticks) > 0.1f)
+            {
+                forceFullRedraw = true;
+                lastColumn = -1;
+                lastwindowticks = WindowTicks;
+            }
             if (forceFullRedraw || lastTick > tick)
             {
                 RenderFull(tick, pixelsPerTick);

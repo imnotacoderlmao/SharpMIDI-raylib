@@ -1,5 +1,6 @@
 #pragma warning disable 169
 using System.Runtime.InteropServices;
+using System.Transactions;
 namespace SharpMIDI
 {
     static unsafe class KDMAPI
@@ -90,6 +91,27 @@ namespace SharpMIDI
             _terminateKDMAPIStream  = (delegate* unmanaged<int>) NativeLibrary.GetExport(lib, "TerminateKDMAPIStream");
             _resetKDMAPIStream = (delegate* unmanaged<void>) NativeLibrary.GetExport(lib, "ResetKDMAPIStream");
             //_getActiveVoices = (delegate* unmanaged<int>) NativeLibrary.GetExport(lib, "GetVoiceCount");
+        }
+        public static uint KDMAPI_SendSysEx(MIDIHDR* header, uint size)
+        {
+            uint prepare = 0, send = 0, unprepare = 0;
+            prepare = _prepareLongData(header, size);
+            if (prepare == 0)
+            {
+                send = _sendDirectLongData(header, size);
+                if (send == 0)
+                {
+                    while (_unprepareLongData(header, size) == 65) // MIDIERR_STILLPLAYING
+                        Thread.Sleep(1);
+                    unprepare = 0;
+                }
+            }
+            if (prepare != 0 || send != 0 || unprepare != 0)
+            {
+                Console.WriteLine($"sysex prepare,send,unprepare returned ({prepare},{send},{unprepare})");
+                return prepare + send + unprepare;
+            }
+            return 0;
         }
     }
 }

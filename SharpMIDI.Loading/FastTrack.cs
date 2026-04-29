@@ -35,14 +35,15 @@ namespace SharpMIDI
                         List<byte> data = new List<byte>() { readEvent };
                         uint size = ReadVariableLen();
                         for(uint i = 0; i < size; i++)
-                        {
                             data.Add(stupid.Read());
-                        }
-                        tempMIDIstorage.SysEx.Add(new SysEx
+                        lock(tempMIDIstorage.SysEx)
                         {
-                            tick = absolutetime, 
-                            message = [.. data]
-                        });
+                            tempMIDIstorage.SysEx.Add(new SysEx
+                            {
+                                tick = absolutetime, 
+                                message = [.. data]
+                            });
+                        }
                         break;
                     case 0xF1: 
                         stupid.Skip(1); 
@@ -61,11 +62,14 @@ namespace SharpMIDI
                             uint tempo = 0;
                             for (int i = 0; i < len; i++) 
                                 tempo = (tempo << 8) | stupid.Read();
-                            tempMIDIstorage.temppos.Add(new Tempo 
-                            { 
-                                tick = absolutetime, 
-                                tempo = tempo 
-                            });
+                            lock(tempMIDIstorage.temppos)
+                            {
+                                tempMIDIstorage.temppos.Add(new Tempo 
+                                { 
+                                    tick = absolutetime, 
+                                    tempo = tempo 
+                                });
+                            }
                         }
                         else if (readEvent == 0x2F)
                         {
