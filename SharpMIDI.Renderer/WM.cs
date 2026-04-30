@@ -27,11 +27,13 @@ namespace SharpMIDI
         static string selectedwinmmout = "";
         public static bool Debug = false;
         public static bool IsRunning { get; private set; } = false;
+        public static bool singlethreadplayback = false;
         public static bool[] initiatedsynth = new bool[Sound.synths.Length];
 
         public static void StartRenderer()
         {
             if (IsRunning) return;
+            initiatedsynth[0] = true;
             IsRunning = true;
             RenderLoop();
         }
@@ -94,7 +96,7 @@ namespace SharpMIDI
                     Console.WriteLine($"{idx + 1}/{filepaths.Length} played. next in queue: {filepaths[idx + 1]}");
                 else
                     Console.WriteLine($"{idx + 1}/{filepaths.Length} played. playlist complete.");
-                await Task.Run(MIDIPlayer.StartPlayback);
+                await Task.Run(() => MIDIPlayer.StartPlayback(singlethreadplayback));
             }
         }
 
@@ -169,7 +171,7 @@ namespace SharpMIDI
 
             if (Raylib.IsKeyPressed(KeyboardKey.Space))
             {
-                if (MIDIPlayer.stopping) Task.Run(MIDIPlayer.StartPlayback);
+                if (MIDIPlayer.stopping) Task.Run(() => MIDIPlayer.StartPlayback(singlethreadplayback));
                 if (!MIDIClock.paused) MIDIClock.Stop();
                 else MIDIClock.Resume();
             }
@@ -219,6 +221,7 @@ namespace SharpMIDI
                 }
                 if (ImGui.BeginTabItem("Playback"))
                 {
+                    ImGui.Checkbox("Single threaded playback", ref singlethreadplayback);
                     ImGui.Checkbox("Playlist looping", ref looping);
                     ImGui.Checkbox("Event skipping", ref MIDIClock.skipevents);
                     ImGui.Checkbox("Debug stats", ref Debug);   

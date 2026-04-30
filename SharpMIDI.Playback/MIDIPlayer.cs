@@ -11,12 +11,12 @@
         public static bool stopping = true;
         public static bool stalled = false;
         public static bool skipping = false;
-        public static void StartPlayback()
+        public static void StartPlayback(bool singlethread)
         {
             if (!Sound.issynthinitiated)
             { 
-                Console.WriteLine("NO synth initiated. please load a synth first!!! trying kdmapi");
-                if (!Sound.InitSynth("KDMAPI", "")) return;
+                Console.WriteLine("NO synth initiated. please load a synth first!!! (press q for ui)");
+                return;
             }
             if (!MIDILoader.midiLoaded) 
             {
@@ -36,8 +36,12 @@
             uint clock = 0, lastclock = 0;
             uint sysexidx = 0;
             Task.Run(UpdatePlaybackStats);
-            //var sendfn = Sound.sendTo;
-            Sound.StartAudioThread();
+            var sendfn = Sound.sendTo;
+            #if WINDOWS
+            var sendfn2 = WinMM._midiOutShortMsg;
+            IntPtr handle = (IntPtr)WinMM.handle;
+            #endif
+            if(!singlethread) Sound.StartAudioThread();
             MIDIClock.Start();
             fixed(TickGroup* tg0 = tickGroupArr)
             {
@@ -73,12 +77,27 @@
                                 playedEvents -= currtg->count;
                             }
                             while (currtev->tick > clock) currtev--;
+                            while (sysExes[sysexidx].tick > clock) sysexidx--;
                         }
                         while (currtg->tick <= clock)
                         {
                             uint24* groupEnd = msgcur + currtg->count;
-                            while (msgcur < groupEnd)
-                                buffer[(ushort)msgcur] = *msgcur++;
+                            if (!singlethread)
+                            {
+                                while (msgcur < groupEnd)
+                                    buffer[(ushort)msgcur] = *msgcur++;
+                            }
+                            else   
+                            { 
+                                #if WINDOWS
+                                if (Sound.currsynth == "WinMM")
+                                    while (msgcur < groupEnd)
+                                        sendfn2(handle, (uint)msgcur++->Value);
+                                #endif
+                                if (Sound.currsynth == "KDMAPI")
+                                    while (msgcur < groupEnd)
+                                        sendfn((uint)msgcur++->Value);
+                            }
                             playedEvents += currtg->count;
                             currtg++;
                         }
@@ -123,8 +142,8 @@
                     };
                     uint size = (uint)sizeof(MIDIHDR);
                     Console.WriteLine($"\nSending SysEx message: {BitConverter.ToString(message)}");
-                    if (Sound.prevsynth == "KDMAPI") KDMAPI.KDMAPI_SendSysEx(&header, size);
-                    if (Sound.prevsynth == "WinMM") WinMM.Winmm_SendSysEx(&header, size);
+                    if (Sound.currsynth == "KDMAPI") KDMAPI.KDMAPI_SendSysEx(&header, size);
+                    if (Sound.currsynth == "WinMM") WinMM.Winmm_SendSysEx(&header, size);
                 #endif
             }
         }
