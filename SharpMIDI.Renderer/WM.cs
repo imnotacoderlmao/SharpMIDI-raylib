@@ -59,8 +59,7 @@ namespace SharpMIDI
                 Raylib.ClearBackground(Raylib_cs.Color.Black);
                 MIDIRenderer.Render(currentWidth, currentHeight, MIDIClock.tick, PAD);
                 Raylib.DrawLine(currentWidth >> 1, 0, currentWidth >> 1, currentHeight, Raylib_cs.Color.Red);
-                DrawText();
-                
+                DrawText(); 
                 DrawUI(uivisible);
                 
                 Raylib.EndDrawing();
@@ -222,9 +221,10 @@ namespace SharpMIDI
                 if (ImGui.BeginTabItem("Playback"))
                 {
                     ImGui.Checkbox("Single threaded playback", ref singlethreadplayback);
+                    ImGui.Checkbox("Limit playback FPS", ref MIDIPlayer.potato_mode);  
                     ImGui.Checkbox("Playlist looping", ref looping);
                     ImGui.Checkbox("Event skipping", ref MIDIClock.skipevents);
-                    ImGui.Checkbox("Debug stats", ref Debug);   
+                    ImGui.Checkbox("Debug stats", ref Debug); 
                     ImGui.EndTabItem();
                 }
                 if (ImGui.BeginTabItem("Synthesizer"))

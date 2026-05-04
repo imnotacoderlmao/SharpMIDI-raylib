@@ -11,6 +11,7 @@
         public static bool stopping = true;
         public static bool stalled = false;
         public static bool skipping = false;
+        public static bool potato_mode = false;
         public static void StartPlayback(bool singlethread)
         {
             if (!Sound.issynthinitiated)
@@ -53,10 +54,9 @@
                     {
                         clock = (uint)MIDIClock.Update();
                         totalFrames++;
-                        if(MIDIClock.paused) 
+                        if(MIDIClock.paused || potato_mode) 
                         {
                             Thread.Sleep(1);
-                            continue;
                         }
                         if (skipping)
                         {
@@ -76,8 +76,10 @@
                                 msgcur -= currtg->count;
                                 playedEvents -= currtg->count;
                             }
-                            while (currtev->tick > clock) currtev--;
-                            while (sysExes[sysexidx].tick > clock) sysexidx--;
+                            if(tevs.Length > 1) 
+                                while (currtev->tick > clock) currtev--;
+                            if(sysExes.Length > 1)
+                                while (sysExes[sysexidx].tick > clock) sysexidx--;
                         }
                         while (currtg->tick <= clock)
                         {
@@ -142,8 +144,8 @@
                     };
                     uint size = (uint)sizeof(MIDIHDR);
                     Console.WriteLine($"\nSending SysEx message: {BitConverter.ToString(message)}");
-                    if (Sound.currsynth == "KDMAPI") KDMAPI.KDMAPI_SendSysEx(&header, size);
-                    if (Sound.currsynth == "WinMM") WinMM.Winmm_SendSysEx(&header, size);
+                    if (Sound.currsynth == "KDMAPI") KDMAPI.KDMAPI_SendSysEx_win(&header, size);
+                    if (Sound.currsynth == "WinMM") WinMM.WinMM_SendSysEx(&header, size);
                 #endif
             }
         }
@@ -163,7 +165,7 @@
                     totalFrames = 0;
                     last = Timer.Seconds();
                 }
-                Console.Write($"\rTick: {(int)MIDIClock.tick} / {MIDILoader.maxTick} | Played Events: {playedEvents} / {MIDILoader.eventCount} ({eventspersec}/s) | MIDI Thread: @{MIDIFps} fps | Skip events?: {MIDIClock.skipevents}         ");
+                Console.Write($"\rTick: {(int)MIDIClock.tick} / {MIDILoader.maxTick} | Played Events: {playedEvents} / {MIDILoader.eventCount} ({eventspersec}/s) | MIDI Thread: @{MIDIFps} fps         ");
                 Thread.Sleep(1000/60);
             }
         }

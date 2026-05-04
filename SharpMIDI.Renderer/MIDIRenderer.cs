@@ -124,8 +124,8 @@ namespace SharpMIDI
         // color in LOW bit so blit is just (uint)pixel
         private static ulong MakePacked(ushort track, byte channel)
         {
-            uint priority = (uint)(track << 5) + channel;
-            uint color = MIDIColors[(track + channel) & 0xF];
+            uint priority = ((uint)track << 16) | channel;
+            uint color = MIDIColors[track + channel & 0xF];
             return ((ulong)priority << 32) | color;
         }    
         
@@ -205,7 +205,6 @@ namespace SharpMIDI
             byte* messages = (byte*)SynthEvent.messages.Pointer;
             ushort* tracks = SynthEvent.track.Pointer;
             int maxtick = MIDILoader.maxTick - 1;
-            long eventlen = SynthEvent.messages.Length;
             float pixelspertick = (float)pixelsPerTick;
             float leftedge = (float)(centerTick - WindowTicks * 0.5);
 
@@ -290,7 +289,6 @@ namespace SharpMIDI
             byte* messages = (byte*)SynthEvent.messages.Pointer;
             ushort* tracks = SynthEvent.track.Pointer;
             int maxtick = MIDILoader.maxTick - 1;
-            long eventlen = SynthEvent.messages.Length;
             float pixelspertick = (float)pixelsPerTick;
             float leftedge = (float)(centerTick - WindowTicks * 0.5);
             int stripX1 = texWidth - scrollPixels;
@@ -352,29 +350,38 @@ namespace SharpMIDI
 
         private static void FlushOpenNotes(float leftedge, float pixelspertick, int tickEnd, int stripX1, ref int drawn)
         {
-            for (int wordidx = 0; wordidx < BITSET_WORDS; wordidx++)
+            if (stripX1 >= 0)
             {
-                ulong word = openKeyBits[wordidx];
-                while (word != 0)
+                for (int wordidx = 0; wordidx < BITSET_WORDS; wordidx++)
                 {
-                    int bit = BitOperations.TrailingZeroCount(word);
-                    word &= word - 1;
-                    int key = (wordidx << 6) | bit;
-                    ulong slot = persistentKeys[key];
-                    uint start = (uint)slot;
-                    ushort persistent_track = (ushort)(slot >> 32);
-                    byte channel = (byte)(key >> 7);
-                    byte note = (byte)(key & 0x7F);
-                    ulong packed = MakePacked(persistent_track, channel);
-                    if (stripX1 >= 0) 
+                    ulong word = openKeyBits[wordidx];
+                    while (word != 0)
                     {
-                        DrawNoteStrip(start, tickEnd, note, packed, leftedge, pixelspertick, stripX1);
+                        int bit = BitOperations.TrailingZeroCount(word); word &= word - 1;
+                        int key = (wordidx << 6) | bit;
+                        ulong slot = persistentKeys[key];
+                        DrawNoteStrip((uint)slot, tickEnd, (byte)(key & 0x7F),
+                            MakePacked((ushort)(slot >> 32), (byte)(key >> 7)),
+                            leftedge, pixelspertick, stripX1);
+                        drawn++;
                     }
-                    else 
+                }
+            }
+            else
+            {
+                for (int wordidx = 0; wordidx < BITSET_WORDS; wordidx++)
+                {
+                    ulong word = openKeyBits[wordidx];
+                    while (word != 0)
                     {
-                        DrawNote(start, tickEnd, note, packed, leftedge, pixelspertick);
+                        int bit = BitOperations.TrailingZeroCount(word); word &= word - 1;
+                        int key = (wordidx << 6) | bit;
+                        ulong slot = persistentKeys[key];
+                        DrawNote((uint)slot, tickEnd, (byte)(key & 0x7F),
+                            MakePacked((ushort)(slot >> 32), (byte)(key >> 7)),
+                            leftedge, pixelspertick);
+                        drawn++;
                     }
-                    drawn++;
                 }
             }
         }

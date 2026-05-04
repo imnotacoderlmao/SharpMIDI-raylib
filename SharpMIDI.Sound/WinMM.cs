@@ -50,7 +50,7 @@ namespace SharpMIDI
         public static IntPtr? handle;
         public static List<string> winMMDevices = GetDevices();
 
-        public static uint Winmm_SendSysEx(MIDIHDR* message, uint size)
+        public static uint WinMM_SendSysEx(MIDIHDR* message, uint size)
         {
             uint prepare = 0, send = 0, unprepare = 0;
             prepare = _midiOutPrepareHeader((IntPtr)handle, message, size);
