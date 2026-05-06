@@ -1,7 +1,6 @@
 #pragma warning disable 8602
 using MIDIModificationFramework;
 using System.Diagnostics;
-using System.Diagnostics.Metrics;
 namespace SharpMIDI
 {
     static class MIDILoader
@@ -19,6 +18,7 @@ namespace SharpMIDI
         public static int maxTick = 0;
         public static int trackAmount = 0;
         public static int loadedtracks = 0;
+        public static int parse_buffer_size = 4; // 4mb after being multiplied where the parser itself gets called
         static uint headersize = 0; 
         static uint fmt = 0;
         static uint ppq = 0;
@@ -67,7 +67,7 @@ namespace SharpMIDI
                 // plus itll get freed after building the actual tickgroup, it does become a problem at huge track counts though
                 Parallel.For (0, trackAmount, i =>
                 {
-                    FastTrack t = new FastTrack(new BufferByteReader(threadStream, 3072*1024, trackProperties[i].start, trackProperties[i].len));
+                    FastTrack t = new FastTrack(new BufferByteReader(threadStream, parse_buffer_size * 1048576, trackProperties[i].start, trackProperties[i].len));
                     t.ScanEvents(histogram);
                     eventCount += t.eventCount;
                     loadedtracks++;
@@ -80,19 +80,19 @@ namespace SharpMIDI
                 TickGroup[] tickgroup = new TickGroup[maxTick + 2];
                 histogram.Sort((a, b) => a.tick.CompareTo(b.tick));
                 long running = 0;
-                uint count = 0;
+                uint note_count = 0;
                 int histIdx = 0;
                 for (int t = 0; t <= maxTick; t++)
                 {
                     writeCursors[t] = running;
                     while (histIdx < histogram.Count && histogram[histIdx].tick == t)
                     {
-                        count += histogram[histIdx].count;
+                        running += histogram[histIdx].offset;
+                        note_count += histogram[histIdx].notecount;
                         histIdx++;
                     }
-                    tickgroup[t] = new TickGroup { tick = (uint)t, count = count, offset = running };
-                    running += count;
-                    count = 0;
+                    tickgroup[t] = new TickGroup { tick = (uint)t, notecount = note_count, offset = running };
+                    note_count = 0;
                 }
                 histogram = null;
                 SynthEvent.Alloc(eventCount);
@@ -105,7 +105,7 @@ namespace SharpMIDI
                 {
                     fixed (long* wc = writeCursors)
                     {
-                        FastTrack t = new FastTrack(new BufferByteReader(threadStream, 3072*1024, trackProperties[i].start, trackProperties[i].len));
+                        FastTrack t = new FastTrack(new BufferByteReader(threadStream, parse_buffer_size * 1048576, trackProperties[i].start, trackProperties[i].len));
                         t.ParseTrackEvents(msgPtr, trackPtr, wc, (ushort)i);
                         totalNotes += t.totalNotes;
                         loadedtracks++;
@@ -116,7 +116,7 @@ namespace SharpMIDI
                 });
                 threadStream.Dispose();
                 midistream.Close();
-                tickgroup[maxTick + 1] = new TickGroup { tick = uint.MaxValue, count = 0, offset = running };
+                tickgroup[maxTick + 1] = new TickGroup { tick = uint.MaxValue, notecount = 0, offset = running };
                 MIDIEvent.TickGroupArray = tickgroup;
                 MIDIRenderer.InitializeForMIDI();
                 Console.WriteLine($"\nLoaded {filename} with {totalNotes} notes loaded from {trackAmount} tracks");
@@ -131,7 +131,6 @@ namespace SharpMIDI
             tempMIDIstorage.SysEx.Add(new SysEx { tick = uint.MaxValue, message = [] });
             MIDIEvent.TempoEventArray = [.. tempMIDIstorage.temppos];
             MIDIEvent.SysExArray = [.. tempMIDIstorage.SysEx];
-            Array.Sort(MIDIEvent.TempoEventArray, (a, b) => b.tempo.CompareTo(a.tempo));
             Array.Sort(MIDIEvent.TempoEventArray, (a, b) => a.tick.CompareTo(b.tick));
             Array.Sort(MIDIEvent.SysExArray, (a, b) => a.tick.CompareTo(b.tick));
             tempMIDIstorage.temppos = null;

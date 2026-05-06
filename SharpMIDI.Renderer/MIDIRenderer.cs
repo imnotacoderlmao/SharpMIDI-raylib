@@ -32,12 +32,12 @@ namespace SharpMIDI
         private static double lastTick = 0;
 
         public static readonly uint[] MIDIColors =
-        {
+        [
             0xFFFF0000, 0xFF00FF00, 0xFF0000FF, 0xFFFFFF00,
             0xFFFF00FF, 0xFF00FFFF, 0xFFFF8000, 0xFF8000FF,
             0xFF0080FF, 0xFF80FF00, 0xFFFF0080, 0xFF00FF80,
             0xFF00FA92, 0xFF00FFFF, 0xFFF7DB05, 0xFF4040FF,
-        };
+        ];
 
         public static float WindowTicks = 2000f;
         private static float lastwindowticks = WindowTicks;

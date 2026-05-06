@@ -33,7 +33,6 @@ namespace SharpMIDI
         public static bool issynthinitiated = false;
         public static string currsynth = "";
         static Thread? audthread; 
-        public static int engine = 0;
         public static string[] synths = ["Empty", "KDMAPI", "WinMM"];
         public static delegate* unmanaged[SuppressGCTransition]<uint, void> sendTo;
         //public static bool InitSynth(int synth)
@@ -72,7 +71,6 @@ namespace SharpMIDI
                     else
                     {
                         Console.WriteLine("loading from winmm.dll");
-                        engine = 2;
                         WinMM.handle = result.Item4;
                         WinMM.lastWinMMDevice = WinMMDevice;
                         currsynth = synth;

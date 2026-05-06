@@ -11,10 +11,9 @@ namespace SharpMIDI
     {
         public const int PAD = 20;
         private static float scrollfactor = 1f;
-        public static int memusagecallcount = 0;
-        public static long memusage = 0;
+        private static int memusagecallcount = 0;
+        private static long memusage = 0;
         static string filepath;
-        public static double lastrendernow;
 
         private static int currentWidth  = 1280;
         private static int currentHeight = 720;
@@ -24,7 +23,9 @@ namespace SharpMIDI
         private static bool looping = false; 
         private static bool uivisible = false;
         private static bool isborderless = false;
+        #if WINDOWS
         static string selectedwinmmout = "";
+        #endif
         public static bool Debug = false;
         public static bool IsRunning { get; private set; } = false;
         public static bool singlethreadplayback = false;
@@ -131,12 +132,6 @@ namespace SharpMIDI
                     }
                 }
             }
-            
-            /*if (Raylib.IsKeyPressed(KeyboardKey.Two))
-            {
-                List<string> devs = WinMM.GetDevices();
-                Sound.InitSynth("WinMM");
-            }*/
 
             if (Raylib.IsKeyPressed(KeyboardKey.Up) || Raylib.IsKeyPressedRepeat(KeyboardKey.Up))
             {
@@ -201,7 +196,7 @@ namespace SharpMIDI
         {
             if (!visible) return;
             rlImGui.Begin();
-            ImGui.SetNextWindowSize(new Vector2(450, 250), ImGuiCond.Always);
+            ImGui.SetNextWindowSize(new Vector2(475, 250), ImGuiCond.Once);
             ImGui.Begin("Settings", ImGuiWindowFlags.NoResize);
             if (ImGui.BeginTabBar(string.Empty))
             {
@@ -220,6 +215,11 @@ namespace SharpMIDI
                 }
                 if (ImGui.BeginTabItem("Playback"))
                 {
+                    ImGui.SliderInt("Parser buf size (MiB)", ref MIDILoader.parse_buffer_size, 1, 32);
+                    if(ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled))
+                    {
+                        ImGui.SetTooltip("Changes the parser's buffer. increasing/decreasing may lead to faster parsing. YMMV");
+                    }
                     ImGui.Checkbox("Single threaded playback", ref singlethreadplayback);
                     ImGui.Checkbox("Limit playback FPS", ref MIDIPlayer.potato_mode);  
                     ImGui.Checkbox("Playlist looping", ref looping);

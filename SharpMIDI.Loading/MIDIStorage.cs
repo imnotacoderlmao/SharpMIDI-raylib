@@ -37,7 +37,7 @@ namespace SharpMIDI
     public struct TickGroup
     {
         public uint tick;
-        public uint count;
+        public uint notecount;
         public long offset;
     }
     

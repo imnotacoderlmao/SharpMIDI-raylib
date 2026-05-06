@@ -5,7 +5,7 @@
         public static byte[] gmreset = [0xF0, 0x7E, 0x7F, 0x09, 0x01, 0xF7];
         public static byte[] rolandreset = [0xF0, 0x41, 0x10, 0x42, 0x12, 0x40, 0x00, 0x7F, 0x00, 0x41, 0xF7];
         public static long totalFrames = 0;
-        public static long playedEvents, playedevents2, eventspersec = 0;
+        public static long playedNotes, playedNotes2, eventspersec = 0;
         public static long MIDIFps = 0;
         public static double last = 0d;
         public static bool stopping = true;
@@ -24,8 +24,8 @@
                 Console.WriteLine("no midi loaded!!!");
                 return;
             }
-            playedEvents = 0;
-            playedevents2 = 0;
+            playedNotes = 0;
+            playedNotes2 = 0;
             stopping = false;
             var midiev = SynthEvent.messages;
             uint24* msgptr = midiev.Pointer;
@@ -62,8 +62,8 @@
                         {
                             while (currtg->tick <= clock)
                             {
-                                msgcur += currtg->count;
-                                playedEvents += currtg->count;
+                                msgcur = msgptr + currtg->offset;
+                                playedNotes += currtg->notecount;
                                 currtg++;
                             }
                             continue;
@@ -73,8 +73,8 @@
                             while (currtg->tick > clock)
                             {
                                 currtg--;
-                                msgcur -= currtg->count;
-                                playedEvents -= currtg->count;
+                                msgcur = msgptr + currtg->offset;
+                                playedNotes -= currtg->notecount;
                             }
                             if(tevs.Length > 1) 
                                 while (currtev->tick > clock) currtev--;
@@ -83,24 +83,24 @@
                         }
                         while (currtg->tick <= clock)
                         {
-                            uint24* groupEnd = msgcur + currtg->count;
+                            uint24* targetMsg = msgptr + currtg->offset;
                             if (!singlethread)
                             {
-                                while (msgcur < groupEnd)
+                                while (msgcur < targetMsg)
                                     buffer[(ushort)msgcur] = *msgcur++;
                             }
                             else   
                             { 
                                 #if WINDOWS
                                 if (Sound.currsynth == "WinMM")
-                                    while (msgcur < groupEnd)
+                                    while (msgcur < targetMsg)
                                         sendfn2(handle, (uint)msgcur++->Value);
                                 #endif
                                 if (Sound.currsynth == "KDMAPI")
-                                    while (msgcur < groupEnd)
+                                    while (msgcur < targetMsg)
                                         sendfn((uint)msgcur++->Value);
                             }
-                            playedEvents += currtg->count;
+                            playedNotes += currtg->notecount;
                             currtg++;
                         }
                         while (currtev->tick <= clock)
@@ -160,12 +160,12 @@
                 if (delta > updateperiod)
                 {
                     MIDIFps = (long)(totalFrames / delta);
-                    eventspersec = (long)((playedEvents - playedevents2) / delta);
-                    playedevents2 = playedEvents;
+                    eventspersec = (long)((playedNotes - playedNotes2) / delta);
+                    playedNotes2 = playedNotes;
                     totalFrames = 0;
                     last = Timer.Seconds();
                 }
-                Console.Write($"\rTick: {(int)MIDIClock.tick} / {MIDILoader.maxTick} | Played Events: {playedEvents} / {MIDILoader.eventCount} ({eventspersec}/s) | MIDI Thread: @{MIDIFps} fps         ");
+                Console.Write($"\rTick: {(int)MIDIClock.tick} / {MIDILoader.maxTick} | Played Notes: {playedNotes} / {MIDILoader.totalNotes} ({eventspersec}/s) | MIDI Thread: @{MIDIFps} fps         ");
                 Thread.Sleep(1000/60);
             }
         }

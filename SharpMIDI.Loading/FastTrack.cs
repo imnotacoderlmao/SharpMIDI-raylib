@@ -9,7 +9,6 @@ namespace SharpMIDI
         public long totalNotes = 0;
         public int trackMaxTick = 0;
         BufferByteReader reader = bbr;
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public void ParseTrackEvents(uint24* msgPtr, ushort* trackPtr, long* writeCursors, ushort track)
         {
             BufferByteReader stupid = reader;
@@ -156,7 +155,6 @@ namespace SharpMIDI
                 }
             }
         }
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public void ScanEvents(List<TickGroup> tickCounts)
         {
             BufferByteReader stupid = reader;
@@ -164,6 +162,7 @@ namespace SharpMIDI
             uint lastTick = 0;
             byte prevEvent = 0;
             uint count = 0;
+            uint notecount = 0;
 
             while (true)
             {
@@ -207,7 +206,7 @@ namespace SharpMIDI
                             {
                                 lock(tickCounts)
                                 {
-                                    tickCounts.Add(new TickGroup { tick = lastTick, count = count });
+                                    tickCounts.Add(new TickGroup { tick = lastTick, notecount = notecount, offset = count });
                                     eventCount += count;
                                 }
                             }
@@ -223,8 +222,13 @@ namespace SharpMIDI
                 bool isChannelEvent = false;
                 switch (status)
                 {
-                    case 0x80:
                     case 0x90:
+                        stupid.Skip(1);
+                        if (stupid.Read() != 0)
+                            notecount++;
+                        isChannelEvent = true;
+                        break;
+                    case 0x80:
                     case 0xA0:
                     case 0xB0:
                     case 0xE0:
@@ -245,8 +249,9 @@ namespace SharpMIDI
                     {
                         lock(tickCounts)
                         {
-                            tickCounts.Add(new TickGroup { tick = lastTick, count = count });
+                            tickCounts.Add(new TickGroup { tick = lastTick, notecount = notecount, offset = count });
                             eventCount += count;
+                            notecount = 0;
                             count = 0;
                         }
                     }
