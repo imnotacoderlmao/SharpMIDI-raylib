@@ -203,7 +203,8 @@ namespace SharpMIDI
 
             TickGroup[] groups = MIDIEvent.TickGroupArray;
             byte* messages = (byte*)SynthEvent.messages.Pointer;
-            ushort* tracks = SynthEvent.track.Pointer;
+            ushort* tracks = (WindowManager.trackcolors && SynthEvent.track != null) ? SynthEvent.track.Pointer : null;
+            bool trackcolors = tracks != null;
             int maxtick = MIDILoader.maxTick - 1;
             float pixelspertick = (float)pixelsPerTick;
             float leftedge = (float)(centerTick - WindowTicks * 0.5);
@@ -267,7 +268,7 @@ namespace SharpMIDI
                                 SetOpen(key); 
                                 openCount++; 
                             }
-                            persistentKeys[key] = PackKey((uint)tick, tracks[msgIdx]);
+                            persistentKeys[key] = PackKey((uint)tick, trackcolors ? tracks[msgIdx] : (ushort)0);
                         }
                     }
                     msgIdx++;
@@ -287,7 +288,8 @@ namespace SharpMIDI
 
             TickGroup[] groups = MIDIEvent.TickGroupArray;
             byte* messages = (byte*)SynthEvent.messages.Pointer;
-            ushort* tracks = SynthEvent.track.Pointer;
+            ushort* tracks = (WindowManager.trackcolors && SynthEvent.track != null) ? SynthEvent.track.Pointer : null;
+            bool trackcolors = tracks != null;
             int maxtick = MIDILoader.maxTick - 1;
             float pixelspertick = (float)pixelsPerTick;
             float leftedge = (float)(centerTick - WindowTicks * 0.5);
@@ -334,7 +336,7 @@ namespace SharpMIDI
                             {
                                 SetOpen(key);
                             }
-                            persistentKeys[key] = PackKey((uint)tick, tracks[msgIdx]);
+                            persistentKeys[key] = PackKey((uint)tick, trackcolors ? tracks[msgIdx] : (ushort)0);
                         }
                     }
                     msgIdx++;

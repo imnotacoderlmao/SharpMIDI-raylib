@@ -95,9 +95,10 @@ namespace SharpMIDI
                     note_count = 0;
                 }
                 histogram = null;
-                SynthEvent.Alloc(eventCount);
+                SynthEvent.Alloc(eventCount, WindowManager.trackcolors);
                 uint24* msgPtr = SynthEvent.messages.Pointer;
-                ushort* trackPtr = SynthEvent.track.Pointer;
+                ushort* trackPtr = null;
+                if (WindowManager.trackcolors) trackPtr = SynthEvent.track.Pointer;
                 loadstatus = $"actually parsing events now";
                 Console.WriteLine(loadstatus);
                 loadedtracks = 0;
@@ -122,7 +123,7 @@ namespace SharpMIDI
                 Console.WriteLine($"\nLoaded {filename} with {totalNotes} notes loaded from {trackAmount} tracks");
                 string memusage = Starter.toMemoryText(Process.GetCurrentProcess().WorkingSet64);
                 string eventmemusage = Starter.toMemoryText(SynthEvent.messages.Length * sizeof(uint24));
-                string trackmemusage = Starter.toMemoryText(SynthEvent.track.Length * sizeof(ushort));
+                string trackmemusage = Starter.toMemoryText(SynthEvent.track != null ? SynthEvent.track.Length * sizeof(ushort) : 0);
                 string timingmemusage = Starter.toMemoryText(MIDIEvent.TickGroupArray.Length * sizeof(uint));
                 Console.WriteLine($"current memory usage: {memusage} | events: {eventmemusage}\ntrack index: {trackmemusage} timing: {timingmemusage}");
             }

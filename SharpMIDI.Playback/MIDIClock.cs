@@ -28,6 +28,7 @@ namespace SharpMIDI
         {
             double now = Timer.Seconds();
             lastnow = now;
+            bpm = 120;
             tick = 0.0;
             tickscale = (bpm * ppq) / 60.0;
             paused = false;

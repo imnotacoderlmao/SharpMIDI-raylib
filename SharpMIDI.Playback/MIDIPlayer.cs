@@ -35,7 +35,7 @@
             Tempo[] tevs = MIDIEvent.TempoEventArray;
             SysEx[] sysExes = MIDIEvent.SysExArray;
             uint clock = 0, lastclock = 0;
-            uint sysexidx = 0;
+            uint sysexidx = 0, tempoidx = 0;
             Task.Run(UpdatePlaybackStats);
             var sendfn = Sound.sendTo;
             #if WINDOWS
@@ -46,75 +46,71 @@
             MIDIClock.Start();
             fixed(TickGroup* tg0 = tickGroupArr)
             {
-                fixed (Tempo* t0 = tevs)
+                TickGroup* currtg = tg0;
+                while (!stopping)
                 {
-                    Tempo* currtev = t0;
-                    TickGroup* currtg = tg0;
-                    while (!stopping)
+                    clock = (uint)MIDIClock.Update();
+                    totalFrames++;
+                    if(MIDIClock.paused || potato_mode) 
                     {
-                        clock = (uint)MIDIClock.Update();
-                        totalFrames++;
-                        if(MIDIClock.paused || potato_mode) 
-                        {
-                            Thread.Sleep(1);
-                        }
-                        if (skipping)
-                        {
-                            while (currtg->tick <= clock)
-                            {
-                                msgcur = msgptr + currtg->offset;
-                                playedNotes += currtg->notecount;
-                                currtg++;
-                            }
-                            continue;
-                        }
-                        if(lastclock > clock)
-                        {
-                            while (currtg->tick > clock)
-                            {
-                                currtg--;
-                                msgcur = msgptr + currtg->offset;
-                                playedNotes -= currtg->notecount;
-                            }
-                            if(tevs.Length > 1) 
-                                while (currtev->tick > clock) currtev--;
-                            if(sysExes.Length > 1)
-                                while (sysExes[sysexidx].tick > clock) sysexidx--;
-                        }
+                        Thread.Sleep(1);
+                    }
+                    if (skipping)
+                    {
                         while (currtg->tick <= clock)
                         {
-                            uint24* targetMsg = msgptr + currtg->offset;
-                            if (!singlethread)
-                            {
-                                while (msgcur < targetMsg)
-                                    buffer[(ushort)msgcur] = *msgcur++;
-                            }
-                            else   
-                            { 
-                                #if WINDOWS
-                                if (Sound.currsynth == "WinMM")
-                                    while (msgcur < targetMsg)
-                                        sendfn2(handle, (uint)msgcur++->Value);
-                                #endif
-                                if (Sound.currsynth == "KDMAPI")
-                                    while (msgcur < targetMsg)
-                                        sendfn((uint)msgcur++->Value);
-                            }
+                            msgcur = msgptr + currtg->offset;
                             playedNotes += currtg->notecount;
                             currtg++;
                         }
-                        while (currtev->tick <= clock)
-                        {
-                            MIDIClock.SubmitBPM(currtev->tick, currtev->tempo);
-                            currtev++;
-                        }
-                        while (sysExes[sysexidx].tick <= clock)
-                        {
-                            SubmitSysEx(sysExes[sysexidx].message);
-                            sysexidx++;
-                        }
-                        lastclock = clock;
+                        continue;
                     }
+                    if(lastclock > clock)
+                    {
+                        while (currtg->tick > clock)
+                        {
+                            currtg--;
+                            msgcur = msgptr + currtg->offset;
+                            playedNotes -= currtg->notecount;
+                        }
+                        if(tevs.Length > 1) 
+                            while (tevs[tempoidx].tick > clock) tempoidx--;
+                        if(sysExes.Length > 1)
+                            while (sysExes[sysexidx].tick > clock) sysexidx--;
+                    }
+                    while (currtg->tick <= clock)
+                    {
+                        uint24* targetMsg = msgptr + currtg->offset;
+                        if (!singlethread)
+                        {
+                            while (msgcur < targetMsg)
+                                buffer[(ushort)msgcur] = *msgcur++;
+                        }
+                        else   
+                        { 
+                            #if WINDOWS
+                            if (Sound.currsynth == "WinMM")
+                                while (msgcur < targetMsg)
+                                    sendfn2(handle, (uint)msgcur++->Value);
+                            #endif
+                            if (Sound.currsynth == "KDMAPI")
+                                while (msgcur < targetMsg)
+                                    sendfn((uint)msgcur++->Value);
+                        }
+                        playedNotes += currtg->notecount;
+                        currtg++;
+                    }
+                    while (tevs[tempoidx].tick <= clock)
+                    {
+                        MIDIClock.SubmitBPM(tevs[tempoidx].tick, tevs[tempoidx].tempo);
+                        tempoidx++;
+                    }
+                    while (sysExes[sysexidx].tick <= clock)
+                    {
+                        SubmitSysEx(sysExes[sysexidx].message);
+                        sysexidx++;
+                    }
+                    lastclock = clock;
                 }
             }
             SubmitSysEx(gmreset);

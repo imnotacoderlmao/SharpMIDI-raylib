@@ -1,6 +1,5 @@
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
-using ImGuiNET;
 namespace SharpMIDI
 {
     [StructLayout(LayoutKind.Sequential, Pack = 1)]

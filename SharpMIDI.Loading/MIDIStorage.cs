@@ -6,10 +6,10 @@ namespace SharpMIDI
         public static BigArray<uint24> messages;
         public static BigArray<ushort> track;
 
-        public static void Alloc(long length)
+        public static void Alloc(long length, bool trackcolors)
         {
             messages = new BigArray<uint24>(length);
-            track = new BigArray<ushort>(length);
+            if (trackcolors) track = new BigArray<ushort>(length);
         }
 
         public static void Dispose()

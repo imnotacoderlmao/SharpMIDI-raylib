@@ -24,8 +24,9 @@ namespace SharpMIDI
         private static bool uivisible = false;
         private static bool isborderless = false;
         #if WINDOWS
-        static string selectedwinmmout = "";
+        private static string selectedwinmmout = "";
         #endif
+        public static bool trackcolors = true;
         public static bool Debug = false;
         public static bool IsRunning { get; private set; } = false;
         public static bool singlethreadplayback = false;
@@ -211,6 +212,7 @@ namespace SharpMIDI
                     if (ImGui.Checkbox("Vsync", ref vsync))
                         Raylib.SetTargetFPS(vsync ? Raylib.GetMonitorRefreshRate(Raylib.GetCurrentMonitor()) : 0);
                     ImGui.Checkbox("Dynamic scrolling", ref dynascroll);
+                    ImGui.Checkbox("Track colors", ref trackcolors); 
                     ImGui.EndTabItem();
                 }
                 if (ImGui.BeginTabItem("Playback"))
