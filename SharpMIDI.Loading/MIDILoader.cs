@@ -102,6 +102,7 @@ namespace SharpMIDI
                 loadstatus = $"actually parsing events now";
                 Console.WriteLine(loadstatus);
                 loadedtracks = 0;
+                double parsestart = Timer.Seconds();
                 Parallel.For(0, trackAmount, i =>
                 {
                     fixed (long* wc = writeCursors)
@@ -115,17 +116,19 @@ namespace SharpMIDI
                         t.Dispose();
                     }
                 });
+                double parseend = Timer.Seconds();
                 threadStream.Dispose();
                 midistream.Close();
                 tickgroup[maxTick + 1] = new TickGroup { tick = uint.MaxValue, notecount = 0, offset = running };
                 MIDIEvent.TickGroupArray = tickgroup;
                 MIDIRenderer.InitializeForMIDI();
                 Console.WriteLine($"\nLoaded {filename} with {totalNotes} notes loaded from {trackAmount} tracks");
+                double parsetime = parseend - parsestart;
                 string memusage = Starter.toMemoryText(Process.GetCurrentProcess().WorkingSet64);
                 string eventmemusage = Starter.toMemoryText(SynthEvent.messages.Length * sizeof(uint24));
                 string trackmemusage = Starter.toMemoryText(SynthEvent.track != null ? SynthEvent.track.Length * sizeof(ushort) : 0);
                 string timingmemusage = Starter.toMemoryText(MIDIEvent.TickGroupArray.Length * sizeof(uint));
-                Console.WriteLine($"current memory usage: {memusage} | events: {eventmemusage}\ntrack index: {trackmemusage} timing: {timingmemusage}");
+                Console.WriteLine($"parsed {totalNotes} notes in {parsetime}s ({totalNotes/parsetime} notes/sec)\ncurrent memory usage: {memusage} | events: {eventmemusage}\ntrack index: {trackmemusage} timing: {timingmemusage}");
             }
 
             tempMIDIstorage.temppos.Add(new Tempo { tick = uint.MaxValue });
@@ -146,13 +149,13 @@ namespace SharpMIDI
             loadstatus = $"unloading {filename}";
             Console.WriteLine(loadstatus);
             MIDIPlayer.stopping = true;
+            MIDIRenderer.ResetForUnload();
             midiLoaded = false;
             totalNotes = 0;
             eventCount = 0;
             maxTick = 0;
             trackAmount = 0;
             trackProperties.Clear();
-            MIDIRenderer.ResetForUnload();
             tempMIDIstorage.SysEx = [];
             tempMIDIstorage.temppos = [];
             SynthEvent.Dispose();

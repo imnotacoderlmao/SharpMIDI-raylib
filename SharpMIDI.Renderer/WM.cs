@@ -75,13 +75,10 @@ namespace SharpMIDI
 
         private static void UpdateWindowDimensions()
         {
-            int newWidth  = Raylib.GetScreenWidth();
-            int newHeight = Raylib.GetScreenHeight();
-
-            if (newWidth != currentWidth || newHeight != currentHeight)
+            if (Raylib.IsWindowResized())
             {
-                currentWidth   = newWidth;
-                currentHeight  = newHeight;
+                currentWidth = Raylib.GetScreenWidth();
+                currentHeight = Raylib.GetScreenHeight();
                 MIDIRenderer.Initialize(currentWidth);
             }
         }
@@ -111,16 +108,15 @@ namespace SharpMIDI
                     if (droppedFiles.Count > 1)
                     {
                         Console.Write($"\rmultiple files dropped. playing each sequentially");
+                        string[] filepaths = new string[droppedFiles.Count];
+                        for (int files = 0; files < droppedFiles.Count; files++)
+                            filepaths[files] = Marshal.PtrToStringUTF8((nint)droppedFiles.Paths[files]);
                         if (!Sound.issynthinitiated)
                         {
                             MIDILoader.loadstatus = "initialize a synth first to continue with playlist playback";
-                            Raylib.UnloadDroppedFiles(droppedFiles);
                         }
                         else
                         {
-                            string[] filepaths = new string[droppedFiles.Count];
-                            for (int files = 0; files < droppedFiles.Count; files++)
-                                filepaths[files] = Marshal.PtrToStringUTF8((nint)droppedFiles.Paths[files]);
                             Raylib.UnloadDroppedFiles(droppedFiles);
                             _ = PlayMIDIsSequentially(filepaths);
                         }

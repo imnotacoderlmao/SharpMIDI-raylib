@@ -20,6 +20,7 @@ namespace SharpMIDI
         public static double ppq = 480;
         public static double tickscale;
         static double lastnow;
+        const double stall_threshold = 1.0d / 60;
         public static bool skipevents = true;
         public static bool throttle = !skipevents;
         public static bool paused;
@@ -41,14 +42,14 @@ namespace SharpMIDI
             if (paused || MIDIPlayer.stopping) return tick;
             double now = Timer.Seconds();
             double advancetime = now - lastnow;
-            MIDIPlayer.stalled = advancetime > 0.0166666;
-            if (throttle && MIDIPlayer.stalled)
+            bool stalled = advancetime > stall_threshold;
+            if (throttle && stalled)
             {
-                advancetime = 0.0166666;
+                advancetime = stall_threshold;
             }
             else
             {
-                MIDIPlayer.skipping = skipevents && MIDIPlayer.stalled;
+                MIDIPlayer.skipping = skipevents && stalled;
             }
             lastnow = now;
             tick += advancetime * tickscale;
@@ -60,7 +61,6 @@ namespace SharpMIDI
             Update();
             bpm = 60000000.0 / microTempo;
             tickscale = (bpm * ppq) / 60.0;
-
             if (tick < posTick)
                 tick = posTick;
             //Console.WriteLine($"Tempo in pos {posTick} with value {microTempo} ({bpm})");

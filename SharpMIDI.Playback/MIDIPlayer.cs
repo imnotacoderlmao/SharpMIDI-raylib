@@ -9,7 +9,6 @@
         public static long MIDIFps = 0;
         public static double last = 0d;
         public static bool stopping = true;
-        public static bool stalled = false;
         public static bool skipping = false;
         public static bool potato_mode = false;
         public static void StartPlayback(bool singlethread)
