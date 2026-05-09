@@ -7,7 +7,6 @@
         public static long totalFrames = 0;
         public static long playedNotes, playedNotes2, eventspersec = 0;
         public static long MIDIFps = 0;
-        public static double last = 0d;
         public static bool stopping = true;
         public static bool skipping = false;
         public static bool potato_mode = false;
@@ -148,6 +147,7 @@
         public static void UpdatePlaybackStats()
         {
             const double updateperiod = 0.1d;
+            double last = 0d;
             while(!stopping)
             {
                 double delta = Timer.Seconds() - last;
