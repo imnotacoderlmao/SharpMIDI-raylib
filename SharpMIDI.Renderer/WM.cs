@@ -231,6 +231,7 @@ namespace SharpMIDI
                     if (ImGui.Checkbox("Empty", ref initiatedsynth[0]))
                     {
                         Sound.Close();
+                        initiatedsynth[0] = Sound.currsynth == "Empty";
                         initiatedsynth[1] = false;
                         initiatedsynth[2] = false;
                     }
@@ -238,6 +239,7 @@ namespace SharpMIDI
                     {
                         Sound.InitSynth("KDMAPI", "");
                         initiatedsynth[0] = false;
+                        initiatedsynth[1] = Sound.currsynth == "KDMAPI";
                         initiatedsynth[2] = false;
                     }
                     #if WINDOWS
@@ -245,6 +247,7 @@ namespace SharpMIDI
                     {
                         initiatedsynth[0] = false;
                         initiatedsynth[1] = false;
+                        initiatedsynth[2] = Sound.currsynth == "WinMM";
                     }
                     if (initiatedsynth[2] && ImGui.BeginCombo("WinMM Device", selectedwinmmout))
                     {

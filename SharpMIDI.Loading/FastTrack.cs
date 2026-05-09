@@ -252,6 +252,7 @@ namespace SharpMIDI
                         {
                             tickCounts.Add(new TickGroup { tick = lastTick, notecount = notecount, offset = count });
                             eventCount += count;
+                            totalNotes += notecount;
                             notecount = 0;
                             count = 0;
                         }

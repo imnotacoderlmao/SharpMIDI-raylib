@@ -27,11 +27,17 @@ namespace SharpMIDI
         public static string? filename;
         public static string loadstatus = "No MIDI Loaded";
 
-        static void Crash(string test)
-        {
-            loadstatus = test;
-            Console.WriteLine(loadstatus);
-            throw new Exception();
+        public static void Crash(string error)
+        {        
+            Task.Run(async () =>
+            {
+                string prevstatus = loadstatus;
+                loadstatus = error;
+                Console.WriteLine(error);
+                await Task.Delay(2000);
+                if(loadstatus == error) loadstatus = prevstatus;
+                throw new Exception();
+            });
         }
 
         public static void LoadMIDI(string path)
@@ -41,7 +47,7 @@ namespace SharpMIDI
             loadstatus = $"Loading MIDI file: {filename}";
             if (!path.EndsWith(".mid"))
             { 
-                loadstatus = "file dosent end with 'mid'. are you even loading a midi file?";
+                Crash("file dosent end with 'mid'. are you even loading a midi file?");
                 return;
             }
             midistream = File.Open(path, FileMode.Open);
@@ -65,17 +71,21 @@ namespace SharpMIDI
                 loadstatus = $"scanning events for grouping";
                 // this will very severely overallocate. for now ill just let it since it wont be as big of an allocation as the events itself
                 // plus itll get freed after building the actual tickgroup, it does become a problem at huge track counts though
+                double parsestart = Timer.Seconds();
                 Parallel.For (0, trackAmount, i =>
                 {
                     FastTrack t = new FastTrack(new BufferByteReader(threadStream, parse_buffer_size * 1048576, trackProperties[i].start, trackProperties[i].len));
                     t.ScanEvents(histogram);
                     eventCount += t.eventCount;
+                    totalNotes += t.totalNotes;
                     loadedtracks++;
                     Console.WriteLine($"scanned track {loadedtracks}/{trackAmount} event count = {t.eventCount}, total = {eventCount}");
                     t.Dispose();
                 });
+                double parseend = Timer.Seconds();
+                double parsetime = parseend - parsestart;
                 histogram.TrimExcess();
-                Console.WriteLine($"finished scanning {trackAmount} tracks with {eventCount} events, building tick groups for events");
+                Console.WriteLine($"finished scanning {trackAmount} tracks with {eventCount} events in {parsetime} seconds\nwhich {totalNotes} were notes. ({totalNotes/parsetime} notes/s)\nnow building tick groups for events.");
                 long[] writeCursors = new long[maxTick + 2];
                 TickGroup[] tickgroup = new TickGroup[maxTick + 2];
                 histogram.Sort((a, b) => a.tick.CompareTo(b.tick));
@@ -102,7 +112,8 @@ namespace SharpMIDI
                 loadstatus = $"actually parsing events now";
                 Console.WriteLine(loadstatus);
                 loadedtracks = 0;
-                double parsestart = Timer.Seconds();
+                totalNotes = 0;
+                parsestart = Timer.Seconds();
                 Parallel.For(0, trackAmount, i =>
                 {
                     fixed (long* wc = writeCursors)
@@ -116,14 +127,14 @@ namespace SharpMIDI
                         t.Dispose();
                     }
                 });
-                double parseend = Timer.Seconds();
+                parseend = Timer.Seconds();
                 threadStream.Dispose();
                 midistream.Close();
                 tickgroup[maxTick + 1] = new TickGroup { tick = uint.MaxValue, notecount = 0, offset = running };
                 MIDIEvent.TickGroupArray = tickgroup;
                 MIDIRenderer.InitializeForMIDI();
                 Console.WriteLine($"\nLoaded {filename} with {totalNotes} notes loaded from {trackAmount} tracks");
-                double parsetime = parseend - parsestart;
+                parsetime = parseend - parsestart;
                 string memusage = Starter.toMemoryText(Process.GetCurrentProcess().WorkingSet64);
                 string eventmemusage = Starter.toMemoryText(SynthEvent.messages.Length * sizeof(uint24));
                 string trackmemusage = Starter.toMemoryText(SynthEvent.track != null ? SynthEvent.track.Length * sizeof(ushort) : 0);

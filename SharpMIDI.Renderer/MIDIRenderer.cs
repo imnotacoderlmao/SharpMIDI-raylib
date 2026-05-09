@@ -57,32 +57,6 @@ namespace SharpMIDI
             return ((ulong)priority << 32) | color;
         }
  
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private static void QueuePush(int key, uint tick, ushort track)
-        {
-            uint ks  = keyState[key];
-            uint cnt = ks & 0xFFFFu;
-            if (cnt >= QUEUE_DEPTH) return; // full: silently drop oldest
-            uint head = ks >> 16;
-            noteQueues[key * QUEUE_DEPTH + (int)((head + cnt) & (uint)QUEUE_MASK)] = PackKey(tick, track);
-            keyState[key] = (head << 16) | (cnt + 1);
-        }
- 
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private static ulong QueuePop(int key)
-        {
-            uint ks  = keyState[key];
-            uint cnt = ks & 0xFFFFu;
-            if (cnt == 0) return KEY_INACTIVE;
-            uint  head = ks >> 16;
-            ulong slot = noteQueues[key * QUEUE_DEPTH + (int)head];
-            keyState[key] = (((head + 1) & (uint)QUEUE_MASK) << 16) | (cnt - 1);
-            return slot;
-        }
- 
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private static bool QueueEmpty(int key) => (keyState[key] & 0xFFFFu) == 0;
- 
         public static void Initialize(int width)
         {
             if (renderTex.Id != 0) Raylib.UnloadTexture(renderTex);
@@ -141,7 +115,7 @@ namespace SharpMIDI
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private static void ResetQueues()
         {
-            new Span<uint> (keyState, TOTAL_KEYS).Clear();
+            new Span<uint>(keyState, TOTAL_KEYS).Clear();
             new Span<ulong>(openKeyBits, BITSET_WORDS).Clear();
         }
  
@@ -272,30 +246,41 @@ namespace SharpMIDI
                         byte channel = (byte)(synthev[0] & 0xF);
                         byte note = synthev[1];
                         int key = (channel << 7) | note;
-                        bool noteOn = status == 0x90 & synthev[2] > 0;
- 
+                        bool noteOn = status == 0x90 & synthev[2] > 0; 
+                        uint ks = keyState[key];
+                        uint cnt = ks & 0xFFFFu;
+                        uint head = ks >> 16;
+                        int qbase = key * QUEUE_DEPTH;
                         if (!noteOn)
                         {
-                            ulong slot = QueuePop(key);
-                            if ((uint)slot != INACTIVE)
+                            if (cnt != 0)
                             {
+                                ulong slot   = noteQueues[qbase + (int)head];
+                                uint  newCnt = cnt - 1;
+                                keyState[key] = (((head + 1) & (uint)QUEUE_MASK) << 16) | newCnt;
                                 if (tick >= viewStart || (uint)slot <= (uint)viewEnd)
                                 {
                                     DrawNote((uint)slot, tick, note,
                                         MakePacked((ushort)(slot >> 32), channel), leftedge, pixelspertick);
                                     drawn++;
                                 }
-                                if (QueueEmpty(key)) { ClearOpen(key); openCount--; }
+                                if (newCnt == 0) { ClearOpen(key); openCount--; }
                             }
                         }
                         else
                         {
-                            if (QueueEmpty(key)) 
-                            { 
-                                SetOpen(key); 
-                                openCount++; 
+                            ushort trk = useTrack ? tracks[msgIdx] : (ushort)0;
+                            if (cnt == 0) { SetOpen(key); openCount++; }
+                            if (cnt < QUEUE_DEPTH)
+                            {
+                                noteQueues[qbase + (int)((head + cnt) & (uint)QUEUE_MASK)] = PackKey((uint)tick, trk);
+                                keyState[key] = (head << 16) | (cnt + 1);
                             }
-                            QueuePush(key, (uint)tick, useTrack ? tracks[msgIdx] : (ushort)0);
+                            else // full: overwrite oldest entry, advance head
+                            {
+                                noteQueues[qbase + (int)head] = PackKey((uint)tick, trk);
+                                keyState[key] = (((head + 1) & (uint)QUEUE_MASK) << 16) | cnt;
+                            }
                         }
                     }
                     msgIdx++;
@@ -339,24 +324,39 @@ namespace SharpMIDI
                         byte note = synthev[1];
                         int key = (channel << 7) | note;
                         bool noteOn = status == 0x90 & synthev[2] > 0;
- 
+                        uint ks = keyState[key];
+                        uint cnt = ks & 0xFFFFu;
+                        uint head = ks >> 16;
+                        int qbase = key * QUEUE_DEPTH;
                         if (!noteOn)
                         {
-                            ulong slot = QueuePop(key);
-                            if ((uint)slot != INACTIVE)
+                            if (cnt != 0)
                             {
+                                ulong slot = noteQueues[qbase + (int)head];
+                                uint newCnt = cnt - 1;
+                                keyState[key] = (((head + 1) & (uint)QUEUE_MASK) << 16) | newCnt;
                                 DrawNoteStrip((uint)slot, tick, note,
                                     MakePacked((ushort)(slot >> 32), channel), leftedge, pixelspertick, stripX1);
                                 drawn++;
-                                if (QueueEmpty(key)) 
+                                if (newCnt == 0) 
                                     ClearOpen(key);
                             }
                         }
                         else
                         {
-                            if (QueueEmpty(key)) 
+                            ushort trk = useTrack ? tracks[msgIdx] : (ushort)0;
+                            if (cnt == 0) 
                                 SetOpen(key);
-                            QueuePush(key, (uint)tick, useTrack ? tracks[msgIdx] : (ushort)0);
+                            if (cnt < QUEUE_DEPTH)
+                            {
+                                noteQueues[qbase + (int)((head + cnt) & (uint)QUEUE_MASK)] = PackKey((uint)tick, trk);
+                                keyState[key] = (head << 16) | (cnt + 1);
+                            }
+                            else
+                            {
+                                noteQueues[qbase + (int)head] = PackKey((uint)tick, trk);
+                                keyState[key] = (((head + 1) & (uint)QUEUE_MASK) << 16) | cnt;
+                            }
                         }
                     }
                     msgIdx++;

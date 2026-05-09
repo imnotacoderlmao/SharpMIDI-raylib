@@ -1,4 +1,6 @@
-﻿namespace SharpMIDI
+﻿using System.Runtime.CompilerServices;
+
+namespace SharpMIDI
 {
     static unsafe class MIDIPlayer
     {
@@ -10,16 +12,17 @@
         public static bool stopping = true;
         public static bool skipping = false;
         public static bool potato_mode = false;
+        [MethodImpl(MethodImplOptions.AggressiveOptimization)]
         public static void StartPlayback(bool singlethread)
         {
-            if (!Sound.issynthinitiated)
-            { 
-                Console.WriteLine("NO synth initiated. please load a synth first!!! (press q for ui)");
-                return;
-            }
             if (!MIDILoader.midiLoaded) 
             {
-                Console.WriteLine("no midi loaded!!!");
+                MIDILoader.Crash("no midi loaded!!!");
+                return;
+            }
+            if (!Sound.issynthinitiated)
+            { 
+                MIDILoader.Crash("NO synth initiated. please load a synth first!!! (press q for ui)");
                 return;
             }
             playedNotes = 0;

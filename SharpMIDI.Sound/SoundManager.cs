@@ -78,16 +78,13 @@ namespace SharpMIDI
                     }
                     #endif
                 default:
-                    issynthinitiated = false;
+                    Close();
                     currsynth = "Empty";
                     return issynthinitiated;
             }
         }
 
-        static void AllocateEvBuffer()
-        {    
-            ringbuffer = (uint24*)NativeMemory.AllocZeroed((nuint)(bufferSize * sizeof(uint24)));
-        }
+        static void AllocateEvBuffer() => ringbuffer = (uint24*)NativeMemory.AllocZeroed((nuint)(bufferSize * sizeof(uint24)));
         
         public static void StartAudioThread()
         {
