@@ -62,7 +62,7 @@ namespace SharpMIDI
                 MIDIRenderer.Render(currentWidth, currentHeight, MIDIClock.tick, PAD);
                 Raylib.DrawLine(currentWidth >> 1, 0, currentWidth >> 1, currentHeight, Raylib_cs.Color.Red);
                 DrawText(); 
-                DrawUI(uivisible);
+                DrawUI();
                 
                 Raylib.EndDrawing();
             }
@@ -189,9 +189,9 @@ namespace SharpMIDI
             else Raylib.DrawText($"{MIDILoader.loadstatus}", 12, currentHeight - 19, 16, Raylib_cs.Color.SkyBlue);
         }
         
-        public static void DrawUI(bool visible)
+        public static void DrawUI()
         {
-            if (!visible) return;
+            if (!uivisible) return;
             rlImGui.Begin();
             ImGui.SetNextWindowSize(new Vector2(475, 250), ImGuiCond.Once);
             ImGui.Begin("Settings", ImGuiWindowFlags.NoResize);
@@ -200,32 +200,72 @@ namespace SharpMIDI
                 if (ImGui.BeginTabItem("Renderer"))
                 {
                     if (!dynascroll)
+                    {
                         ImGui.SliderFloat("Renderer zoom", ref MIDIRenderer.WindowTicks, 0, 100000);
+                        if (ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled))
+                        {
+                            ImGui.SetTooltip("how many ticks of the midi are visible in the window");
+                        }
+                    }
                     else
+                    {
                         ImGui.SliderFloat("Scroll factor", ref scrollfactor, 0, 10);
+                        if (ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled))
+                        {
+                            ImGui.SetTooltip("in this case its just ticks/sec * scrollfactor, so... how many seconds are visible?");
+                        }
+                    }
                     if (ImGui.Checkbox("Fullscreen (borderless)", ref isborderless))
                         Raylib.ToggleBorderlessWindowed();
                     if (ImGui.Checkbox("Vsync", ref vsync))
                         Raylib.SetTargetFPS(vsync ? Raylib.GetMonitorRefreshRate(Raylib.GetCurrentMonitor()) : 0);
                     ImGui.Checkbox("Dynamic scrolling", ref dynascroll);
-                    ImGui.Checkbox("Track colors", ref trackcolors); 
+                    if (ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled))
+                    {
+                        ImGui.SetTooltip("oo... fake time based... (do not use this in demanding midis it forces a full redraw for now)");
+                    }
+                    ImGui.Checkbox("Track colors", ref trackcolors);
+                    if (ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled))
+                    {
+                        ImGui.SetTooltip("Disabling track colors will save around 40%% memory at the cost of visuals being... subpar at least");
+                    }
                     ImGui.EndTabItem();
                 }
                 if (ImGui.BeginTabItem("Playback"))
                 {
                     ImGui.SliderInt("Parser buf size (MiB)", ref MIDILoader.parse_buffer_size, 1, 32);
-                    if(ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled))
+                    if (ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled))
                     {
                         ImGui.SetTooltip("Changes the parser's buffer. increasing/decreasing may lead to faster parsing. YMMV");
                     }
                     ImGui.Checkbox("Single threaded playback", ref singlethreadplayback);
+                    if (ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled))
+                    {
+                        ImGui.SetTooltip("While this makes playback half as demanding due to the audio thread being disabled\nyou are at the mercy of whatever synth API youre sending to (way lower throughput)");
+                    }
                     ImGui.Checkbox("Limit playback FPS", ref MIDIPlayer.potato_mode);  
+                    if (ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled))
+                    {
+                        ImGui.SetTooltip("if you dont think disabling the audio thread is enough to save you from 100%% cpu usage");
+                    }
                     ImGui.Checkbox("Playlist looping", ref looping);
+                    if (ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled))
+                    {
+                        ImGui.SetTooltip("if you want your midi playlist to keep going instead of stopping");
+                    }
                     if (ImGui.Checkbox("Event skipping", ref MIDIClock.skipevents))
                     {
                         MIDIClock.throttle = !MIDIClock.skipevents;
                     }
-                    ImGui.Checkbox("Debug stats", ref Debug); 
+                    if (ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled))
+                    {
+                        ImGui.SetTooltip("Toggling this will dictate wether the player will throttle or skip events when stalled.\ndisabling will make the player throttle itself to prevent stalling and go through every event in the midi.\nwhile skipping dosent throttle timing and just skips sending to synth till it dosent stall anymore");
+                    }
+                    ImGui.Checkbox("Debug stats", ref Debug);
+                    if (ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled))
+                    {
+                        ImGui.SetTooltip("meh its just extra text on the renderer gui, idk");
+                    }
                     ImGui.EndTabItem();
                 }
                 if (ImGui.BeginTabItem("Synthesizer"))

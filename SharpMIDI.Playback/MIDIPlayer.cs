@@ -80,9 +80,9 @@ namespace SharpMIDI
                             playedNotes -= currtg->notecount;
                         }
                         if(tevs.Length > 1) 
-                            while (tevs[tempoidx].tick > clock) tempoidx--;
+                            while (tevs[tempoidx].tick > clock && tempoidx >= 0) tempoidx--;
                         if(sysExes.Length > 1)
-                            while (sysExes[sysexidx].tick > clock) sysexidx--;
+                            while (sysExes[sysexidx].tick > clock && sysexidx >= 0) sysexidx--;
                     }
                     while (currtg->tick <= clock)
                     {
