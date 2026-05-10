@@ -10,8 +10,8 @@ namespace SharpMIDI
         {
             return bytes switch
             {
-                var expression when bytes < 1024 => $"{bytes} B",
-                var expression when bytes < 1048576 => $"{bytes / 1024} KiB",
+                var _ when bytes < 1024 => $"{bytes} B",
+                var _ when bytes < 1048576 => $"{bytes / 1024} KiB",
                 _ => $"{bytes / 1048576} MiB",
             };
         }

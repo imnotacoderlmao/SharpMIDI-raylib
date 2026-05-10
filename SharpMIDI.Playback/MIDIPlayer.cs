@@ -61,16 +61,6 @@ namespace SharpMIDI
                     {
                         Thread.Sleep(1);
                     }
-                    if (skipping)
-                    {
-                        while (currtg->tick <= clock)
-                        {
-                            msgcur = msgptr + currtg->offset;
-                            playedNotes += currtg->notecount;
-                            currtg++;
-                        }
-                        continue;
-                    }
                     if(lastclock > clock)
                     {
                         while (currtg->tick > clock)
@@ -80,39 +70,46 @@ namespace SharpMIDI
                             playedNotes -= currtg->notecount;
                         }
                         if(tevs.Length > 1) 
-                            while (tevs[tempoidx].tick > clock && tempoidx >= 0) tempoidx--;
+                            while (tevs[tempoidx].tick > clock) tempoidx--;
                         if(sysExes.Length > 1)
-                            while (sysExes[sysexidx].tick > clock && sysexidx >= 0) sysexidx--;
+                            while (sysExes[sysexidx].tick > clock) sysexidx--;
                     }
                     while (currtg->tick <= clock)
                     {
-                        uint24* targetMsg = msgptr + currtg->offset;
-                        if (!singlethread)
+                        if (!skipping)
                         {
-                            while (msgcur < targetMsg)
-                                buffer[(ushort)msgcur] = *msgcur++;
+                            uint24* targetMsg = msgptr + currtg->offset;
+                            if (!singlethread)
+                            {
+                                while (msgcur < targetMsg)
+                                    buffer[(ushort)msgcur] = *msgcur++;
+                            }
+                            else   
+                            { 
+                                #if WINDOWS
+                                if (Sound.currsynth == "WinMM")
+                                {
+                                    while (msgcur < targetMsg)
+                                        sendfn2(handle, (uint)msgcur++->Value);
+                                }
+                                #endif
+                                if (Sound.currsynth == "KDMAPI")
+                                {
+                                    while (msgcur < targetMsg)
+                                        sendfn((uint)msgcur++->Value);
+                                }
+                            }
                         }
-                        else   
-                        { 
-                            #if WINDOWS
-                            if (Sound.currsynth == "WinMM")
-                            {
-                                while (msgcur < targetMsg)
-                                    sendfn2(handle, (uint)msgcur++->Value);
-                            }
-                            #endif
-                            if (Sound.currsynth == "KDMAPI")
-                            {
-                                while (msgcur < targetMsg)
-                                    sendfn((uint)msgcur++->Value);
-                            }
+                        else 
+                        {
+                            msgcur = msgptr + currtg->offset;
                         }
                         playedNotes += currtg->notecount;
                         currtg++;
                     }
                     while (tevs[tempoidx].tick <= clock)
                     {
-                        MIDIClock.SubmitBPM(tevs[tempoidx].tick, tevs[tempoidx].tempo);
+                        MIDIClock.SubmitBPM(tevs[tempoidx].tempo);
                         tempoidx++;
                     }
                     while (sysExes[sysexidx].tick <= clock)
@@ -173,8 +170,8 @@ namespace SharpMIDI
                     totalFrames = 0;
                     last = Timer.Seconds();
                 }
-                MIDIClock.stalled = MIDIFps < 60; //lowkey frankenstein since it used to be in update() but if it works it works
-                Console.Write($"\rTick: {(int)MIDIClock.tick} / {MIDILoader.maxTick} | Played Notes: {playedNotes} / {MIDILoader.totalNotes} ({eventspersec}/s) | MIDI Thread: @{MIDIFps} fps         ");
+                MIDIClock.stalled = MIDIClock.advancetime > MIDIClock.stall_thresh; //lowkey frankenstein since it used to be in update() but if it works it works
+                Console.Write($"\rTick: {(long)MIDIClock.tick:N0} / {MIDILoader.maxTick:N0} | Played Notes: {playedNotes:N0} / {MIDILoader.totalNotes:N0} ({eventspersec:N0}/s) | MIDI Thread: @{MIDIFps:N0} fps         ");
                 Thread.Sleep(1000/60);
             }
         }

@@ -85,16 +85,10 @@ namespace SharpMIDI
     }
 
     [StructLayout(LayoutKind.Sequential, Pack = 1)]
-    public struct uint24
+    public struct uint24(int value)
     {
-        private ushort val1;
-        private byte val2;
-
-        public uint24(int value)
-        {
-            val1 = (ushort)(value & 0xFFFF);
-            val2 = (byte)((value >> 16) & 0xFF);
-        }
+        private ushort val1 = (ushort)(value & 0xFFFF);
+        private byte val2 = (byte)((value >> 16) & 0xFF);
 
         public int Value
         {
