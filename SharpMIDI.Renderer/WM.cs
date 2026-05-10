@@ -221,7 +221,10 @@ namespace SharpMIDI
                     ImGui.Checkbox("Single threaded playback", ref singlethreadplayback);
                     ImGui.Checkbox("Limit playback FPS", ref MIDIPlayer.potato_mode);  
                     ImGui.Checkbox("Playlist looping", ref looping);
-                    ImGui.Checkbox("Event skipping", ref MIDIClock.skipevents);
+                    if (ImGui.Checkbox("Event skipping", ref MIDIClock.skipevents))
+                    {
+                        MIDIClock.throttle = !MIDIClock.skipevents;
+                    }
                     ImGui.Checkbox("Debug stats", ref Debug); 
                     ImGui.EndTabItem();
                 }
@@ -231,7 +234,7 @@ namespace SharpMIDI
                     if (ImGui.Checkbox("Empty", ref initiatedsynth[0]))
                     {
                         Sound.Close();
-                        initiatedsynth[0] = Sound.currsynth == "Empty";
+                        initiatedsynth[0] = true;
                         initiatedsynth[1] = false;
                         initiatedsynth[2] = false;
                     }
@@ -239,7 +242,7 @@ namespace SharpMIDI
                     {
                         Sound.InitSynth("KDMAPI", "");
                         initiatedsynth[0] = false;
-                        initiatedsynth[1] = Sound.currsynth == "KDMAPI";
+                        initiatedsynth[1] = true;
                         initiatedsynth[2] = false;
                     }
                     #if WINDOWS
@@ -247,7 +250,7 @@ namespace SharpMIDI
                     {
                         initiatedsynth[0] = false;
                         initiatedsynth[1] = false;
-                        initiatedsynth[2] = Sound.currsynth == "WinMM";
+                        initiatedsynth[2] = true;
                     }
                     if (initiatedsynth[2] && ImGui.BeginCombo("WinMM Device", selectedwinmmout))
                     {

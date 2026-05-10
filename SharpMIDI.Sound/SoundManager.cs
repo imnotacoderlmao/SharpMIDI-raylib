@@ -60,6 +60,7 @@ namespace SharpMIDI
                 #if WINDOWS
                 case "WinMM":
                     WinMM.InitializeFunctionPointer();
+                    currsynth = synth;
                     (bool, string, string, IntPtr?, MidiOutCaps?) result = WinMM.Setup(WinMMDevice);
                     if (!result.Item1)
                     {
@@ -72,14 +73,12 @@ namespace SharpMIDI
                         Console.WriteLine("loading from winmm.dll");
                         WinMM.handle = result.Item4;
                         WinMM.lastWinMMDevice = WinMMDevice;
-                        currsynth = synth;
                         issynthinitiated = true;
                         return issynthinitiated;
                     }
                     #endif
                 default:
                     Close();
-                    currsynth = "Empty";
                     return issynthinitiated;
             }
         }
@@ -161,6 +160,7 @@ namespace SharpMIDI
             if (issynthinitiated)
             {
                 issynthinitiated = false; 
+                currsynth = "Empty";
                 switch(currsynth){
                     case "KDMAPI":
                         KDMAPI._terminateKDMAPIStream();

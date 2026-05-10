@@ -52,7 +52,7 @@ namespace SharpMIDI
 
         public static uint WinMM_SendSysEx(MIDIHDR* message, uint size)
         {
-            uint prepare = 0, send = 0, unprepare = 0;
+            uint prepare = 255, send = 255, unprepare = 255;
             prepare = _midiOutPrepareHeader((IntPtr)handle, message, size);
             if (prepare == 0)
             {

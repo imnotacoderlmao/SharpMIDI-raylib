@@ -23,6 +23,7 @@ namespace SharpMIDI
         const double stall_threshold = 1.0d / 60;
         public static bool skipevents = true;
         public static bool throttle = !skipevents;
+        public static bool stalled = false;
         public static bool paused;
 
         public static void Start()
@@ -42,14 +43,10 @@ namespace SharpMIDI
             if (paused || MIDIPlayer.stopping) return tick;
             double now = Timer.Seconds();
             double advancetime = now - lastnow;
-            bool stalled = advancetime > stall_threshold;
+            MIDIPlayer.skipping = skipevents && stalled;
             if (throttle && stalled)
             {
                 advancetime = stall_threshold;
-            }
-            else
-            {
-                MIDIPlayer.skipping = skipevents && stalled;
             }
             lastnow = now;
             tick += advancetime * tickscale;

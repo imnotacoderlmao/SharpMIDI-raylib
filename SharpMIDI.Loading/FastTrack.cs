@@ -225,7 +225,7 @@ namespace SharpMIDI
                 {
                     case 0x90:
                         stupid.Skip(1);
-                        if (stupid.Read() != 0)
+                        if (stupid.Read() != 0) 
                             notecount++;
                         isChannelEvent = true;
                         break;

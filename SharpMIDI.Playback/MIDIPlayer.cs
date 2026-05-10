@@ -39,9 +39,14 @@ namespace SharpMIDI
             uint sysexidx = 0, tempoidx = 0;
             Task.Run(UpdatePlaybackStats);
             var sendfn = Sound.sendTo;
+            delegate* unmanaged[SuppressGCTransition]<IntPtr, uint, uint> sendfn2 = null;
+            IntPtr handle = IntPtr.Zero;
             #if WINDOWS
-            var sendfn2 = WinMM._midiOutShortMsg;
-            IntPtr handle = (IntPtr)WinMM.handle;
+            if(Sound.currsynth == "WinMM")
+            {
+                sendfn2 = WinMM._midiOutShortMsg;
+                handle = (IntPtr)WinMM.handle;
+            }
             #endif
             if(!singlethread) Sound.StartAudioThread();
             MIDIClock.Start();
@@ -91,12 +96,16 @@ namespace SharpMIDI
                         { 
                             #if WINDOWS
                             if (Sound.currsynth == "WinMM")
+                            {
                                 while (msgcur < targetMsg)
                                     sendfn2(handle, (uint)msgcur++->Value);
+                            }
                             #endif
                             if (Sound.currsynth == "KDMAPI")
+                            {
                                 while (msgcur < targetMsg)
                                     sendfn((uint)msgcur++->Value);
+                            }
                         }
                         playedNotes += currtg->notecount;
                         currtg++;
@@ -140,9 +149,10 @@ namespace SharpMIDI
                         dwFlags = 0
                     };
                     uint size = (uint)sizeof(MIDIHDR);
-                    Console.WriteLine($"\nSending SysEx message: {BitConverter.ToString(message)}");
-                    if (Sound.currsynth == "KDMAPI") KDMAPI.KDMAPI_SendSysEx_win(&header, size);
-                    if (Sound.currsynth == "WinMM") WinMM.WinMM_SendSysEx(&header, size);
+                    if (Sound.currsynth == "KDMAPI") 
+                        KDMAPI.KDMAPI_SendSysEx_win(&header, size);
+                    if (Sound.currsynth == "WinMM") 
+                        WinMM.WinMM_SendSysEx(&header, size);
                 #endif
             }
         }
@@ -163,6 +173,7 @@ namespace SharpMIDI
                     totalFrames = 0;
                     last = Timer.Seconds();
                 }
+                MIDIClock.stalled = MIDIFps < 60; //lowkey frankenstein since it used to be in update() but if it works it works
                 Console.Write($"\rTick: {(int)MIDIClock.tick} / {MIDILoader.maxTick} | Played Notes: {playedNotes} / {MIDILoader.totalNotes} ({eventspersec}/s) | MIDI Thread: @{MIDIFps} fps         ");
                 Thread.Sleep(1000/60);
             }

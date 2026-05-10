@@ -34,7 +34,7 @@ namespace SharpMIDI
                 string prevstatus = loadstatus;
                 loadstatus = error;
                 Console.WriteLine(error);
-                await Task.Delay(2000);
+                await Task.Delay(1000);
                 if(loadstatus == error) loadstatus = prevstatus;
                 throw new Exception();
             });
@@ -71,13 +71,14 @@ namespace SharpMIDI
                 loadstatus = $"scanning events for grouping";
                 // this will very severely overallocate. for now ill just let it since it wont be as big of an allocation as the events itself
                 // plus itll get freed after building the actual tickgroup, it does become a problem at huge track counts though
+                long countednotes = 0;
                 double parsestart = Timer.Seconds();
                 Parallel.For (0, trackAmount, i =>
                 {
                     FastTrack t = new FastTrack(new BufferByteReader(threadStream, parse_buffer_size * 1048576, trackProperties[i].start, trackProperties[i].len));
                     t.ScanEvents(histogram);
                     eventCount += t.eventCount;
-                    totalNotes += t.totalNotes;
+                    countednotes += t.totalNotes;
                     loadedtracks++;
                     Console.WriteLine($"scanned track {loadedtracks}/{trackAmount} event count = {t.eventCount}, total = {eventCount}");
                     t.Dispose();
@@ -85,7 +86,7 @@ namespace SharpMIDI
                 double parseend = Timer.Seconds();
                 double parsetime = parseend - parsestart;
                 histogram.TrimExcess();
-                Console.WriteLine($"finished scanning {trackAmount} tracks with {eventCount} events in {parsetime} seconds\nwhich {totalNotes} were notes. ({totalNotes/parsetime} notes/s)\nnow building tick groups for events.");
+                Console.WriteLine($"finished scanning {trackAmount} tracks with {eventCount} events which {countednotes} were notes in {parsetime} seconds ({countednotes/parsetime} notes/s)\nnow building tick groups for events.");
                 long[] writeCursors = new long[maxTick + 2];
                 TickGroup[] tickgroup = new TickGroup[maxTick + 2];
                 histogram.Sort((a, b) => a.tick.CompareTo(b.tick));
