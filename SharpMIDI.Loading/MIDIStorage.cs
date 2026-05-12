@@ -23,20 +23,20 @@ namespace SharpMIDI
     
     public struct Tempo
     {
-        public uint tick;
-        public uint tempo;
+        public int tick;
+        public uint24 tempo;
     }
     
     public struct SysEx
     {
-        public uint tick;
+        public int tick;
         public byte[] message;
     }
     
     [StructLayout(LayoutKind.Sequential, Pack = 1)]
     public struct TickGroup
     {
-        public uint tick;
+        public int tick;
         public uint notecount;
         public long offset;
     }

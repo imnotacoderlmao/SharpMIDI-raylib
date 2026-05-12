@@ -160,7 +160,6 @@ namespace SharpMIDI
             if (issynthinitiated)
             {
                 issynthinitiated = false; 
-                currsynth = "Empty";
                 switch(currsynth){
                     case "KDMAPI":
                         KDMAPI._terminateKDMAPIStream();
@@ -171,6 +170,7 @@ namespace SharpMIDI
                         return;
                     #endif
                 }
+                currsynth = "Empty";
             }
         }
     }

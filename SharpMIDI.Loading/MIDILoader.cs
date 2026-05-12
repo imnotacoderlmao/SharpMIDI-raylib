@@ -90,19 +90,19 @@ namespace SharpMIDI
                 long[] writeCursors = new long[maxTick + 2];
                 TickGroup[] tickgroup = new TickGroup[maxTick + 2];
                 histogram.Sort((a, b) => a.tick.CompareTo(b.tick));
-                long running = 0;
+                long event_offset = 0;
                 uint note_count = 0;
                 int histIdx = 0;
                 for (int t = 0; t <= maxTick; t++)
                 {
-                    writeCursors[t] = running;
+                    writeCursors[t] = event_offset;
                     while (histIdx < histogram.Count && histogram[histIdx].tick == t)
                     {
-                        running += histogram[histIdx].offset;
+                        event_offset += histogram[histIdx].offset;
                         note_count += histogram[histIdx].notecount;
                         histIdx++;
                     }
-                    tickgroup[t] = new TickGroup { tick = (uint)t, notecount = note_count, offset = running };
+                    tickgroup[t] = new TickGroup { tick = t, notecount = note_count, offset = event_offset };
                     note_count = 0;
                 }
                 histogram = null;
@@ -131,7 +131,7 @@ namespace SharpMIDI
                 parseend = Timer.Seconds();
                 threadStream.Dispose();
                 midistream.Close();
-                tickgroup[maxTick + 1] = new TickGroup { tick = uint.MaxValue, notecount = 0, offset = running };
+                tickgroup[maxTick + 1] = new TickGroup { tick = int.MaxValue, notecount = 0, offset = event_offset };
                 MIDIEvent.TickGroupArray = tickgroup;
                 MIDIRenderer.InitializeForMIDI();
                 Console.WriteLine($"\nLoaded {filename} with {totalNotes} notes loaded from {trackAmount} tracks");
@@ -143,8 +143,8 @@ namespace SharpMIDI
                 Console.WriteLine($"parsed {totalNotes} notes in {parsetime}s ({totalNotes/parsetime} notes/sec)\ncurrent memory usage: {memusage} | events: {eventmemusage}\ntrack index: {trackmemusage} timing: {timingmemusage}");
             }
 
-            tempMIDIstorage.temppos.Add(new Tempo { tick = uint.MaxValue });
-            tempMIDIstorage.SysEx.Add(new SysEx { tick = uint.MaxValue, message = [] });
+            tempMIDIstorage.temppos.Add(new Tempo { tick = int.MaxValue, tempo = 500000 });
+            tempMIDIstorage.SysEx.Add(new SysEx { tick = int.MaxValue, message = [] });
             MIDIEvent.TempoEventArray = [.. tempMIDIstorage.temppos];
             MIDIEvent.SysExArray = [.. tempMIDIstorage.SysEx];
             Array.Sort(MIDIEvent.TempoEventArray, (a, b) => a.tick.CompareTo(b.tick));

@@ -12,13 +12,13 @@ namespace SharpMIDI
         public void ParseTrackEvents(uint24* msgPtr, ushort* trackPtr, long* writeCursors, ushort track)
         {
             BufferByteReader stupid = reader;
-            uint absolutetime = 0;
+            int absolutetime = 0;
             long notecount = 0;
             byte prevEvent = 0;
-            bool trackcolors = (trackPtr != null);
+            bool trackcolors = trackPtr != null;
             while (true)
             {
-                uint delta = ReadVariableLen();
+                int delta = ReadVariableLen();
                 absolutetime += delta;
                 byte readEvent = stupid.ReadFast();
                 if (readEvent < 0x80) 
@@ -33,7 +33,7 @@ namespace SharpMIDI
                 {
                     case 0xF0:
                         List<byte> data = new List<byte>() { readEvent };
-                        uint size = ReadVariableLen();
+                        int size = ReadVariableLen();
                         for(uint i = 0; i < size; i++)
                             data.Add(stupid.Read());
                         lock(tempMIDIstorage.SysEx)
@@ -58,8 +58,8 @@ namespace SharpMIDI
                         readEvent = stupid.Read();
                         if (readEvent == 0x51)
                         {
-                            uint len = ReadVariableLen();
-                            uint tempo = 0;
+                            int len = ReadVariableLen();
+                            int tempo = 0;
                             for (int i = 0; i < len; i++) 
                                 tempo = (tempo << 8) | stupid.Read();
                             lock(tempMIDIstorage.temppos)
@@ -67,7 +67,7 @@ namespace SharpMIDI
                                 tempMIDIstorage.temppos.Add(new Tempo 
                                 { 
                                     tick = absolutetime, 
-                                    tempo = tempo 
+                                    tempo = (uint24)tempo 
                                 });
                             }
                         }
@@ -76,15 +76,15 @@ namespace SharpMIDI
                             totalNotes = notecount;
                             return;
                         }
-                        else stupid.Skip((int)ReadVariableLen());
+                        else stupid.Skip(ReadVariableLen());
                         break;
                 }
                 switch (status)
                 {
                     case 0x80:
                     {
-                        byte note = stupid.Read(); 
-                        byte vel = stupid.Read();
+                        byte note = stupid.ReadFast(); 
+                        byte vel = stupid.ReadFast();
                         long pos = Interlocked.Increment(ref writeCursors[absolutetime]) - 1;
                         msgPtr[pos] = (uint24)(readEvent | (note << 8) | (vel << 16));
                         if(trackcolors) trackPtr[pos] = track;
@@ -92,19 +92,18 @@ namespace SharpMIDI
                     }
                     case 0x90:
                     {
-                        byte note = stupid.Read();
-                        byte vel = stupid.Read();
+                        byte note = stupid.ReadFast();
+                        byte vel = stupid.ReadFast();
+                        long pos = Interlocked.Increment(ref writeCursors[absolutetime]) - 1;
                         if (vel != 0)
                         { 
                             notecount++; 
-                            long pos = Interlocked.Increment(ref writeCursors[absolutetime]) - 1; 
                             msgPtr[pos] = (uint24)(readEvent | (note << 8) | (vel << 16));
                             if(trackcolors) trackPtr[pos] = track;
                         }
                         else 
                         { 
-                            byte dummynoteoff = (byte)(0x80 | channel); 
-                            long pos = Interlocked.Increment(ref writeCursors[absolutetime]) - 1; 
+                            byte dummynoteoff = (byte)(0x80 | channel);  
                             msgPtr[pos] = (uint24)(dummynoteoff | (note << 8) | (64 << 16));
                             if(trackcolors) trackPtr[pos] = track;
                         }
@@ -159,21 +158,20 @@ namespace SharpMIDI
         public void ScanEvents(List<TickGroup> tickCounts)
         {
             BufferByteReader stupid = reader;
-            uint absolutetime = 0;
-            uint lastTick = 0;
+            int absolutetime = 0;
+            int lastTick = 0;
             byte prevEvent = 0;
             uint count = 0;
             uint notecount = 0;
 
             while (true)
             {
-                uint delta = ReadVariableLen();
+                int delta = ReadVariableLen();
                 absolutetime += delta;
                 byte readEvent = stupid.ReadFast();
 
                 if (readEvent < 0x80) 
                 { 
-                    stupid.Pushback = readEvent; 
                     readEvent = prevEvent; 
                 }
 
@@ -196,11 +194,11 @@ namespace SharpMIDI
                         continue;
                     case 0xFF:
                         readEvent = stupid.Read();
-                        int len = (int)ReadVariableLen();
+                        int len = ReadVariableLen();
 
                         if (readEvent == 0x2F)
                         {
-                            trackMaxTick = (int)absolutetime;
+                            trackMaxTick = absolutetime;
                             if (trackMaxTick > MIDILoader.maxTick)
                                 MIDILoader.maxTick = trackMaxTick;
                             if (count > 0)
@@ -225,7 +223,7 @@ namespace SharpMIDI
                 {
                     case 0x90:
                         stupid.Skip(1);
-                        if (stupid.Read() != 0) 
+                        if (stupid.ReadFast() != 0) 
                             notecount++;
                         isChannelEvent = true;
                         break;
@@ -264,12 +262,12 @@ namespace SharpMIDI
             }
         }
 
-        uint ReadVariableLen()
+        int ReadVariableLen()
         {
-            uint n = 0;
+            int n = 0;
             while (true)
             {
-                byte curByte = reader.Read();
+                byte curByte = reader.ReadFast();
                 n = (n << 7) | (byte)(curByte & 0x7F);
                 if ((curByte & 0x80) == 0)
                 {

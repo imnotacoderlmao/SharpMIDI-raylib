@@ -35,7 +35,7 @@ namespace SharpMIDI
             TickGroup[] tickGroupArr = MIDIEvent.TickGroupArray;
             Tempo[] tevs = MIDIEvent.TempoEventArray;
             SysEx[] sysExes = MIDIEvent.SysExArray;
-            uint clock = 0, lastclock = 0;
+            int clock = 0, lastclock = 0;
             uint sysexidx = 0, tempoidx = 0;
             Task.Run(UpdatePlaybackStats);
             var sendfn = Sound.sendTo;
@@ -55,7 +55,7 @@ namespace SharpMIDI
                 TickGroup* currtg = tg0;
                 while (!stopping)
                 {
-                    clock = (uint)MIDIClock.Update();
+                    clock = (int)MIDIClock.Update();
                     totalFrames++;
                     if(MIDIClock.paused || potato_mode) 
                     {
@@ -170,7 +170,6 @@ namespace SharpMIDI
                     totalFrames = 0;
                     last = Timer.Seconds();
                 }
-                MIDIClock.stalled = MIDIClock.advancetime > MIDIClock.stall_thresh; //lowkey frankenstein since it used to be in update() but if it works it works
                 Console.Write($"\rTick: {(long)MIDIClock.tick:N0} / {MIDILoader.maxTick:N0} | Played Notes: {playedNotes:N0} / {MIDILoader.totalNotes:N0} ({eventspersec:N0}/s) | MIDI Thread: @{MIDIFps:N0} fps         ");
                 Thread.Sleep(1000/60);
             }

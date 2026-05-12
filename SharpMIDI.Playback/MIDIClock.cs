@@ -44,6 +44,7 @@ namespace SharpMIDI
             if (paused || MIDIPlayer.stopping) return tick;
             double now = Timer.Seconds();
             advancetime = now - lastnow;
+            stalled = advancetime > stall_thresh;
             MIDIPlayer.skipping = skipevents && stalled;
             if (throttle && stalled)
             {
@@ -54,11 +55,11 @@ namespace SharpMIDI
             return tick;
         }
 
-        public static void SubmitBPM(uint microTempo)
+        public static void SubmitBPM(uint24 microTempo)
         {
-            bpm = 60000000.0 / microTempo;
+            bpm = 60000000.0 / microTempo.Value;
             tickscale = (bpm * ppq) / 60.0;
-            //Console.WriteLine($"Tempo in pos {posTick} with value {microTempo} ({bpm})");
+            //Console.WriteLine($"Tempo with value {microTempo.Value} ({bpm})");
         }
 
         public static void Stop()

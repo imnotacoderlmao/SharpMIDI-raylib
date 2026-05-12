@@ -152,7 +152,7 @@ namespace SharpMIDI
             if (Raylib.IsKeyPressed(KeyboardKey.Left) || Raylib.IsKeyPressedRepeat(KeyboardKey.Left))
             {
                 if(!MIDIPlayer.stopping)
-                    MIDIClock.tick -= MIDIClock.tickscale;
+                    MIDIClock.tick = Math.Clamp(MIDIClock.tick - MIDIClock.tickscale, 0, double.MaxValue);
             }
             if (Raylib.IsKeyPressed(KeyboardKey.Right) || Raylib.IsKeyPressedRepeat(KeyboardKey.Right))
             {
