@@ -67,6 +67,7 @@ namespace SharpMIDI
             DiskReadProvider threadStream = new DiskReadProvider(midistream);
             unsafe
             {
+                int bufferSize = parse_buffer_size * 1048576; 
                 List<TickGroup> histogram = new();
                 loadstatus = $"scanning events for grouping";
                 // this will very severely overallocate. for now ill just let it since it wont be as big of an allocation as the events itself
@@ -75,7 +76,7 @@ namespace SharpMIDI
                 double parsestart = Timer.Seconds();
                 Parallel.For (0, trackAmount, i =>
                 {
-                    FastTrack t = new FastTrack(new BufferByteReader(threadStream, parse_buffer_size * 1048576, trackProperties[i].start, trackProperties[i].len));
+                    FastTrack t = new FastTrack(new BufferByteReader(threadStream, bufferSize, trackProperties[i].start, trackProperties[i].len));
                     t.ScanEvents(histogram);
                     Interlocked.Add(ref eventCount, t.eventCount);
                     Interlocked.Add(ref countednotes, t.totalNotes);
@@ -121,7 +122,7 @@ namespace SharpMIDI
                 {
                     fixed (long* wc = writeCursors)
                     {
-                        FastTrack t = new FastTrack(new BufferByteReader(threadStream, parse_buffer_size * 1048576, trackProperties[i].start, trackProperties[i].len));
+                        FastTrack t = new FastTrack(new BufferByteReader(threadStream, bufferSize, trackProperties[i].start, trackProperties[i].len));
                         t.ParseTrackEvents(msgPtr, trackPtr, wc, (ushort)i);
                         Interlocked.Add(ref totalNotes, t.totalNotes);
                         Interlocked.Increment(ref loadedtracks);

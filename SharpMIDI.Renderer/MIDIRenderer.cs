@@ -204,7 +204,7 @@ namespace SharpMIDI
             bool useTrack = tracks != null;
             int maxtick = MIDILoader.maxTick - 1;
             float pixelspertick = (float)pixelsPerTick;
-            int leftedge = centerTick - (WindowTicks / 2);
+            float leftedge = centerTick - (WindowTicks / 2);
  
             int viewStart = Math.Clamp(centerTick - (WindowTicks / 2), 0, maxtick);
             int viewEnd = Math.Clamp(centerTick + (WindowTicks / 2), 0, maxtick);
@@ -295,7 +295,7 @@ namespace SharpMIDI
             bool useTrack = tracks != null;
             int maxtick = MIDILoader.maxTick - 1;
             float pixelspertick = (float)pixelsPerTick;
-            int leftedge = centerTick - WindowTicks / 2;
+            float leftedge = centerTick - WindowTicks / 2;
             int stripX1 = texWidth - scrollPixels;
             int tickEnd = Math.Min(centerTick + WindowTicks/2, maxtick);
             long msgIdx = renderMsgCursor;
@@ -307,7 +307,7 @@ namespace SharpMIDI
             {
                 long nextOff = groups[tick + 1].offset;
                 if (msgIdx == nextOff) continue; // skip empty tick
-                int tickX2 = (int)((tick - leftedge) * pixelspertick);
+                int tickX2 = (int)tickX2f;
                 bool tickInStrip = tickX2 >= stripX1;
                 while (msgIdx < nextOff)
                 {

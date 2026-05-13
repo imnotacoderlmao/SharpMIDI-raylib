@@ -83,8 +83,8 @@ namespace SharpMIDI
                 {
                     case 0x80:
                     {
-                        byte note = stupid.ReadFast(); 
-                        byte vel = stupid.ReadFast();
+                        byte note = stupid.Read(); 
+                        byte vel = stupid.Read();
                         long pos = Interlocked.Increment(ref writeCursors[absolutetime]) - 1;
                         msgPtr[pos] = (uint24)(readEvent | (note << 8) | (vel << 16));
                         if(trackcolors) trackPtr[pos] = track;
@@ -92,8 +92,8 @@ namespace SharpMIDI
                     }
                     case 0x90:
                     {
-                        byte note = stupid.ReadFast();
-                        byte vel = stupid.ReadFast();
+                        byte note = stupid.Read();
+                        byte vel = stupid.Read();
                         long pos = Interlocked.Increment(ref writeCursors[absolutetime]) - 1;
                         if (vel != 0)
                         { 
@@ -170,8 +170,11 @@ namespace SharpMIDI
                 absolutetime += delta;
                 byte readEvent = stupid.ReadFast();
 
-                if (readEvent < 0x80) 
+                if (readEvent < 0x80)
+                {
+                    stupid.Pushback = readEvent;
                     readEvent = prevEvent; 
+                }
                 
                 byte status = (byte)(readEvent & 0xF0);
                 prevEvent = readEvent;
@@ -221,7 +224,7 @@ namespace SharpMIDI
                 {
                     case 0x90:
                         stupid.Skip(1);
-                        if (stupid.ReadFast() != 0) 
+                        if (stupid.Read() != 0) 
                             notecount++;
                         isChannelEvent = true;
                         break;
