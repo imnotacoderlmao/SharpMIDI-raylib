@@ -7,7 +7,8 @@ namespace SharpMIDI
         public static byte[] gmreset = [0xF0, 0x7E, 0x7F, 0x09, 0x01, 0xF7];
         public static byte[] rolandreset = [0xF0, 0x41, 0x10, 0x42, 0x12, 0x40, 0x00, 0x7F, 0x00, 0x41, 0xF7];
         public static long totalFrames = 0;
-        public static long playedNotes, playedNotes2, eventspersec = 0;
+        public static long playedNotes, playedNotes2, notespersec = 0;
+        public static int curr_tick = 0;
         public static long MIDIFps = 0;
         public static bool stopping = true;
         public static bool skipping = false;
@@ -35,7 +36,7 @@ namespace SharpMIDI
             TickGroup[] tickGroupArr = MIDIEvent.TickGroupArray;
             Tempo[] tevs = MIDIEvent.TempoEventArray;
             SysEx[] sysExes = MIDIEvent.SysExArray;
-            int clock = 0, lastclock = 0;
+            int clock = 0;
             uint sysexidx = 0, tempoidx = 0;
             Task.Run(UpdatePlaybackStats);
             var sendfn = Sound.sendTo;
@@ -61,7 +62,7 @@ namespace SharpMIDI
                     {
                         Thread.Sleep(1);
                     }
-                    if(lastclock > clock)
+                    if (curr_tick > clock)
                     {
                         while (currtg->tick > clock)
                         {
@@ -76,6 +77,7 @@ namespace SharpMIDI
                     }
                     while (currtg->tick <= clock)
                     {
+                        curr_tick = currtg->tick;
                         if (!skipping)
                         {
                             uint24* targetMsg = msgptr + currtg->offset;
@@ -117,12 +119,12 @@ namespace SharpMIDI
                         SubmitSysEx(sysExes[sysexidx].message);
                         sysexidx++;
                     }
-                    lastclock = clock;
                 }
             }
             SubmitSysEx(gmreset);
             SubmitSysEx(rolandreset);
             MIDIClock.Reset();
+            curr_tick = 0;
             Sound.AllNotesOFF();
             Sound.KillAudioThread();
             Console.WriteLine("Playback finished...");
@@ -161,16 +163,16 @@ namespace SharpMIDI
             while(!stopping)
             {
                 double delta = Timer.Seconds() - last;
-                if (MIDIClock.tick > MIDILoader.maxTick) stopping = true;
+                if (curr_tick >= MIDILoader.maxTick) stopping = true;
                 if (delta > updateperiod)
                 {
                     MIDIFps = (long)(totalFrames / delta);
-                    eventspersec = (long)((playedNotes - playedNotes2) / delta);
+                    notespersec = (long)((playedNotes - playedNotes2) / delta);
                     playedNotes2 = playedNotes;
                     totalFrames = 0;
                     last = Timer.Seconds();
                 }
-                Console.Write($"\rTick: {(long)MIDIClock.tick:N0} / {MIDILoader.maxTick:N0} | Played Notes: {playedNotes:N0} / {MIDILoader.totalNotes:N0} ({eventspersec:N0}/s) | MIDI Thread: @{MIDIFps:N0} fps         ");
+                Console.Write($"\rTick: {curr_tick:N0} / {MIDILoader.maxTick:N0} | Played Notes: {playedNotes:N0} / {MIDILoader.totalNotes:N0} ({notespersec:N0}/s) | MIDI Thread: @{MIDIFps:N0} fps         ");
                 Thread.Sleep(1000/60);
             }
         }

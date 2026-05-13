@@ -171,17 +171,14 @@ namespace SharpMIDI
                 byte readEvent = stupid.ReadFast();
 
                 if (readEvent < 0x80) 
-                { 
                     readEvent = prevEvent; 
-                }
-
+                
                 byte status = (byte)(readEvent & 0xF0);
                 prevEvent = readEvent;
                 switch (readEvent)
                 {
                     case 0xF0:
-                        byte b;
-                        do { b = stupid.Read(); } while (b != 0xF7);
+                        stupid.Skip(ReadVariableLen());
                         continue;
                     case 0xF1: 
                         stupid.Skip(1); 
@@ -199,15 +196,17 @@ namespace SharpMIDI
                         if (readEvent == 0x2F)
                         {
                             trackMaxTick = absolutetime;
+                            if (absolutetime > 1 << 28)
+                                MIDILoader.Crash($"dear lord what is wrong with your midi file's varlen. current tick = {absolutetime}");
                             if (trackMaxTick > MIDILoader.maxTick)
-                                MIDILoader.maxTick = trackMaxTick;
+                                Interlocked.Exchange(ref MIDILoader.maxTick, trackMaxTick);
                             if (count > 0)
                             {
                                 lock(tickCounts)
                                 {
                                     tickCounts.Add(new TickGroup { tick = lastTick, notecount = notecount, offset = count });
-                                    eventCount += count;
                                 }
+                                eventCount += count;
                             }
                             return;
                         }
@@ -217,7 +216,6 @@ namespace SharpMIDI
                         }
                         continue;
                 }
-                
                 bool isChannelEvent = false;
                 switch (status)
                 {
@@ -249,11 +247,11 @@ namespace SharpMIDI
                         lock(tickCounts)
                         {
                             tickCounts.Add(new TickGroup { tick = lastTick, notecount = notecount, offset = count });
-                            eventCount += count;
-                            totalNotes += notecount;
-                            notecount = 0;
-                            count = 0;
                         }
+                        eventCount += count;
+                        totalNotes += notecount;
+                        notecount = 0;
+                        count = 0;
                     }
 
                     lastTick = absolutetime;

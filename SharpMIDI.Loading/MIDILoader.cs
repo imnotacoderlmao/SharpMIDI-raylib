@@ -77,35 +77,37 @@ namespace SharpMIDI
                 {
                     FastTrack t = new FastTrack(new BufferByteReader(threadStream, parse_buffer_size * 1048576, trackProperties[i].start, trackProperties[i].len));
                     t.ScanEvents(histogram);
-                    eventCount += t.eventCount;
-                    countednotes += t.totalNotes;
-                    loadedtracks++;
-                    Console.WriteLine($"scanned track {loadedtracks}/{trackAmount} event count = {t.eventCount}, total = {eventCount}");
+                    Interlocked.Add(ref eventCount, t.eventCount);
+                    Interlocked.Add(ref countednotes, t.totalNotes);
+                    Interlocked.Increment(ref loadedtracks);
+                    Console.Write($"\rscanned track {loadedtracks}/{trackAmount} event count = {t.eventCount}, total = {eventCount}      ");
                     t.Dispose();
                 });
                 double parseend = Timer.Seconds();
                 double parsetime = parseend - parsestart;
                 histogram.TrimExcess();
-                Console.WriteLine($"finished scanning {trackAmount} tracks with {eventCount} events which {countednotes} were notes in {parsetime} seconds ({countednotes/parsetime} notes/s)\nnow building tick groups for events.");
+                Console.WriteLine($"\nfinished scanning {trackAmount} tracks with {eventCount} events which {countednotes} were notes in {parsetime} seconds ({countednotes/parsetime} notes/s) now building tick groups for events.");
                 long[] writeCursors = new long[maxTick + 2];
                 TickGroup[] tickgroup = new TickGroup[maxTick + 2];
-                histogram.Sort((a, b) => a.tick.CompareTo(b.tick));
+                foreach (TickGroup g in histogram)
+                {
+                    tickgroup[g.tick].offset += g.offset;
+                    tickgroup[g.tick].notecount += g.notecount;
+                }
+                histogram = null;
                 long event_offset = 0;
-                uint note_count = 0;
-                int histIdx = 0;
                 for (int t = 0; t <= maxTick; t++)
                 {
                     writeCursors[t] = event_offset;
-                    while (histIdx < histogram.Count && histogram[histIdx].tick == t)
-                    {
-                        event_offset += histogram[histIdx].offset;
-                        note_count += histogram[histIdx].notecount;
-                        histIdx++;
-                    }
-                    tickgroup[t] = new TickGroup { tick = t, notecount = note_count, offset = event_offset };
-                    note_count = 0;
+                    long tickEventCount = tickgroup[t].offset;
+                    tickgroup[t] = new TickGroup 
+                    { 
+                        tick = t, 
+                        notecount = tickgroup[t].notecount, 
+                        offset = event_offset
+                    };
+                    event_offset += tickEventCount;
                 }
-                histogram = null;
                 SynthEvent.Alloc(eventCount, WindowManager.trackcolors);
                 uint24* msgPtr = SynthEvent.messages.Pointer;
                 ushort* trackPtr = null;
@@ -121,8 +123,8 @@ namespace SharpMIDI
                     {
                         FastTrack t = new FastTrack(new BufferByteReader(threadStream, parse_buffer_size * 1048576, trackProperties[i].start, trackProperties[i].len));
                         t.ParseTrackEvents(msgPtr, trackPtr, wc, (ushort)i);
-                        totalNotes += t.totalNotes;
-                        loadedtracks++;
+                        Interlocked.Add(ref totalNotes, t.totalNotes);
+                        Interlocked.Increment(ref loadedtracks);
                         loadstatus = $"Loading {filename} ({loadedtracks}/{trackAmount} tracks, {totalNotes} notes loaded)";
                         Console.Write($"\r{loadstatus}");
                         t.Dispose();

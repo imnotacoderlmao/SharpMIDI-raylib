@@ -23,7 +23,7 @@ namespace SharpMIDI
         private static long renderMsgCursor = 0;
         private static int renderTickCursor = 0;
         private static int lastColumn = -1;
-        private static double lastTick = 0;
+        private static int lastTick = 0;
  
         public static readonly uint[] MIDIColors =
         [
@@ -33,8 +33,8 @@ namespace SharpMIDI
             0xFF00FA92, 0xFF00FFFF, 0xFFF7DB05, 0xFF4040FF,
         ];
  
-        public static float WindowTicks = 2000f;
-        private static float lastWindowTicks = WindowTicks;
+        public static int WindowTicks = 2000;
+        private static int lastWindowTicks = WindowTicks;
         public static int NotesDrawnLastFrame;
  
         private static Texture2D renderTex;
@@ -47,13 +47,13 @@ namespace SharpMIDI
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private static ulong PackKey(uint tick, ushort track) => (ulong)track << 32 | tick;
  
-        // Priority in HIGH dword, ulong >= comparison is z-ordered without shifts.
+        // Priority in HIGH dword, ulong >= comparison is z-ordered without shifts (hopefully)
         // Color in LOW dword, blit is (uint)pixel, trivially vectorized.
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private static ulong MakePacked(ushort track, byte channel)
         {
-            uint priority = ((uint)track << 16) | channel;
-            uint color = MIDIColors[(track + channel) & 0xF];
+            int priority = (track << 4) | channel;
+            uint color = MIDIColors[priority >> 2 & 0xF];
             return ((ulong)priority << 32) | color;
         }
  
@@ -111,14 +111,7 @@ namespace SharpMIDI
             if (keyState != null) { NativeMemory.AlignedFree(keyState); keyState = null; }
             if (openKeyBits != null) { NativeMemory.AlignedFree(openKeyBits); openKeyBits = null; }
         }
- 
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private static void ResetQueues()
-        {
-            new Span<uint>(keyState, TOTAL_KEYS).Clear();
-            new Span<ulong>(openKeyBits, BITSET_WORDS).Clear();
-        }
- 
+        
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private static void SetOpen(int key)   => openKeyBits[key >> 6] |=  (1ul << (key & 63));
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -155,24 +148,16 @@ namespace SharpMIDI
             }
         }
         
-        private static void DrawNote(uint startTick, int endTick, int note, ulong packed,
-                                     float leftedge, float pixelspertick)
-        {
-            int x1 = (int)((startTick - leftedge) * pixelspertick);
-            int x2 = (int)((endTick - leftedge) * pixelspertick);
-            if (x2 < 0 || x1 >= texWidth) return;
-            DrawLine(x1, x2, 127 - note, packed);
-        }
-        private static void DrawNoteStrip(uint startTick, int endTick, int note, ulong packed,
-                                          float leftedge, float pixelspertick, int stripX1)
-        {
-            int x1 = Math.Max(stripX1, (int)((startTick - leftedge) * pixelspertick));
-            int x2 = (int)((endTick - leftedge) * pixelspertick);
-            if (x2 < stripX1) return;
-            DrawLine(x1, x2, 127 - note, packed);
-        }
+        //private static void DrawNote(uint startTick, int endTick, int note, ulong packed,
+        //                             float leftedge, float pixelspertick)
+        //{
+        //    int x1 = (int)((startTick - leftedge) * pixelspertick);
+        //    int x2 = (int)((endTick - leftedge) * pixelspertick);
+        //    if (x2 < 0 || x1 >= texWidth) return;
+        //    DrawLine(x1, x2, 127 - note, packed);
+        //}
 
-        public static void Render(int screenWidth, int screenHeight, double tick, int pad)
+        public static void Render(int screenWidth, int screenHeight, int tick, int pad)
         {
             if (!isInitialized) return;
  
@@ -208,7 +193,7 @@ namespace SharpMIDI
         }
  
         [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-        private static void RenderFull(double centerTick, double pixelsPerTick)
+        private static void RenderFull(int centerTick, double pixelsPerTick)
         {
             new Span<ulong>(pixelBuf, texSize).Clear();
             if (SynthEvent.messages == null || MIDIEvent.TickGroupArray == null) return;
@@ -219,25 +204,27 @@ namespace SharpMIDI
             bool useTrack = tracks != null;
             int maxtick = MIDILoader.maxTick - 1;
             float pixelspertick = (float)pixelsPerTick;
-            float leftedge = (float)(centerTick - WindowTicks * 0.5);
+            int leftedge = centerTick - (WindowTicks / 2);
  
-            int viewStart = Math.Clamp((int)(centerTick - WindowTicks * 0.5), 0, maxtick);
-            int viewEnd = Math.Clamp((int)(centerTick + WindowTicks * 0.5), 0, maxtick);
-            int searchStart = Math.Max(0, viewStart - (int)WindowTicks);
+            int viewStart = Math.Clamp(centerTick - (WindowTicks / 2), 0, maxtick);
+            int viewEnd = Math.Clamp(centerTick + (WindowTicks / 2), 0, maxtick);
+            int searchStart = Math.Max(0, viewStart - WindowTicks);
             int searchEnd = Math.Min(groups.Length - 2, viewEnd);
  
-            ResetQueues();
+            new Span<uint>(keyState, TOTAL_KEYS).Clear();
+            new Span<ulong>(openKeyBits, BITSET_WORDS).Clear();
  
             long msgIdx = groups[searchStart].offset;
             byte* synthev = messages + msgIdx * 3;
             int drawn = 0;
             int openCount = 0;
- 
-            for (int tick = searchStart; tick <= searchEnd; tick++)
+            float tickX2f = (searchStart - leftedge) * pixelspertick;
+            for (int tick = searchStart; tick <= searchEnd; tick++, tickX2f += pixelspertick)
             {
                 if (tick > viewEnd && openCount == 0) break;
- 
                 long nextOff = groups[tick + 1].offset;
+                if (msgIdx == nextOff) continue;
+                int tickX2 = (int)tickX2f;
                 while (msgIdx < nextOff)
                 {
                     byte status = (byte)(synthev[0] & 0xF0);
@@ -255,14 +242,17 @@ namespace SharpMIDI
                         {
                             if (cnt != 0)
                             {
-                                ulong slot   = noteQueues[qbase + (int)head];
-                                uint  newCnt = cnt - 1;
-                                keyState[key] = (((head + 1) & (uint)QUEUE_MASK) << 16) | newCnt;
+                                ulong slot = noteQueues[qbase + (int)head];
+                                uint newCnt = cnt - 1;
+                                keyState[key] = (((head + 1) & QUEUE_MASK) << 16) | newCnt;
                                 if (tick >= viewStart || (uint)slot <= (uint)viewEnd)
                                 {
-                                    DrawNote((uint)slot, tick, note,
-                                        MakePacked((ushort)(slot >> 32), channel), leftedge, pixelspertick);
-                                    drawn++;
+                                     int x1 = (int)(((uint)slot - leftedge) * pixelspertick);
+                                     if (tickX2 >= 0 && x1 < texWidth)
+                                     {
+                                         DrawLine(x1, tickX2, 127 - note, MakePacked((ushort)(slot >> 32), channel));
+                                         drawn++;
+                                     }
                                 }
                                 if (newCnt == 0) { ClearOpen(key); openCount--; }
                             }
@@ -273,13 +263,13 @@ namespace SharpMIDI
                             if (cnt == 0) { SetOpen(key); openCount++; }
                             if (cnt < QUEUE_DEPTH)
                             {
-                                noteQueues[qbase + (int)((head + cnt) & (uint)QUEUE_MASK)] = PackKey((uint)tick, trk);
+                                noteQueues[qbase + (int)((head + cnt) & QUEUE_MASK)] = PackKey((uint)tick, trk);
                                 keyState[key] = (head << 16) | (cnt + 1);
                             }
                             else // full: overwrite oldest entry, advance head
                             {
                                 noteQueues[qbase + (int)head] = PackKey((uint)tick, trk);
-                                keyState[key] = (((head + 1) & (uint)QUEUE_MASK) << 16) | cnt;
+                                keyState[key] = (((head + 1) & QUEUE_MASK) << 16) | cnt;
                             }
                         }
                     }
@@ -295,7 +285,7 @@ namespace SharpMIDI
         }
  
         [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-        private static void AdvanceAndDraw(double centerTick, double pixelsPerTick, int scrollPixels)
+        private static void AdvanceAndDraw(int centerTick, double pixelsPerTick, int scrollPixels)
         {
             if (SynthEvent.messages == null || MIDIEvent.TickGroupArray == null) return;
  
@@ -305,16 +295,20 @@ namespace SharpMIDI
             bool useTrack = tracks != null;
             int maxtick = MIDILoader.maxTick - 1;
             float pixelspertick = (float)pixelsPerTick;
-            float leftedge = (float)(centerTick - WindowTicks * 0.5);
+            int leftedge = centerTick - WindowTicks / 2;
             int stripX1 = texWidth - scrollPixels;
-            int tickEnd = Math.Min((int)(centerTick + WindowTicks * 0.5), maxtick);
+            int tickEnd = Math.Min(centerTick + WindowTicks/2, maxtick);
             long msgIdx = renderMsgCursor;
             byte* synthev = messages + msgIdx * 3;
             int drawn = 0;
  
-            for (int tick = renderTickCursor; tick <= tickEnd; tick++)
+            float tickX2f = (renderTickCursor - leftedge) * pixelspertick;
+            for (int tick = renderTickCursor; tick <= tickEnd; tick++, tickX2f += pixelspertick)
             {
                 long nextOff = groups[tick + 1].offset;
+                if (msgIdx == nextOff) continue; // skip empty tick
+                int tickX2 = (int)((tick - leftedge) * pixelspertick);
+                bool tickInStrip = tickX2 >= stripX1;
                 while (msgIdx < nextOff)
                 {
                     byte status = (byte)(synthev[0] & 0xF0);
@@ -335,9 +329,12 @@ namespace SharpMIDI
                                 ulong slot = noteQueues[qbase + (int)head];
                                 uint newCnt = cnt - 1;
                                 keyState[key] = (((head + 1) & (uint)QUEUE_MASK) << 16) | newCnt;
-                                DrawNoteStrip((uint)slot, tick, note,
-                                    MakePacked((ushort)(slot >> 32), channel), leftedge, pixelspertick, stripX1);
-                                drawn++;
+                                if (tickInStrip)
+                                {
+                                    int x1 = Math.Max(stripX1, (int)(((uint)slot - leftedge) * pixelspertick));
+                                    DrawLine(x1, tickX2, 127 - note, MakePacked((ushort)(slot >> 32), channel));
+                                    drawn++;
+                                }
                                 if (newCnt == 0) 
                                     ClearOpen(key);
                             }
@@ -373,8 +370,10 @@ namespace SharpMIDI
         [MethodImpl(MethodImplOptions.AggressiveOptimization)]
         private static void FlushOpenNotes(float leftedge, float pixelspertick, int tickEnd, int stripX1, ref int drawn)
         {
+            int tickX2 = (int)((tickEnd - leftedge) * pixelspertick);
             if (stripX1 >= 0)
             {
+                if (tickX2 < stripX1) return;
                 for (int wordidx = 0; wordidx < BITSET_WORDS; wordidx++)
                 {
                     ulong word = openKeyBits[wordidx];
@@ -392,8 +391,8 @@ namespace SharpMIDI
                         for (int d = 0; d < cnt; d++)
                         {
                             ulong slot = noteQueues[qbase + ((head + d) & QUEUE_MASK)];
-                            DrawNoteStrip((uint)slot, tickEnd, note,
-                                MakePacked((ushort)(slot >> 32), channel), leftedge, pixelspertick, stripX1);
+                            int x1 = Math.Max(stripX1, (int)(((uint)slot - leftedge) * pixelspertick));
+                            DrawLine(x1, tickX2, 127 - note, MakePacked((ushort)(slot >> 32), channel));
                             drawn++;
                         }
                     }
@@ -401,6 +400,7 @@ namespace SharpMIDI
             }
             else
             {
+                if (tickX2 < 0) return;
                 for (int wordidx = 0; wordidx < BITSET_WORDS; wordidx++)
                 {
                     ulong word = openKeyBits[wordidx];
@@ -418,8 +418,9 @@ namespace SharpMIDI
                         for (int d = 0; d < cnt; d++)
                         {
                             ulong slot = noteQueues[qbase + ((head + d) & QUEUE_MASK)];
-                            DrawNote((uint)slot, tickEnd, note,
-                                MakePacked((ushort)(slot >> 32), channel), leftedge, pixelspertick);
+                            int x1 = (int)(((uint)slot - leftedge) * pixelspertick);
+                            if (x1 < texWidth)
+                                DrawLine(x1, tickX2, 127 - note, MakePacked((ushort)(slot >> 32), channel));
                             drawn++;
                         }
                     }

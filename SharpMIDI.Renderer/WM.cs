@@ -54,12 +54,12 @@ namespace SharpMIDI
                 HandleInput();
 
                 if (dynascroll && MIDIRenderer.WindowTicks != MIDIClock.tickscale)
-                    MIDIRenderer.WindowTicks = (float)MIDIClock.tickscale * scrollfactor;
+                    MIDIRenderer.WindowTicks = (int)(MIDIClock.tickscale * scrollfactor);
 
                 Raylib.BeginDrawing();
                 
                 Raylib.ClearBackground(Raylib_cs.Color.Black);
-                MIDIRenderer.Render(currentWidth, currentHeight, MIDIClock.tick, PAD);
+                MIDIRenderer.Render(currentWidth, currentHeight, MIDIPlayer.curr_tick, PAD);
                 Raylib.DrawLine(currentWidth >> 1, 0, currentWidth >> 1, currentHeight, Raylib_cs.Color.Red);
                 DrawText(); 
                 DrawUI();
@@ -137,7 +137,7 @@ namespace SharpMIDI
                     if (scrollfactor <= 1) scrollfactor /= 2;
                     else scrollfactor -= 0.5f;
                 }
-                MIDIRenderer.WindowTicks = Math.Max(100f, MIDIRenderer.WindowTicks * 0.9f);
+                MIDIRenderer.WindowTicks = (int)Math.Max(100f, MIDIRenderer.WindowTicks * 0.9f);
             }
             if (Raylib.IsKeyPressed(KeyboardKey.Down) || Raylib.IsKeyPressedRepeat(KeyboardKey.Down))
             {
@@ -146,18 +146,18 @@ namespace SharpMIDI
                     if (scrollfactor <= 1) scrollfactor *= 2;
                     else scrollfactor += 0.5f;
                 }
-                MIDIRenderer.WindowTicks = Math.Min(100000f, MIDIRenderer.WindowTicks * 1.1f);
+                MIDIRenderer.WindowTicks = (int)Math.Min(100000f, MIDIRenderer.WindowTicks * 1.1f);
             }
 
             if (Raylib.IsKeyPressed(KeyboardKey.Left) || Raylib.IsKeyPressedRepeat(KeyboardKey.Left))
             {
                 if(!MIDIPlayer.stopping)
-                    MIDIClock.tick = Math.Clamp(MIDIClock.tick - MIDIClock.tickscale, 0, double.MaxValue);
+                    MIDIClock.Skip(-MIDIClock.tickscale);
             }
             if (Raylib.IsKeyPressed(KeyboardKey.Right) || Raylib.IsKeyPressedRepeat(KeyboardKey.Right))
             {
                 if(!MIDIPlayer.stopping) 
-                    MIDIClock.tick += MIDIClock.tickscale;
+                    MIDIClock.Skip(MIDIClock.tickscale);
             }
 
             if (Raylib.IsKeyPressed(KeyboardKey.Space))
@@ -178,7 +178,7 @@ namespace SharpMIDI
 
         private static void DrawText()
         {
-            Raylib.DrawText($"Tick: {(long)MIDIClock.tick} | Tempo: {MIDIClock.bpm:F1} | Zoom: {(int)MIDIRenderer.WindowTicks} | FPS: {Raylib.GetFPS()}", 12, 4, 16, Raylib_cs.Color.Green);
+            Raylib.DrawText($"Tick: {MIDIPlayer.curr_tick} | Tempo: {MIDIClock.bpm:F1} | Zoom: {(int)MIDIRenderer.WindowTicks} | FPS: {Raylib.GetFPS()}", 12, 4, 16, Raylib_cs.Color.Green);
             if (Debug)
             {
                 GetMemoryUsage();
@@ -201,7 +201,7 @@ namespace SharpMIDI
                 {
                     if (!dynascroll)
                     {
-                        ImGui.SliderFloat("Renderer zoom", ref MIDIRenderer.WindowTicks, 0, 100000);
+                        ImGui.SliderInt("Renderer zoom", ref MIDIRenderer.WindowTicks, 0, 100000);
                         if (ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled))
                         {
                             ImGui.SetTooltip("how many ticks of the midi are visible in the window");
@@ -261,6 +261,8 @@ namespace SharpMIDI
                     {
                         ImGui.SetTooltip("Toggling this will dictate wether the player will throttle or skip events when stalled.\ndisabling will make the player throttle itself to prevent stalling and go through every event in the midi.\nwhile skipping dosent throttle timing and just skips sending to synth till it dosent stall anymore");
                     }
+                    if (MIDIClock.skipevents == false)
+                        ImGui.Checkbox("Throttle Playback", ref MIDIClock.throttle);
                     ImGui.Checkbox("Debug stats", ref Debug);
                     if (ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled))
                     {
