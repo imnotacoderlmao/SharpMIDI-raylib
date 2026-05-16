@@ -79,6 +79,7 @@ namespace SharpMIDI
             if (ptr != null)
             {
                 NativeMemory.Free(ptr);
+                Length = 0;
                 ptr = null;
             }
         }

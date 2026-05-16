@@ -4,6 +4,7 @@ using System.Numerics;
 using Raylib_cs;
 using rlImGui_cs;
 using ImGuiNET;
+using SharpMIDI.Renderer;
 
 namespace SharpMIDI
 {
@@ -11,6 +12,7 @@ namespace SharpMIDI
     {
         public const int PAD = 20;
         private static float scrollfactor = 1f;
+        public static int WindowTicks = 2000;
         private static int memusagecallcount = 0;
         private static long memusage = 0;
         static string filepath;
@@ -44,7 +46,7 @@ namespace SharpMIDI
         {
             Raylib.SetConfigFlags(ConfigFlags.ResizableWindow);
             Raylib.InitWindow(currentWidth, currentHeight, "SharpMIDI");
-            MIDIRenderer.Initialize(currentWidth);
+            NoteRenderer.Initialize(currentWidth, currentHeight);
             Raylib.SetTargetFPS(Raylib.GetMonitorRefreshRate(Raylib.GetCurrentMonitor()));
             
             rlImGui.Setup(true);
@@ -53,13 +55,13 @@ namespace SharpMIDI
                 UpdateWindowDimensions();
                 HandleInput();
 
-                if (dynascroll && MIDIRenderer.WindowTicks != MIDIClock.tickscale)
-                    MIDIRenderer.WindowTicks = (int)(MIDIClock.tickscale * scrollfactor);
+                if (dynascroll && NoteRenderer.Window != MIDIClock.tickscale)
+                    NoteRenderer.SetWindow((int)(MIDIClock.tickscale * scrollfactor));
 
                 Raylib.BeginDrawing();
                 
                 Raylib.ClearBackground(Raylib_cs.Color.Black);
-                MIDIRenderer.Render(currentWidth, currentHeight, MIDIPlayer.curr_tick, PAD);
+                NoteRenderer.Render(currentWidth, currentHeight, MIDIPlayer.curr_tick, PAD);
                 Raylib.DrawLine(currentWidth >> 1, 0, currentWidth >> 1, currentHeight, Raylib_cs.Color.Red);
                 DrawText(); 
                 DrawUI();
@@ -68,7 +70,7 @@ namespace SharpMIDI
             }
             MIDILoader.UnloadMIDI();
             rlImGui.Shutdown();
-            
+            NoteRenderer.Cleanup();
             Raylib.CloseWindow();
             IsRunning = false;
         }
@@ -79,7 +81,7 @@ namespace SharpMIDI
             {
                 currentWidth = Raylib.GetScreenWidth();
                 currentHeight = Raylib.GetScreenHeight();
-                MIDIRenderer.Initialize(currentWidth);
+                NoteRenderer.Initialize(currentWidth, currentHeight);
             }
         }
 
@@ -137,7 +139,7 @@ namespace SharpMIDI
                     if (scrollfactor <= 1) scrollfactor /= 2;
                     else scrollfactor -= 0.5f;
                 }
-                MIDIRenderer.WindowTicks = (int)Math.Max(100f, MIDIRenderer.WindowTicks * 0.9f);
+                NoteRenderer.SetWindow((int)Math.Max(100f, NoteRenderer.Window * 0.9f));
             }
             if (Raylib.IsKeyPressed(KeyboardKey.Down) || Raylib.IsKeyPressedRepeat(KeyboardKey.Down))
             {
@@ -146,18 +148,18 @@ namespace SharpMIDI
                     if (scrollfactor <= 1) scrollfactor *= 2;
                     else scrollfactor += 0.5f;
                 }
-                MIDIRenderer.WindowTicks = (int)Math.Min(100000f, MIDIRenderer.WindowTicks * 1.1f);
+                NoteRenderer.SetWindow((int)Math.Max(100000f, NoteRenderer.Window * 1.1f));
             }
 
             if (Raylib.IsKeyPressed(KeyboardKey.Left) || Raylib.IsKeyPressedRepeat(KeyboardKey.Left))
             {
                 if(!MIDIPlayer.stopping)
-                    MIDIClock.Skip(-MIDIClock.tickscale);
+                    MIDIClock.Skip(-MIDIClock.tickscale, false);
             }
             if (Raylib.IsKeyPressed(KeyboardKey.Right) || Raylib.IsKeyPressedRepeat(KeyboardKey.Right))
             {
                 if(!MIDIPlayer.stopping) 
-                    MIDIClock.Skip(MIDIClock.tickscale);
+                    MIDIClock.Skip(MIDIClock.tickscale, false);
             }
 
             if (Raylib.IsKeyPressed(KeyboardKey.Space))
@@ -178,12 +180,12 @@ namespace SharpMIDI
 
         private static void DrawText()
         {
-            Raylib.DrawText($"Tick: {MIDIPlayer.curr_tick} | Tempo: {MIDIClock.bpm:F1} | Zoom: {(int)MIDIRenderer.WindowTicks} | FPS: {Raylib.GetFPS()}", 12, 4, 16, Raylib_cs.Color.Green);
+            Raylib.DrawText($"Tick: {MIDIPlayer.curr_tick} | Tempo: {MIDIClock.bpm:F1} | Zoom: {(int)NoteRenderer.Window} | FPS: {Raylib.GetFPS()}", 12, 4, 16, Raylib_cs.Color.Green);
             if (Debug)
             {
                 GetMemoryUsage();
                 string dynascrollstr = dynascroll ? $"({scrollfactor}x ticklen)" : "False";
-                Raylib.DrawText($"DrawOps: {MIDIRenderer.NotesDrawnLastFrame} | Memory: {Starter.toMemoryText(memusage)} | DynaScroll: {dynascrollstr}", 13, 23, 16, Raylib_cs.Color.SkyBlue);
+                Raylib.DrawText($"DrawOps: {NoteRenderer.NotesDrawnLastFrame} | Memory: {Starter.toMemoryText(memusage)} | DynaScroll: {dynascrollstr}", 13, 23, 16, Raylib_cs.Color.SkyBlue);
                 Raylib.DrawText($"{MIDILoader.loadstatus} | Skip events?: {MIDIClock.skipevents} | MIDI: @{MIDIPlayer.MIDIFps} fps", 12, currentHeight - 19, 16, Raylib_cs.Color.SkyBlue);
             }
             else Raylib.DrawText($"{MIDILoader.loadstatus}", 12, currentHeight - 19, 16, Raylib_cs.Color.SkyBlue);
@@ -201,7 +203,8 @@ namespace SharpMIDI
                 {
                     if (!dynascroll)
                     {
-                        ImGui.SliderInt("Renderer zoom", ref MIDIRenderer.WindowTicks, 0, 100000);
+                        if (ImGui.SliderInt("Renderer zoom", ref WindowTicks, 0, 100000))
+                            NoteRenderer.SetWindow(WindowTicks);
                         if (ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled))
                         {
                             ImGui.SetTooltip("how many ticks of the midi are visible in the window");

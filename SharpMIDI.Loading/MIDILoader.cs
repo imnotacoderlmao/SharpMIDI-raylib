@@ -1,5 +1,6 @@
 #pragma warning disable 8602
 using MIDIModificationFramework;
+using SharpMIDI.Renderer;
 using System.Diagnostics;
 namespace SharpMIDI
 {
@@ -136,14 +137,23 @@ namespace SharpMIDI
                 midistream.Close();
                 tickgroup[maxTick + 1] = new TickGroup { tick = int.MaxValue, notecount = 0, offset = event_offset };
                 MIDIEvent.TickGroupArray = tickgroup;
-                MIDIRenderer.InitializeForMIDI();
+                Console.WriteLine("preprocessing for the renderer");
+                NoteProcessor.ProcessEventsForRendering(
+                MIDIEvent.TickGroupArray,
+                SynthEvent.messages,
+                SynthEvent.track,       // null if trackcolors is off — NoteProcessor handles this
+                eventCount,
+                maxTick);
+                SynthEvent.track.Dispose(); // not used anymore so just free
+                NoteProcessor.FinalizeBuckets(); 
                 Console.WriteLine($"\nLoaded {filename} with {totalNotes} notes loaded from {trackAmount} tracks");
                 parsetime = parseend - parsestart;
                 string memusage = Starter.toMemoryText(Process.GetCurrentProcess().WorkingSet64);
                 string eventmemusage = Starter.toMemoryText(SynthEvent.messages.Length * sizeof(uint24));
                 string trackmemusage = Starter.toMemoryText(SynthEvent.track != null ? SynthEvent.track.Length * sizeof(ushort) : 0);
-                string timingmemusage = Starter.toMemoryText(MIDIEvent.TickGroupArray.Length * sizeof(uint));
-                Console.WriteLine($"parsed {totalNotes} notes in {parsetime}s ({totalNotes/parsetime} notes/sec)\ncurrent memory usage: {memusage} | events: {eventmemusage}\ntrack index: {trackmemusage} timing: {timingmemusage}");
+                string timingmemusage = Starter.toMemoryText(MIDIEvent.TickGroupArray.Length * sizeof(TickGroup));
+                string renderermemusage = Starter.toMemoryText(NoteProcessor.FlatNotes.Length * sizeof(uint));
+                Console.WriteLine($"parsed {totalNotes} notes in {parsetime}s ({totalNotes/parsetime} notes/sec)\ncurrent memory usage: {memusage} | events: {eventmemusage}\ntrack index: {trackmemusage} | timing: {timingmemusage} | renderer: {renderermemusage}");
             }
 
             tempMIDIstorage.temppos.Add(new Tempo { tick = int.MaxValue, tempo = 500000 });
@@ -164,7 +174,7 @@ namespace SharpMIDI
             loadstatus = $"unloading {filename}";
             Console.WriteLine(loadstatus);
             MIDIPlayer.stopping = true;
-            MIDIRenderer.ResetForUnload();
+            NoteProcessor.Cleanup();
             midiLoaded = false;
             totalNotes = 0;
             eventCount = 0;
