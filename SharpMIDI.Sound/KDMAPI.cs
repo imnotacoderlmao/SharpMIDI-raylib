@@ -66,11 +66,13 @@ namespace SharpMIDI
         public static delegate* unmanaged<int> _terminateKDMAPIStream;
         //public static delegate* unmanaged<void> _resetKDMAPIStream;
         //public static delegate* unmanaged<uint, uint, uint, uint> _sendCustomEvent;
-        public static delegate* unmanaged<MIDIHDR*, uint, uint> _sendDirectLongData;
+        #if LINUX
         public static delegate* unmanaged<byte*, uint, uint> _sendDirectLongDataLinux;
+        #elif WINDOWS
+        public static delegate* unmanaged<MIDIHDR*, uint, uint> _sendDirectLongData;
         public static delegate* unmanaged<MIDIHDR*, uint, uint> _prepareLongData;
         public static delegate* unmanaged<MIDIHDR*, uint, uint> _unprepareLongData;
-
+        #endif
         public static void Load()
         {
         #if WINDOWS
@@ -92,6 +94,7 @@ namespace SharpMIDI
             //_resetKDMAPIStream = (delegate* unmanaged<void>) NativeLibrary.GetExport(lib, "ResetKDMAPIStream");
             //_getActiveVoices = (delegate* unmanaged<int>) NativeLibrary.GetExport(lib, "GetVoiceCount");
         }
+        #if WINDOWS
         public static uint KDMAPI_SendSysEx_win(MIDIHDR* header, uint size)
         {
             uint prepare = 255, send = 255, unprepare = 255;
@@ -113,5 +116,6 @@ namespace SharpMIDI
             }
             return 0;
         }
+        #endif
     }
 }

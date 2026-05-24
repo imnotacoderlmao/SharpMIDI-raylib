@@ -6,8 +6,7 @@ namespace SharpMIDI
     {
         public static byte[] gmreset = [0xF0, 0x7E, 0x7F, 0x09, 0x01, 0xF7];
         public static byte[] rolandreset = [0xF0, 0x41, 0x10, 0x42, 0x12, 0x40, 0x00, 0x7F, 0x00, 0x41, 0xF7];
-        public static long totalFrames = 0;
-        public static long playedNotes, playedNotes2, notespersec = 0;
+        public static long totalFrames = 0, playedNotes, playedNotes2, notespersec = 0;
         public static int curr_tick = 0;
         public static long MIDIFps = 0;
         public static bool stopping = true;
@@ -49,9 +48,10 @@ namespace SharpMIDI
                 handle = (IntPtr)WinMM.handle;
             }
             #endif
-            if(!singlethread) Sound.StartAudioThread();
+            if(!singlethread) 
+                Sound.StartAudioThread();
             MIDIClock.Start();
-            fixed(TickGroup* tg0 = tickGroupArr)
+            fixed (TickGroup* tg0 = tickGroupArr)
             {
                 TickGroup* currtg = tg0;
                 while (!stopping)
@@ -64,19 +64,22 @@ namespace SharpMIDI
                     }
                     if (curr_tick > clock)
                     {
-                        while (currtg->tick > clock)
+                        while (currtg->tick > clock && (currtg - tg0) > 0)
                         {
                             currtg--;
                             msgcur = msgptr + currtg->offset;
                             playedNotes -= currtg->notecount;
                         }
                         if(tevs.Length > 1) 
-                            while (tevs[tempoidx].tick > clock) tempoidx--;
+                            while (tevs[tempoidx].tick > clock && tempoidx > 0) 
+                                tempoidx--;
                         if(sysExes.Length > 1)
-                            while (sysExes[sysexidx].tick > clock) sysexidx--;
+                            while (sysExes[sysexidx].tick > clock && sysexidx > 0) 
+                                sysexidx--;
                     }
                     while (currtg->tick <= clock)
                     {
+                        // accessing a global shouldnt be slow as hell mane js why
                         curr_tick = currtg->tick;
                         if (!skipping)
                         {
@@ -88,24 +91,20 @@ namespace SharpMIDI
                             }
                             else   
                             { 
-                                #if WINDOWS
-                                if (Sound.currsynth == "WinMM")
+                                if (sendfn2 != null)
                                 {
                                     while (msgcur < targetMsg)
                                         sendfn2(handle, (uint)msgcur++->Value);
                                 }
-                                #endif
-                                if (Sound.currsynth == "KDMAPI")
+                                else
                                 {
                                     while (msgcur < targetMsg)
                                         sendfn((uint)msgcur++->Value);
                                 }
                             }
                         }
-                        else 
-                        {
+                        else
                             msgcur = msgptr + currtg->offset;
-                        }
                         playedNotes += currtg->notecount;
                         currtg++;
                     }

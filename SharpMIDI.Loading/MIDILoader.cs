@@ -23,7 +23,7 @@ namespace SharpMIDI
         static uint fmt = 0;
         static uint ppq = 0;
         static bool success;
-        public static bool midiLoaded = false;
+        public static volatile bool midiLoaded = false;
         public static string? filename;
         public static string loadstatus = "No MIDI Loaded";
 
@@ -136,13 +136,13 @@ namespace SharpMIDI
                 midistream.Close();
                 tickgroup[maxTick + 1] = new TickGroup { tick = int.MaxValue, notecount = 0, offset = event_offset };
                 MIDIEvent.TickGroupArray = tickgroup;
-                MIDIRenderer.InitializeForMIDI();
+                GLNoteRenderer.InitializeForMIDI();
                 Console.WriteLine($"\nLoaded {filename} with {totalNotes} notes loaded from {trackAmount} tracks");
                 parsetime = parseend - parsestart;
                 string memusage = Starter.toMemoryText(Process.GetCurrentProcess().WorkingSet64);
                 string eventmemusage = Starter.toMemoryText(SynthEvent.messages.Length * sizeof(uint24));
                 string trackmemusage = Starter.toMemoryText(SynthEvent.track != null ? SynthEvent.track.Length * sizeof(ushort) : 0);
-                string timingmemusage = Starter.toMemoryText(MIDIEvent.TickGroupArray.Length * sizeof(uint));
+                string timingmemusage = Starter.toMemoryText(MIDIEvent.TickGroupArray.Length * sizeof(TickGroup));
                 Console.WriteLine($"parsed {totalNotes} notes in {parsetime}s ({totalNotes/parsetime} notes/sec)\ncurrent memory usage: {memusage} | events: {eventmemusage}\ntrack index: {trackmemusage} timing: {timingmemusage}");
             }
 
@@ -161,11 +161,11 @@ namespace SharpMIDI
         public static void UnloadMIDI()
         {
             if (!midiLoaded) return;
+            midiLoaded = false;
             loadstatus = $"unloading {filename}";
             Console.WriteLine(loadstatus);
             MIDIPlayer.stopping = true;
-            MIDIRenderer.ResetForUnload();
-            midiLoaded = false;
+            GLNoteRenderer.ResetForUnload();
             totalNotes = 0;
             eventCount = 0;
             maxTick = 0;
