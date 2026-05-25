@@ -13,10 +13,10 @@ namespace SharpMIDI
         [StructLayout(LayoutKind.Sequential)]
         private struct Note
         {
-            public int  StartTick;
-            public int  EndTick;
+            public int StartTick;
+            public int EndTick;
             public uint ColorPitch; //pitch stored in alpha's place lmao
-            public int  PoolSlot;
+            public int PoolSlot;
         }
 
         // Fixed 4-slot ring per (channel,key) pair.
@@ -36,23 +36,22 @@ namespace SharpMIDI
         private const string LineVertSrc =
             "#version 330 core\n"                                                                           +
             "layout(location = 0) in ivec2 aTicks;\n"                                                       +
-            "layout(location = 1) in vec4  aColorPitchNorm;\n"                                              +
+            "layout(location = 1) in vec3  aColor;\n"                                                       +
+            "layout(location = 2) in uint  aPitch;\n"                                                       +
             "uniform int uViewStart;\n"                                                                     +
             "uniform int uViewEnd;\n"                                                                       +
             "uniform float uPpt;\n"                                                                         +
             "flat out vec4 vColor;\n"                                                                       +
             "void main()\n"                                                                                 +
             "{\n"                                                                                           +
-            "    const float kScale  = 255.0 / 64.0;\n"                                                     +
-            "    const float kBias   = 0.5   / 64.0 - 1.0;\n"                                               +
             "    const float kMaxDur = 65535.0;\n"                                                          +
             "    int endTick = aTicks.y < 0 ? uViewEnd : aTicks.y;\n"                                       +
             "    int tick = gl_VertexID == 0 ? aTicks.x : endTick;\n"                                       +
             "    float x = float(tick - uViewStart) * uPpt - 1.0;\n"                                        +
-            "    float y = aColorPitchNorm.a * kScale + kBias;\n"                                           +
+            "    float y = float(aPitch) * (1.0 / 64.0) + (1.0 / 128.0) - 1.0;\n"                           +
             "    float dur = aTicks.y < 0 ? kMaxDur : min(float(aTicks.y - aTicks.x), kMaxDur);\n"          +
-            "    float ndcZ = (dur / kMaxDur) * 2.0 - 1.0;\n"                                               +
-            "    vColor = vec4(aColorPitchNorm.rgb, 1.0);\n"                                                +
+            "    float ndcZ = dur * (2.0 / 65535.0) - 1.0;\n"                                               +
+            "    vColor = vec4(aColor, 1.0);\n"                                                             +
             "    gl_Position = vec4(x, y, ndcZ, 1.0);\n"                                                    +
             "}\n";
 
@@ -145,9 +144,14 @@ namespace SharpMIDI
             GL.EnableVertexAttribArray(0);
             GL.VertexAttribIPointer(0, 2, VertexAttribIntegerType.Int, 16, 0);
             GL.VertexAttribDivisor(0, 1);
+            
             GL.EnableVertexAttribArray(1);
-            GL.VertexAttribPointer(1, 4, VertexAttribPointerType.UnsignedByte, true, 16, 8);
+            GL.VertexAttribPointer(1, 3, VertexAttribPointerType.UnsignedByte, true, 16, 8);
             GL.VertexAttribDivisor(1, 1);
+            
+            GL.EnableVertexAttribArray(2);
+            GL.VertexAttribIPointer(2, 1, VertexAttribIntegerType.UnsignedByte, 16, 11);
+            GL.VertexAttribDivisor(2, 1);
             GL.BindVertexArray(0);
             GL.BindBuffer(BufferTarget.ArrayBuffer, 0);
 
@@ -228,8 +232,8 @@ namespace SharpMIDI
             GL.TexImage2D(TextureTarget.Texture2D, 0, PixelInternalFormat.Rgba8, width, 128, 0, PixelFormat.Rgba, PixelType.UnsignedByte, IntPtr.Zero);
             GL.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureMinFilter, (int)TextureMinFilter.Nearest);
             GL.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureMagFilter, (int)TextureMagFilter.Nearest);
-            GL.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureWrapS,     (int)TextureWrapMode.ClampToEdge);
-            GL.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureWrapT,     (int)TextureWrapMode.ClampToEdge);
+            GL.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureWrapS, (int)TextureWrapMode.ClampToEdge);
+            GL.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureWrapT, (int)TextureWrapMode.ClampToEdge);
             GL.BindTexture(TextureTarget.Texture2D, 0);
 
             _fboDepth = GL.GenRenderbuffer();
@@ -392,12 +396,12 @@ namespace SharpMIDI
                         {
                             if (header->Count > 0)
                             {
-                                int noteIdx  = header->NoteIdx[header->Head];
+                                int noteIdx = header->NoteIdx[header->Head];
                                 header->Head = (header->Head + 1) & 3;
                                 header->Count--;
-                                int endTick  = pool[noteIdx].EndTick = tick;
-                                if (endTick < minEnd) 
-                                    minEnd = endTick;
+                                pool[noteIdx].EndTick = tick;
+                                if (tick < minEnd) 
+                                    minEnd = tick;
                             }
                         }
                         else
@@ -497,7 +501,8 @@ namespace SharpMIDI
                 if (OperatingSystem.IsWindows())
                 {
                     addr = WglGetProcAddress(procName);
-                    if (addr is 0 or 1 or 2 or 3 or -1) NativeLibrary.TryGetExport(s_gl, procName, out addr);
+                    if (addr is 0 or 1 or 2 or 3 or -1) 
+                        NativeLibrary.TryGetExport(s_gl, procName, out addr);
                 }
                 else 
                     NativeLibrary.TryGetExport(s_gl, procName, out addr);
@@ -507,14 +512,15 @@ namespace SharpMIDI
 
         private static int BuildShader(string vert, string frag)
         {
-            int vertex   = CompileStage(ShaderType.VertexShader, vert);
+            int vertex = CompileStage(ShaderType.VertexShader, vert);
             int fragment = CompileStage(ShaderType.FragmentShader, frag);
-            int program  = GL.CreateProgram();
+            int program = GL.CreateProgram();
             GL.AttachShader(program, vertex);
             GL.AttachShader(program, fragment);
             GL.LinkProgram(program);
             GL.GetProgram(program, GetProgramParameterName.LinkStatus, out int ok);
-            if (ok == 0) throw new Exception("Shader link:\n" + GL.GetProgramInfoLog(program));
+            if (ok == 0) 
+                throw new Exception("Shader link:\n" + GL.GetProgramInfoLog(program));
             GL.DeleteShader(vertex);
             GL.DeleteShader(fragment);
             return program;
