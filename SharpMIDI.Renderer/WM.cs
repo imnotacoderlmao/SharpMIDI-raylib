@@ -13,6 +13,7 @@ namespace SharpMIDI
         public const int PAD = 20;
         private static float scrollfactor = 1f;
         public static int WindowTicks = 2000;
+        private static int tick;
         private static int memusagecallcount = 0;
         private static long memusage = 0;
         static string filepath;
@@ -52,6 +53,7 @@ namespace SharpMIDI
             rlImGui.Setup(true);
             while (!Raylib.WindowShouldClose())
             {
+                tick = MIDIPlayer.curr_tick;
                 UpdateWindowDimensions();
                 HandleInput();
 
@@ -61,7 +63,7 @@ namespace SharpMIDI
                 Raylib.BeginDrawing();
                 
                 Raylib.ClearBackground(Raylib_cs.Color.Black);
-                NoteRenderer.Render(currentWidth, currentHeight, MIDIPlayer.curr_tick, PAD);
+                NoteRenderer.Render(currentWidth, currentHeight, tick, PAD);
                 Raylib.DrawLine(currentWidth >> 1, 0, currentWidth >> 1, currentHeight, Raylib_cs.Color.Red);
                 DrawText(); 
                 DrawUI();
@@ -236,6 +238,8 @@ namespace SharpMIDI
                 }
                 if (ImGui.BeginTabItem("Playback"))
                 {
+                    if (ImGui.SliderInt("time", ref tick, 0, MIDILoader.maxTick))
+                        MIDIClock.Skip(tick, true);
                     ImGui.SliderInt("Parser buf size (MiB)", ref MIDILoader.parse_buffer_size, 1, 32);
                     if (ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled))
                     {

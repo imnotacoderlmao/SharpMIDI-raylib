@@ -37,11 +37,16 @@ namespace SharpMIDI
 
         public static void Reset() => Start();
 
-        public static void Skip(double SkipTick, bool skipTo)
+        public static void Skip(double SkipTick, bool skipTo = false)
         {
             double targetTick = tick + SkipTick;
-            if (skipTo) targetTick = SkipTick;
-            if (targetTick <= 0) targetTick = 0;
+            
+            if (skipTo)
+                targetTick = SkipTick;
+            
+            if (targetTick == 0) 
+                targetTick = 0;
+            
             tick = targetTick; 
         }
 
