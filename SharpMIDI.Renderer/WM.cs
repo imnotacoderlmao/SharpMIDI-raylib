@@ -11,8 +11,7 @@ namespace SharpMIDI
     {
         public const int PAD = 20;
         private static float scrollfactor = 1f;
-        private static int memusagecallcount = 0;
-        private static long memusage = 0;
+        private static int tick;
         static string filepath;
 
         private static int currentWidth  = 1280;
@@ -50,6 +49,7 @@ namespace SharpMIDI
             rlImGui.Setup(true);
             while (!Raylib.WindowShouldClose())
             {
+                tick = MIDIPlayer.curr_tick;
                 UpdateWindowDimensions();
                 HandleInput();
 
@@ -59,7 +59,7 @@ namespace SharpMIDI
                 Raylib.BeginDrawing();
                 
                 Raylib.ClearBackground(Raylib_cs.Color.Black);
-                MIDIRenderer.Render(currentWidth, currentHeight, MIDIPlayer.curr_tick, PAD);
+                MIDIRenderer.Render(currentWidth, currentHeight, tick, PAD);
                 Raylib.DrawLine(currentWidth >> 1, 0, currentWidth >> 1, currentHeight, Raylib_cs.Color.Red);
                 DrawText(); 
                 DrawUI();
@@ -68,7 +68,7 @@ namespace SharpMIDI
             }
             MIDILoader.UnloadMIDI();
             rlImGui.Shutdown();
-            
+            MIDIRenderer.Dispose();
             Raylib.CloseWindow();
             IsRunning = false;
         }
@@ -152,12 +152,12 @@ namespace SharpMIDI
             if (Raylib.IsKeyPressed(KeyboardKey.Left) || Raylib.IsKeyPressedRepeat(KeyboardKey.Left))
             {
                 if(!MIDIPlayer.stopping)
-                    MIDIClock.Skip(-MIDIClock.tickscale);
+                    MIDIClock.Skip(-MIDIClock.tickscale, false);
             }
             if (Raylib.IsKeyPressed(KeyboardKey.Right) || Raylib.IsKeyPressedRepeat(KeyboardKey.Right))
             {
                 if(!MIDIPlayer.stopping) 
-                    MIDIClock.Skip(MIDIClock.tickscale);
+                    MIDIClock.Skip(MIDIClock.tickscale, false);
             }
 
             if (Raylib.IsKeyPressed(KeyboardKey.Space))
@@ -178,12 +178,12 @@ namespace SharpMIDI
 
         private static void DrawText()
         {
-            Raylib.DrawText($"Tick: {MIDIPlayer.curr_tick} | Tempo: {MIDIClock.bpm:F1} | Zoom: {(int)MIDIRenderer.WindowTicks} | FPS: {Raylib.GetFPS()}", 12, 4, 16, Raylib_cs.Color.Green);
+            Raylib.DrawText($"Tick: {MIDIPlayer.curr_tick} | Tempo: {MIDIClock.bpm:F1} | Zoom: {MIDIRenderer.WindowTicks} | FPS: {Raylib.GetFPS()}", 12, 4, 16, Raylib_cs.Color.Green);
             if (Debug)
             {
                 GetMemoryUsage();
                 string dynascrollstr = dynascroll ? $"({scrollfactor}x ticklen)" : "False";
-                Raylib.DrawText($"DrawOps: {MIDIRenderer.NotesDrawnLastFrame} | Memory: {Starter.toMemoryText(memusage)} | DynaScroll: {dynascrollstr}", 13, 23, 16, Raylib_cs.Color.SkyBlue);
+                Raylib.DrawText($"DrawOps: {MIDIRenderer.NotesDrawnLastFrame} | Memory: {Starter.toMemoryText(GetMemoryUsage())} | DynaScroll: {dynascrollstr}", 13, 23, 16, Raylib_cs.Color.SkyBlue);
                 Raylib.DrawText($"{MIDILoader.loadstatus} | Skip events?: {MIDIClock.skipevents} | MIDI: @{MIDIPlayer.MIDIFps} fps", 12, currentHeight - 19, 16, Raylib_cs.Color.SkyBlue);
             }
             else Raylib.DrawText($"{MIDILoader.loadstatus}", 12, currentHeight - 19, 16, Raylib_cs.Color.SkyBlue);
@@ -233,6 +233,8 @@ namespace SharpMIDI
                 }
                 if (ImGui.BeginTabItem("Playback"))
                 {
+                    if (ImGui.SliderInt("Renderer zoom", ref tick, 0, MIDILoader.maxTick))
+                        MIDIClock.Skip(tick, true);
                     ImGui.SliderInt("Parser buf size (MiB)", ref MIDILoader.parse_buffer_size, 1, 32);
                     if (ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled))
                     {
@@ -327,15 +329,7 @@ namespace SharpMIDI
             rlImGui.End();
         }
 
-        public static void GetMemoryUsage()
-        {
-            memusagecallcount++;
-            if (memusagecallcount % 4 == 0)
-            {
-                Process program = Process.GetCurrentProcess();
-                memusage = program.WorkingSet64;
-            }
-        }
+        public static long GetMemoryUsage() => Process.GetCurrentProcess().WorkingSet64;
 
         public static void StopRenderer() => IsRunning = false;
     }
