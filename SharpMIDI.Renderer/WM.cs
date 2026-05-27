@@ -186,7 +186,7 @@ namespace SharpMIDI
             if (Debug)
             {
                 GetMemoryUsage();
-                Raylib.DrawText($"Active notes: {GLNoteRenderer.NotesDrawnLastFrame} / {GLNoteRenderer.activeCap} | Memory: {Starter.toMemoryText(GetMemoryUsage())}", 13, 23, 16, Raylib_cs.Color.SkyBlue);
+                Raylib.DrawText($"Active notes: {GLNoteRenderer.NotesDrawnLastFrame} / {GLNoteRenderer._ringCap} | Memory: {Starter.toMemoryText(GetMemoryUsage())}", 13, 23, 16, Raylib_cs.Color.SkyBlue);
                 Raylib.DrawText($"{MIDILoader.loadstatus} | MIDI thread: @{MIDIPlayer.MIDIFps} fps", 12, currentHeight - 19, 16, Raylib_cs.Color.SkyBlue);
             }
             else 
