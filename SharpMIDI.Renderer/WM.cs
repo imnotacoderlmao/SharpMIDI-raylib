@@ -246,11 +246,6 @@ namespace SharpMIDI
                     {
                         MIDIClock.Skip(tick, true);
                     }
-                    ImGui.SliderInt("Parser buf size (MiB)", ref MIDILoader.parse_buffer_size, 1, 32);
-                    if (ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled))
-                    {
-                        ImGui.SetTooltip("Changes the parser's buffer. increasing/decreasing may lead to faster parsing. YMMV");
-                    }
                     ImGui.Checkbox("Single threaded playback", ref singlethreadplayback);
                     if (ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled))
                     {

@@ -37,12 +37,10 @@ namespace SharpMIDI
             "flat out vec4 vColor;\n"                                                                       +
             "void main() {\n"                                                                               +
             "    const float kMaxDur = 65535.0;\n"                                                          +
-            "    int endTick = aTicks.y < 0 ? uViewEnd : aTicks.y;\n"                                       +
-            "    int drawEnd = min(endTick, uViewEnd);\n"                                                   +
-            "    int tick = gl_VertexID == 0 ? aTicks.x : drawEnd;\n"                                       +
+            "    int tick = gl_VertexID == 0 ? aTicks.x : aTicks.y;\n"                                      +
             "    float x = float(tick - uViewStart) * uPpt - 1.0;\n"                                        +
             "    float y = float(aPitch) * (1.0 / 64.0) + (1.0 / 128.0) - 1.0;\n"                           +
-            "    float dur = clamp(float(endTick - aTicks.x), 0.0, kMaxDur);\n"                             +
+            "    float dur = min(float(aTicks.y - aTicks.x), kMaxDur);\n"                                   +
             "    vColor = vec4(aColor, 1.0);\n"                                                             +
             "    gl_Position = vec4(x, y, dur * (1.0 / kMaxDur), 1.0);\n"                                   +
             "}\n";
@@ -390,6 +388,8 @@ namespace SharpMIDI
         [MethodImpl(MethodImplOptions.AggressiveOptimization)]
         private static void SweepRange(int fromTick, int toTick, TickGroup[] groups, byte* messages, ushort* tracks)
         {
+            GpuNote* cpunotesLocal = _cpuNotes;
+            GpuNote* ringbufferLocal = _ring;        
             bool useTrack = tracks != null;
             KeyHeader* keyheader = _keyHeaders;
             int limit = Math.Min(toTick, groups.Length - 2);
@@ -431,8 +431,8 @@ namespace SharpMIDI
                                 {
                                     int phys = noteIdx & _mask;
                                     _cpuNotes[phys].EndTick = tick;
-                                    if (_ring != null) 
-                                        _ring[phys].EndTick = tick; 
+                                    if (ringbufferLocal != null) 
+                                        ringbufferLocal[phys].EndTick = tick; 
                                 }
                             }
                         }
@@ -441,17 +441,22 @@ namespace SharpMIDI
                             if (header->Count >= 4) 
                                 continue;
                             if (_head - _tail >= _ringCap) 
+                            {
                                 GrowRing();
+                                // Refresh cached pointers after a reallocation!
+                                cpunotesLocal = _cpuNotes;
+                                ringbufferLocal = _ring;
+                            }
 
                             int ringTail = (header->Head + header->Count) & 3;
                             int absId = _head++;
                             int physIdx = absId & _mask;
                             byte colorIdx = useTrack ? (byte)(tracks[idx] + channel) : channel;
 
-                            _cpuNotes[physIdx] = new GpuNote 
+                            cpunotesLocal[physIdx] = new GpuNote 
                             {
                                 StartTick = tick,
-                                EndTick = -1,
+                                EndTick = int.MaxValue,
                                 ColorPitch = palette[colorIdx] | ((uint)note << 24)
                             };
 
