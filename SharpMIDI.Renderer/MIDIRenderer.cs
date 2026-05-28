@@ -82,7 +82,8 @@ namespace SharpMIDI
         private static GpuNote* _ring;
         private static GpuNote* _cpuNotes; // cpu side shadow array
         
-        public  static int _ringCap = 1 << 23; 
+        public static int _ringCap = 1 << 23;
+        private static int _deferredRingCap = -1;
         private static int _mask;               
 
         private static int _head; 
@@ -95,7 +96,7 @@ namespace SharpMIDI
         private static KeyHeader* _keyHeaders;
         private const int TOTAL_KEYS = 128 * 16;
         private const int COLOR_SIZE = byte.MaxValue + 1;
-        private const int LOOKAHEAD_TICKS = 4000;
+        private static int lookahead_ticks = 4000;
 
         private static readonly uint[] colorTable = new uint[COLOR_SIZE];
 
@@ -212,6 +213,10 @@ namespace SharpMIDI
             lastSweepEnd = -1;
             lastTick = -1;
             lastWindowTicks = -1;
+            if (_ringCap != 1 << 23)
+            {
+                _deferredRingCap = 1 << 23;
+            }
         }
 
         public static void Dispose()
@@ -276,6 +281,12 @@ namespace SharpMIDI
         {
             if (!MIDILoader.midiLoaded) return;
 
+            if (_deferredRingCap > 0)
+            {
+                ResizeRing(_deferredRingCap);
+                _deferredRingCap = -1;
+            }
+            
             int maxtick = MIDILoader.maxTick - 1;
             int half = WindowTicks >> 1;
             int viewStart = Math.Clamp(tick - half, 0, maxtick);
@@ -285,6 +296,7 @@ namespace SharpMIDI
             {
                 pixelsPerTick = 2.0f / WindowTicks;
                 lastWindowTicks = WindowTicks;
+                lookahead_ticks = Math.Min(WindowTicks / 2, 2000);
             }
 
             if (tick == lastTick && screenWidth == _fboWidth)
@@ -294,11 +306,11 @@ namespace SharpMIDI
             }
             lastTick = tick;
 
-            TickGroup[] groups = MIDIEvent.TickGroupArray;
+            BigArray<TickGroup> groups = MIDIEvent.TickGroupArray;
             byte* messages = (byte*)SynthEvent.messages.Pointer;
             ushort* tracks = SynthEvent.track != null ? SynthEvent.track.Pointer : null;
 
-            int sweepEnd = Math.Clamp(viewEnd + LOOKAHEAD_TICKS, 0, maxtick);
+            int sweepEnd = Math.Clamp(viewEnd + lookahead_ticks, 0, maxtick);
             bool incremental = lastSweepEnd >= 0 && sweepEnd >= lastSweepEnd && sweepEnd - lastSweepEnd < WindowTicks;
 
             if (!incremental)
@@ -386,15 +398,15 @@ namespace SharpMIDI
         }
 
         [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-        private static void SweepRange(int fromTick, int toTick, TickGroup[] groups, byte* messages, ushort* tracks)
+        private static void SweepRange(int fromTick, int toTick, BigArray<TickGroup> groups, byte* messages, ushort* tracks)
         {
             GpuNote* cpunotesLocal = _cpuNotes;
             GpuNote* ringbufferLocal = _ring;        
             bool useTrack = tracks != null;
             KeyHeader* keyheader = _keyHeaders;
-            int limit = Math.Min(toTick, groups.Length - 2);
-
-            fixed (TickGroup* tickgroups = groups)
+            int limit = Math.Min(toTick, (int)groups.Length - 2);
+            TickGroup* tickgroups = groups.Pointer;
+            
             fixed (uint* palette = colorTable)
             {
                 for (int tick = fromTick; tick <= limit; tick++)
@@ -442,8 +454,7 @@ namespace SharpMIDI
                                 continue;
                             if (_head - _tail >= _ringCap) 
                             {
-                                GrowRing();
-                                // Refresh cached pointers after a reallocation!
+                                ResizeRing(_ringCap * 2);
                                 cpunotesLocal = _cpuNotes;
                                 ringbufferLocal = _ring;
                             }
@@ -526,9 +537,8 @@ namespace SharpMIDI
         }
 
         [MethodImpl(MethodImplOptions.NoInlining)]
-        private static void GrowRing()
+        private static void ResizeRing(int newCap)
         {
-            int newCap = _ringCap * 2;
             int newMask = newCap - 1;
             
             GpuNote* newCpu = (GpuNote*)NativeMemory.AlignedAlloc((nuint)(newCap * sizeof(GpuNote)), 64);

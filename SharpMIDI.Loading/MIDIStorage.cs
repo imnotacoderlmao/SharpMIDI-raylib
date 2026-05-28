@@ -43,7 +43,7 @@ namespace SharpMIDI
     
     static class MIDIEvent
     {
-        public static TickGroup[] TickGroupArray = Array.Empty<TickGroup>();
+        public static BigArray<TickGroup> TickGroupArray;
         public static Tempo[] TempoEventArray = Array.Empty<Tempo>();
         public static SysEx[] SysExArray = Array.Empty<SysEx>();
     }
@@ -57,6 +57,7 @@ namespace SharpMIDI
     public unsafe class BigArray<T> : IDisposable
     {
         public long Length;
+        public long Count;
         private T* ptr;
         public T* Pointer => ptr;
         
@@ -67,6 +68,16 @@ namespace SharpMIDI
             ptr = (T*)NativeMemory.Alloc((nuint)bytes);
         }
 
+        public void Add(T item)
+        {
+            if (Count >= Length)
+            {
+                Length = Length == 0 ? 2048 : Length * 2;
+                ptr = (T*)NativeMemory.Realloc(ptr, (nuint)Length * (nuint)sizeof(T));
+            }
+            ptr[Count++] = item;
+        }
+        
         public void Resize(long newLength)
         {
             Length = newLength;

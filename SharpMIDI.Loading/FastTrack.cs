@@ -2,27 +2,21 @@
 
 namespace SharpMIDI
 {
-    public unsafe class FastTrack : IDisposable
+    public unsafe class FastTrack(byte* trackData, uint len) : IDisposable
     {
         public long eventCount = 0;
         public long totalNotes = 0;
         public int trackMaxTick = 0;
-        
-        private byte* ptr;
-        private byte* endPtr;
+        private byte* ptr = trackData;
+        private byte* endPtr = trackData + len;
 
-        public FastTrack(byte* trackData, uint len)
-        {
-            this.ptr = trackData;
-            this.endPtr = trackData + len;
-        }
-
-        public void ParseTrackEvents(uint24* msgPtr, ushort* trackPtr, long* writeCursors, ushort track)
+        public void ParseTrackEvents(ref uint24* msgPtr, ref ushort* trackPtr, ref BigArray<long> writeCursorsPtr, ushort track)
         {
             byte* localPtr = this.ptr;
             int absolutetime = 0;
             long notecount = 0;
             byte prevEvent = 0;
+            long* writeCursors = writeCursorsPtr.Pointer;
             bool trackcolors = trackPtr != null;
 
             while (localPtr < endPtr)
@@ -47,7 +41,8 @@ namespace SharpMIDI
                 
                 byte status = (byte)(readEvent & 0xF0);
                 byte channel = (byte)(readEvent & 0x0F);
-                prevEvent = readEvent;
+                if (readEvent >= 0x80 && readEvent < 0xF0)
+                    prevEvent = readEvent;
 
                 switch (readEvent)
                 {
@@ -194,8 +189,9 @@ namespace SharpMIDI
             this.ptr = localPtr;
         }
 
-        public void ScanEvents(List<TickGroup> tickCounts)
+        public void ScanEvents(ref BigArray<TickGroup> tickCounts)
         {
+            tickCounts = new BigArray<TickGroup>(2048);
             byte* localPtr = this.ptr;
             int absolutetime = 0;
             int lastTick = 0;
@@ -224,7 +220,8 @@ namespace SharpMIDI
                 }
                 
                 byte status = (byte)(readEvent & 0xF0);
-                prevEvent = readEvent;
+                if (readEvent >= 0x80 && readEvent < 0xF0)
+                    prevEvent = readEvent;
 
                 switch (readEvent)
                 {

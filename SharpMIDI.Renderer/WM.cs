@@ -213,7 +213,7 @@ namespace SharpMIDI
                     }
                     else
                     {
-                        ImGui.SliderFloat("Scroll factor", ref scrollfactor, 0, 10);
+                        ImGui.SliderFloat("Scroll factor", ref scrollfactor, 0.000001f, 10);
                         if (ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled))
                         {
                             ImGui.SetTooltip("in this case its just ticks/sec * scrollfactor, so... how many seconds are visible?");

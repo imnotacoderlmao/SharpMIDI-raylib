@@ -1,7 +1,6 @@
 #pragma warning disable 8602
 using System.Diagnostics;
 using System.IO.MemoryMappedFiles;
-using OpenTK.Windowing.GraphicsLibraryFramework;
 
 namespace SharpMIDI
 {
@@ -77,7 +76,7 @@ namespace SharpMIDI
                         loadstatus = $"Indexing MIDI tracks... {trackAmount} found..";
                     }
 
-                    List<TickGroup> histogram = new();
+                    BigArray<TickGroup>[] trackHistogram = new BigArray<TickGroup>[trackAmount];
                     loadstatus = $"scanning events for grouping";
                     long countednotes = 0;
                     double parsestart = Timer.Seconds();
@@ -86,13 +85,7 @@ namespace SharpMIDI
                     {
                         byte* trackStartPtr = filePtr + trackProperties[i].start;
                         FastTrack t = new FastTrack(trackStartPtr, trackProperties[i].len);
-                        
-                        List<TickGroup> localTrackHistogram = new List<TickGroup>();
-                        t.ScanEvents(localTrackHistogram);
-                        lock (histogram)
-                        {
-                            histogram.AddRange(localTrackHistogram);
-                        }
+                        t.ScanEvents(ref trackHistogram[i]);
                         Interlocked.Add(ref eventCount, t.eventCount);
                         Interlocked.Add(ref countednotes, t.totalNotes);
                         Interlocked.Increment(ref loadedtracks);
@@ -103,25 +96,33 @@ namespace SharpMIDI
                     double parseend = Timer.Seconds();
                     double parsetime = parseend - parsestart;
                     Console.WriteLine($"\ncounted {countednotes:N0} notes in {parsetime}s ({countednotes/parsetime:N0} notes/sec)");
-                    histogram.TrimExcess();
                     
-                    long[] writeCursors = new long[maxTick + 2];
-                    TickGroup[] tickgroup = new TickGroup[maxTick + 2];
-                    foreach (TickGroup g in histogram)
+                    BigArray<long> writeCursors = new BigArray<long>(maxTick + 2);
+                    BigArray<TickGroup> tickgroup = new BigArray<TickGroup>(maxTick + 2);
+                    
+                    for (int i = 0; i < trackAmount; i++)
                     {
-                        tickgroup[g.tick].offset += g.offset;
-                        tickgroup[g.tick].notecount += g.notecount;
+                        BigArray<TickGroup> list = trackHistogram[i];
+                        if (list == null) continue;
+                        for (int j = 0; j < list.Count; j++)
+                        {
+                            TickGroup g = list.Pointer[j];
+                            tickgroup.Pointer[g.tick].offset += g.offset;
+                            tickgroup.Pointer[g.tick].notecount += g.notecount;
+                        }
+                        list.Dispose();
                     }
-                    histogram = null;
+                    trackHistogram = null;
+                    
                     long event_offset = 0;
                     for (int t = 0; t <= maxTick; t++)
                     {
-                        writeCursors[t] = event_offset;
-                        long tickEventCount = tickgroup[t].offset;
-                        tickgroup[t] = new TickGroup 
+                        writeCursors.Pointer[t] = event_offset;
+                        long tickEventCount = tickgroup.Pointer[t].offset;
+                        tickgroup.Pointer[t] = new TickGroup 
                         { 
                             tick = t, 
-                            notecount = tickgroup[t].notecount, 
+                            notecount = tickgroup.Pointer[t].notecount, 
                             offset = event_offset
                         };
                         event_offset += tickEventCount;
@@ -139,21 +140,19 @@ namespace SharpMIDI
 
                     Parallel.For(0, trackAmount, i =>
                     {
-                        fixed (long* wc = writeCursors)
-                        {
-                            byte* trackStartPtr = filePtr + trackProperties[i].start;
-                            FastTrack t = new FastTrack(trackStartPtr, trackProperties[i].len);
-                            t.ParseTrackEvents(msgPtr, trackPtr, wc, (ushort)i);
-                            Interlocked.Add(ref totalNotes, t.totalNotes);
-                            Interlocked.Increment(ref loadedtracks);
-                            Console.Write($"\rparsed {loadedtracks} tracks | ({totalNotes:N0} notes parsed)");
-                            t.Dispose();
-                        }
+                        byte* trackStartPtr = filePtr + trackProperties[i].start;
+                        FastTrack t = new FastTrack(trackStartPtr, trackProperties[i].len);
+                        t.ParseTrackEvents(ref msgPtr, ref trackPtr, ref writeCursors, (ushort)i);
+                        Interlocked.Add(ref totalNotes, t.totalNotes);
+                        Interlocked.Increment(ref loadedtracks);
+                        Console.Write($"\rparsed {loadedtracks} tracks | ({totalNotes:N0} notes parsed)");
+                        t.Dispose();
                     });
 
                     parseend = Timer.Seconds();
-                    tickgroup[maxTick + 1] = new TickGroup { tick = int.MaxValue, notecount = 0, offset = event_offset };
+                    tickgroup.Pointer[maxTick + 1] = new TickGroup { tick = int.MaxValue, notecount = 0, offset = event_offset };
                     MIDIEvent.TickGroupArray = tickgroup;
+                    writeCursors.Dispose();
                     GLNoteRenderer.InitializeForMIDI();
                     
                     parsetime = parseend - parsestart;
@@ -190,6 +189,7 @@ expected: {Starter.toMemoryText((eventCount * sizeof(uint24) + (WindowManager.tr
         public static void UnloadMIDI()
         {
             if (!midiLoaded) return;
+            Console.WriteLine($"unloading {filename}");
             midiLoaded = false;
             MIDIPlayer.stopping = true;
             GLNoteRenderer.ResetForUnload();
@@ -199,9 +199,10 @@ expected: {Starter.toMemoryText((eventCount * sizeof(uint24) + (WindowManager.tr
             trackAmount = 0;
             trackProperties.Clear();
             SynthEvent.Dispose();
+            MIDIEvent.TickGroupArray.Dispose();
             MIDIEvent.TempoEventArray = null;
             MIDIEvent.SysExArray = null;
-            MIDIEvent.TickGroupArray = null;
+            Console.WriteLine($"succesfully unloaded {filename}");
             loadstatus = $"No MIDI Loaded";
             GC.Collect();
         }
