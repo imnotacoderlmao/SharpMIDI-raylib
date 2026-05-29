@@ -1,3 +1,4 @@
+#pragma warning disable 8601, 8604
 using System.Runtime.InteropServices;
 using System.Diagnostics;
 using System.Numerics;
@@ -11,7 +12,7 @@ namespace SharpMIDI
     {
         public const int PAD = 20;
         private static float scrollfactor = 1f;
-        static string filepath;
+        static string filepath = string.Empty;
 
         private static int currentWidth  = 1280;
         private static int currentHeight = 720;
@@ -166,9 +167,12 @@ namespace SharpMIDI
 
             if (Raylib.IsKeyPressed(KeyboardKey.Space))
             {
-                if (MIDIPlayer.stopping) Task.Run(() => MIDIPlayer.StartPlayback(singlethreadplayback));
-                if (!MIDIClock.paused) MIDIClock.Stop();
-                else MIDIClock.Resume();
+                if (MIDIPlayer.stopping)
+                    Task.Run(() => MIDIPlayer.StartPlayback(singlethreadplayback));
+                if (!MIDIClock.paused)
+                    MIDIClock.Stop();
+                else 
+                    MIDIClock.Resume();
             }
             if (Raylib.IsKeyPressed(KeyboardKey.R))
                 MIDIPlayer.stopping = true;

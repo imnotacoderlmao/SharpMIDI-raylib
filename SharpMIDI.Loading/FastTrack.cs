@@ -1,6 +1,6 @@
 namespace SharpMIDI
 {
-    public unsafe class FastTrack(ref byte* trackData, uint len) : IDisposable
+    public unsafe class FastTrack(byte* trackData, uint len) : IDisposable
     {
         public long eventCount = 0;
         public long totalNotes = 0;
@@ -8,7 +8,7 @@ namespace SharpMIDI
         private byte* ptr = trackData;
         private byte* endPtr = trackData + len;
 
-        public void ParseTrackEvents(ref uint24* msgPtr, ref ushort* trackPtr, ref long* writeCursors, ushort track)
+        public void ParseTrackEvents(uint24* msgPtr, ushort* trackPtr, long* writeCursors, ushort track)
         {
             byte* localPtr = ptr;
             byte* localEndPtr = endPtr;
@@ -251,6 +251,7 @@ namespace SharpMIDI
                     case 0xFF:
                         readEvent = *localPtr++;
                         int len2 = 0;
+                        
                         while (true)
                         {
                             byte curByte = *localPtr++;
@@ -281,43 +282,37 @@ namespace SharpMIDI
                         continue;
                 }
 
-                bool isChannelEvent = false;
                 switch (status)
                 {
                     case 0x90:
                         localPtr += 1;
                         if (*localPtr++ != 0) 
                             notecount++;
-                        isChannelEvent = true;
+                        count++;
                         break;
                     case 0x80:
                     case 0xA0:
                     case 0xB0:
                     case 0xE0:
                         localPtr += 2;
-                        isChannelEvent = true;
+                        count++;
                         break;
                     case 0xC0:
                     case 0xD0:
                         localPtr += 1;
-                        isChannelEvent = true;
+                        count++;
                         break;
                 }
 
-                if (isChannelEvent)
+                if (delta > 0 && count > 0)
                 {
-                    if (delta > 0 && count > 0)
-                    {
-                        tickCounts.Add(new TickGroup { tick = lastTick, notecount = notecount, offset = count });
-                        eventCount += count;
-                        totalNotes += notecount;
-                        notecount = 0;
-                        count = 0;
-                    }
-
-                    lastTick = absolutetime;
-                    count++;
+                    tickCounts.Add(new TickGroup { tick = lastTick, notecount = notecount, offset = count });
+                    eventCount += count;
+                    totalNotes += notecount;
+                    notecount = 0;
+                    count = 0;
                 }
+                lastTick = absolutetime;
             }
             ptr = localPtr;
         }

@@ -1,11 +1,11 @@
-#pragma warning disable 8500
+#pragma warning disable 8500, 8625
 using System.Runtime.InteropServices;
 namespace SharpMIDI
 {
     public static class SynthEvent
     {
-        public static BigArray<uint24> messages;
-        public static BigArray<ushort> track;
+        public static BigArray<uint24> messages = null;
+        public static BigArray<ushort> track = null;
 
         public static void Alloc(long length, bool trackcolors)
         {
@@ -44,7 +44,7 @@ namespace SharpMIDI
     
     static class MIDIEvent
     {
-        public static BigArray<TickGroup> TickGroupArray;
+        public static BigArray<TickGroup> TickGroupArray = null;
         public static Tempo[] TempoEventArray = Array.Empty<Tempo>();
         public static SysEx[] SysExArray = Array.Empty<SysEx>();
     }
@@ -73,8 +73,8 @@ namespace SharpMIDI
         {
             if (Count >= Length)
             {
-                Length = Length == 0 ? 2048 : Length * 2;
-                ptr = (T*)NativeMemory.Realloc(ptr, (nuint)Length * (nuint)sizeof(T));
+                long newLength = Length == 0 ? 2048 : Length * 2;
+                Resize(newLength);
             }
             ptr[Count++] = item;
         }

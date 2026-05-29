@@ -103,7 +103,6 @@ namespace SharpMIDI
         private static float pixelsPerTick; 
         private static int lastWindowTicks = -1;
         private static int lastSweepEnd = -1;
-        private static int lastTick = -1;
         private static bool IsInitialized;
 
         public static int WindowTicks = 2000;
@@ -191,7 +190,6 @@ namespace SharpMIDI
             _appendMin = int.MaxValue;
             _appendMax = -1;
             lastSweepEnd = -1;
-            lastTick = -1;
             lastWindowTicks = -1;
 
             for (int i = 0; i < COLOR_SIZE; i++)
@@ -211,7 +209,6 @@ namespace SharpMIDI
             _appendMin = int.MaxValue;
             _appendMax = -1;
             lastSweepEnd = -1;
-            lastTick = -1;
             lastWindowTicks = -1;
             if (_ringCap != 1 << 23)
             {
@@ -279,13 +276,13 @@ namespace SharpMIDI
         [MethodImpl(MethodImplOptions.AggressiveOptimization)]
         public static void Render(int screenWidth, int screenHeight, int tick, int pad)
         {
-            if (!MIDILoader.midiLoaded) return;
-
             if (_deferredRingCap > 0)
             {
                 ResizeRing(_deferredRingCap);
                 _deferredRingCap = -1;
             }
+            
+            if (!MIDILoader.midiLoaded) return;
             
             int maxtick = MIDILoader.maxTick - 1;
             int half = WindowTicks >> 1;
@@ -298,13 +295,6 @@ namespace SharpMIDI
                 lastWindowTicks = WindowTicks;
                 lookahead_ticks = Math.Min(WindowTicks / 2, 2000);
             }
-
-            if (tick == lastTick && screenWidth == _fboWidth)
-            {
-                BlitToScreen(screenWidth, screenHeight, pad);
-                return;
-            }
-            lastTick = tick;
 
             BigArray<TickGroup> groups = MIDIEvent.TickGroupArray;
             byte* messages = (byte*)SynthEvent.messages.Pointer;

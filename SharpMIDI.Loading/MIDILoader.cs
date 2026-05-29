@@ -52,7 +52,7 @@ namespace SharpMIDI
                 return;
             }
             filePos = 0;
-
+            double parsetime;
             using (var mmf = MemoryMappedFile.CreateFromFile(path, FileMode.Open, null, 0, MemoryMappedFileAccess.Read))
             using (var accessor = mmf.CreateViewAccessor(0, 0, MemoryMappedFileAccess.Read))
             {
@@ -84,7 +84,7 @@ namespace SharpMIDI
                     Parallel.For(0, trackAmount, i =>
                     {
                         byte* trackStartPtr = filePtr + trackProperties[i].start;
-                        FastTrack t = new FastTrack(ref trackStartPtr, trackProperties[i].len);
+                        FastTrack t = new FastTrack(trackStartPtr, trackProperties[i].len);
                         t.ScanEvents(ref trackHistogram[i]);
                         Interlocked.Add(ref eventCount, t.eventCount);
                         Interlocked.Add(ref countednotes, t.totalNotes);
@@ -94,7 +94,7 @@ namespace SharpMIDI
                     });
                     
                     double parseend = Timer.Seconds();
-                    double parsetime = parseend - parsestart;
+                    parsetime = parseend - parsestart;
                     Console.WriteLine($"\ncounted {countednotes:N0} notes in {parsetime}s ({countednotes/parsetime:N0} notes/sec)");
                     
                     BigArray<long> writeCursors = new BigArray<long>(maxTick + 2);
@@ -142,8 +142,8 @@ namespace SharpMIDI
                     Parallel.For(0, trackAmount, i =>
                     {
                         byte* trackStartPtr = filePtr + trackProperties[i].start;
-                        FastTrack t = new FastTrack(ref trackStartPtr, trackProperties[i].len);
-                        t.ParseTrackEvents(ref msgPtr, ref trackPtr, ref writeCursorsptr, (ushort)i);
+                        FastTrack t = new FastTrack(trackStartPtr, trackProperties[i].len);
+                        t.ParseTrackEvents(msgPtr, trackPtr, writeCursorsptr, (ushort)i);
                         Interlocked.Add(ref totalNotes, t.totalNotes);
                         Interlocked.Increment(ref loadedtracks);
                         Console.Write($"\rparsed {loadedtracks} tracks | ({totalNotes:N0} notes parsed)");
@@ -154,18 +154,7 @@ namespace SharpMIDI
                     tickgroup.Pointer[maxTick + 1] = new TickGroup { tick = int.MaxValue, notecount = 0, offset = event_offset };
                     MIDIEvent.TickGroupArray = tickgroup;
                     writeCursors.Dispose();
-                    GLNoteRenderer.InitializeForMIDI();
-                    
                     parsetime = parseend - parsestart;
-                    string memusage = 
-@$"memory usage statistics below
-current usage: {Starter.toMemoryText(Process.GetCurrentProcess().WorkingSet64)}
-event array: {Starter.toMemoryText(eventCount * sizeof(uint24))} | timing: {Starter.toMemoryText(maxTick + 2 * sizeof(TickGroup))}
-track array: {Starter.toMemoryText(WindowManager.trackcolors? (eventCount * sizeof(ushort)) : 0)}
-expected: {Starter.toMemoryText((eventCount * sizeof(uint24)) + (WindowManager.trackcolors? (eventCount * sizeof(ushort)) : 0) + ((maxTick + 2) * sizeof(TickGroup)))}";
-                    
-                    Console.WriteLine($"\nParsed {totalNotes:N0} notes in {parsetime}s ({totalNotes/parsetime:N0} notes/sec)");
-                    Console.WriteLine(memusage);
                 }
                 finally
                 {
@@ -183,8 +172,19 @@ expected: {Starter.toMemoryText((eventCount * sizeof(uint24)) + (WindowManager.t
             Array.Sort(MIDIEvent.SysExArray, (a, b) => a.tick.CompareTo(b.tick));
             tempMIDIstorage.temppos.Clear();
             tempMIDIstorage.SysEx.Clear();
+            string memusage = 
+@$"memory usage statistics below
+current usage: {Starter.toMemoryText(Process.GetCurrentProcess().WorkingSet64)}
+event array: {Starter.toMemoryText(eventCount * sizeof(uint24))} | track array: {Starter.toMemoryText(WindowManager.trackcolors? (eventCount * sizeof(ushort)) : 0)}
+tempo array: {Starter.toMemoryText(MIDIEvent.TempoEventArray.Length * sizeof(Tempo))} | timing: {Starter.toMemoryText((long)(maxTick + 2) * sizeof(TickGroup))}
+expected: {Starter.toMemoryText((eventCount * sizeof(uint24)) + (WindowManager.trackcolors? (eventCount * sizeof(ushort)) : 0) + ((long)(maxTick + 2) * sizeof(TickGroup)) + (MIDIEvent.TempoEventArray.Length * sizeof(Tempo)))}";
+                    
+            Console.WriteLine($"\nParsed {totalNotes:N0} notes in {parsetime}s ({totalNotes/parsetime:N0} notes/sec)");
+            Console.WriteLine(memusage);
+            
             midiLoaded = true;
             loadstatus = filename;
+            GLNoteRenderer.InitializeForMIDI();
         }
 
         public static void UnloadMIDI()

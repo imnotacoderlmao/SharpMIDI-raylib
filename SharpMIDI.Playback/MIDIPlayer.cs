@@ -135,7 +135,6 @@ namespace SharpMIDI
                     uint send = KDMAPI._sendDirectLongDataLinux(messageptr, (uint)(sizeof(byte) * message.Length));
                     Console.WriteLine($"sysex send returned ({send})");
                 #elif WINDOWS 
-                    uint prepare = 255, send = 255, unprepare = 255; // fallback values
                     MIDIHDR header = new MIDIHDR 
                     {
                         lpData = messageptr,
