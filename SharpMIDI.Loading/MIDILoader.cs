@@ -76,7 +76,7 @@ namespace SharpMIDI
                         loadstatus = $"Indexing MIDI tracks... {trackAmount} found..";
                     }
 
-                    BigArray<TickGroup>[] trackHistogram = new BigArray<TickGroup>[trackAmount];
+                    BigArray<TickGroup>[]? trackHistogram = new BigArray<TickGroup>[trackAmount];
                     loadstatus = $"scanning events for grouping";
                     long countednotes = 0;
                     double parsestart = Timer.Seconds();
@@ -84,7 +84,7 @@ namespace SharpMIDI
                     Parallel.For(0, trackAmount, i =>
                     {
                         byte* trackStartPtr = filePtr + trackProperties[i].start;
-                        FastTrack t = new FastTrack(trackStartPtr, trackProperties[i].len);
+                        FastTrack t = new FastTrack(ref trackStartPtr, trackProperties[i].len);
                         t.ScanEvents(ref trackHistogram[i]);
                         Interlocked.Add(ref eventCount, t.eventCount);
                         Interlocked.Add(ref countednotes, t.totalNotes);
@@ -131,6 +131,7 @@ namespace SharpMIDI
                     SynthEvent.Alloc(eventCount, WindowManager.trackcolors);
                     uint24* msgPtr = SynthEvent.messages.Pointer;
                     ushort* trackPtr = WindowManager.trackcolors ? SynthEvent.track.Pointer : null;
+                    long* writeCursorsptr = writeCursors.Pointer;
 
                     loadstatus = $"actually parsing events now";
                     Console.WriteLine(loadstatus);
@@ -141,8 +142,8 @@ namespace SharpMIDI
                     Parallel.For(0, trackAmount, i =>
                     {
                         byte* trackStartPtr = filePtr + trackProperties[i].start;
-                        FastTrack t = new FastTrack(trackStartPtr, trackProperties[i].len);
-                        t.ParseTrackEvents(ref msgPtr, ref trackPtr, ref writeCursors, (ushort)i);
+                        FastTrack t = new FastTrack(ref trackStartPtr, trackProperties[i].len);
+                        t.ParseTrackEvents(ref msgPtr, ref trackPtr, ref writeCursorsptr, (ushort)i);
                         Interlocked.Add(ref totalNotes, t.totalNotes);
                         Interlocked.Increment(ref loadedtracks);
                         Console.Write($"\rparsed {loadedtracks} tracks | ({totalNotes:N0} notes parsed)");
@@ -161,7 +162,7 @@ namespace SharpMIDI
 current usage: {Starter.toMemoryText(Process.GetCurrentProcess().WorkingSet64)}
 event array: {Starter.toMemoryText(eventCount * sizeof(uint24))} | timing: {Starter.toMemoryText(maxTick + 2 * sizeof(TickGroup))}
 track array: {Starter.toMemoryText(WindowManager.trackcolors? (eventCount * sizeof(ushort)) : 0)}
-expected: {Starter.toMemoryText((eventCount * sizeof(uint24) + (WindowManager.trackcolors? (eventCount * sizeof(ushort)) : 0)) + ((maxTick + 2) * sizeof(TickGroup)))}";
+expected: {Starter.toMemoryText((eventCount * sizeof(uint24)) + (WindowManager.trackcolors? (eventCount * sizeof(ushort)) : 0) + ((maxTick + 2) * sizeof(TickGroup)))}";
                     
                     Console.WriteLine($"\nParsed {totalNotes:N0} notes in {parsetime}s ({totalNotes/parsetime:N0} notes/sec)");
                     Console.WriteLine(memusage);
@@ -200,8 +201,8 @@ expected: {Starter.toMemoryText((eventCount * sizeof(uint24) + (WindowManager.tr
             trackProperties.Clear();
             SynthEvent.Dispose();
             MIDIEvent.TickGroupArray.Dispose();
-            MIDIEvent.TempoEventArray = null;
-            MIDIEvent.SysExArray = null;
+            MIDIEvent.TempoEventArray = [];
+            MIDIEvent.SysExArray = [];
             Console.WriteLine($"succesfully unloaded {filename}");
             loadstatus = $"No MIDI Loaded";
             GC.Collect();

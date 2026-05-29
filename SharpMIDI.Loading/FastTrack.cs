@@ -1,8 +1,6 @@
-#pragma warning disable 8625
-
 namespace SharpMIDI
 {
-    public unsafe class FastTrack(byte* trackData, uint len) : IDisposable
+    public unsafe class FastTrack(ref byte* trackData, uint len) : IDisposable
     {
         public long eventCount = 0;
         public long totalNotes = 0;
@@ -10,16 +8,16 @@ namespace SharpMIDI
         private byte* ptr = trackData;
         private byte* endPtr = trackData + len;
 
-        public void ParseTrackEvents(ref uint24* msgPtr, ref ushort* trackPtr, ref BigArray<long> writeCursorsPtr, ushort track)
+        public void ParseTrackEvents(ref uint24* msgPtr, ref ushort* trackPtr, ref long* writeCursors, ushort track)
         {
-            byte* localPtr = this.ptr;
+            byte* localPtr = ptr;
+            byte* localEndPtr = endPtr;
             int absolutetime = 0;
             long notecount = 0;
             byte prevEvent = 0;
-            long* writeCursors = writeCursorsPtr.Pointer;
             bool trackcolors = trackPtr != null;
 
-            while (localPtr < endPtr)
+            while (localPtr < localEndPtr)
             {
                 // inline varlen decode
                 int delta = 0;
@@ -81,7 +79,8 @@ namespace SharpMIDI
                             {
                                 byte curByte = *localPtr++;
                                 len = (len << 7) | (curByte & 0x7F);
-                                if ((curByte & 0x80) == 0) break;
+                                if ((curByte & 0x80) == 0) 
+                                    break;
                             }
                             int tempo = 0;
                             for (int i = 0; i < len; i++) 
@@ -94,7 +93,7 @@ namespace SharpMIDI
                         else if (readEvent == 0x2F)
                         {
                             totalNotes = notecount;
-                            this.ptr = localPtr;
+                            ptr = localPtr;
                             return;
                         }
                         else 
@@ -104,7 +103,8 @@ namespace SharpMIDI
                             {
                                 byte curByte = *localPtr++;
                                 len = (len << 7) | (curByte & 0x7F);
-                                if ((curByte & 0x80) == 0) break;
+                                if ((curByte & 0x80) == 0) 
+                                    break;
                             }
                             localPtr += len;
                         }
@@ -186,20 +186,21 @@ namespace SharpMIDI
                     }
                 }
             }
-            this.ptr = localPtr;
+            ptr = localPtr;
         }
 
         public void ScanEvents(ref BigArray<TickGroup> tickCounts)
         {
             tickCounts = new BigArray<TickGroup>(2048);
-            byte* localPtr = this.ptr;
+            byte* localPtr = ptr;
+            byte* localEndPtr = endPtr;
             int absolutetime = 0;
             int lastTick = 0;
             byte prevEvent = 0;
             uint count = 0;
             uint notecount = 0;
 
-            while (localPtr < endPtr)
+            while (localPtr < localEndPtr)
             {
                 int delta = 0;
                 // also inline varlen decode
@@ -270,7 +271,7 @@ namespace SharpMIDI
                                 tickCounts.Add(new TickGroup { tick = lastTick, notecount = notecount, offset = count });
                                 eventCount += count;
                             }
-                            this.ptr = localPtr;
+                            ptr = localPtr;
                             return;
                         }
                         else 
@@ -318,7 +319,7 @@ namespace SharpMIDI
                     count++;
                 }
             }
-            this.ptr = localPtr;
+            ptr = localPtr;
         }
 
         public void Dispose()

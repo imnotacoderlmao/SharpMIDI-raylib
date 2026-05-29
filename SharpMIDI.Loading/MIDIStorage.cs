@@ -1,3 +1,4 @@
+#pragma warning disable 8500
 using System.Runtime.InteropServices;
 namespace SharpMIDI
 {
@@ -65,7 +66,7 @@ namespace SharpMIDI
         {
             Length = length;
             long bytes = Length * sizeof(T);
-            ptr = (T*)NativeMemory.Alloc((nuint)bytes);
+            ptr = (T*)NativeMemory.AllocZeroed((nuint)bytes);
         }
 
         public void Add(T item)
