@@ -77,7 +77,7 @@ namespace SharpMIDI
                 }
                 while (currtg->tick <= clock)
                 {
-                    // accessing a global shouldnt be slow as hell mane js why
+                    // accessing a field shouldnt be slow as hell mane js why
                     curr_tick = currtg->tick;
                     if (!skipping)
                     {

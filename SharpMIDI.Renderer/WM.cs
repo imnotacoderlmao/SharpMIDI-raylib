@@ -69,7 +69,7 @@ namespace SharpMIDI
             }
             MIDILoader.UnloadMIDI();
             rlImGui.Shutdown();
-            
+            GLNoteRenderer.Dispose();
             Raylib.CloseWindow();
             IsRunning = false;
         }
@@ -190,7 +190,7 @@ namespace SharpMIDI
             if (Debug)
             {
                 GetMemoryUsage();
-                Raylib.DrawText($"Active notes: {GLNoteRenderer.NotesDrawnLastFrame} / {GLNoteRenderer._ringCap} | Memory: {Starter.toMemoryText(GetMemoryUsage())}", 13, 23, 16, Raylib_cs.Color.SkyBlue);
+                Raylib.DrawText($"Active notes: {GLNoteRenderer.NotesDrawnLastFrame} / {GLNoteRenderer.RingCap} | Memory: {Starter.toMemoryText(GetMemoryUsage())}", 13, 23, 16, Raylib_cs.Color.SkyBlue);
                 Raylib.DrawText($"{MIDILoader.loadstatus} | MIDI thread: @{MIDIPlayer.MIDIFps} fps", 12, currentHeight - 19, 16, Raylib_cs.Color.SkyBlue);
             }
             else 
@@ -209,7 +209,7 @@ namespace SharpMIDI
                 {
                     if (!dynascroll)
                     {
-                        ImGui.SliderInt("Renderer zoom", ref GLNoteRenderer.WindowTicks, 0, 100000);
+                        ImGui.SliderInt("Renderer zoom", ref GLNoteRenderer.WindowTicks, 1, 100000);
                         if (ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled))
                         {
                             ImGui.SetTooltip("how many ticks of the midi are visible in the window");

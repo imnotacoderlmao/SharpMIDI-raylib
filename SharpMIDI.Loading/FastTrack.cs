@@ -15,20 +15,27 @@ namespace SharpMIDI
             int absolutetime = 0;
             long notecount = 0;
             byte prevEvent = 0;
+            var localTempos = new List<Tempo>();
+            var localSysEx  = new List<SysEx>();
             bool trackcolors = trackPtr != null;
 
             while (localPtr < localEndPtr)
             {
                 // inline varlen decode
-                int delta = 0;
-                while (true)
+                byte b = *localPtr++;
+                if ((b & 0x80) == 0)
+                    absolutetime += b;
+                else
                 {
-                    byte curByte = *localPtr++;
-                    delta = (delta << 7) | (curByte & 0x7F);
-                    if ((curByte & 0x80) == 0) 
-                        break;
+                    int delta = b & 0x7F;
+                    do 
+                    { 
+                        b = *localPtr++; 
+                        delta = (delta << 7) | (b & 0x7F); 
+                    } 
+                    while ((b & 0x80) != 0);
+                    absolutetime += delta;
                 }
-                absolutetime += delta;
 
                 byte readEvent = *localPtr++;
                 if (readEvent < 0x80) 
@@ -38,7 +45,6 @@ namespace SharpMIDI
                 }
                 
                 byte status = (byte)(readEvent & 0xF0);
-                byte channel = (byte)(readEvent & 0x0F);
                 if (readEvent >= 0x80 && readEvent < 0xF0)
                     prevEvent = readEvent;
 
@@ -56,20 +62,17 @@ namespace SharpMIDI
                         }
                         for(uint i = 0; i < size; i++)
                             data.Add(*localPtr++);
-                        lock(tempMIDIstorage.SysEx)
-                        {
-                            tempMIDIstorage.SysEx.Add(new SysEx { tick = absolutetime, message = [.. data] });
-                        }
-                        break;
+                        localSysEx.Add(new SysEx { tick = absolutetime, message = [.. data] });
+                        continue;
                     case 0xF1: 
                         localPtr += 1; 
-                        break;
+                        continue;
                     case 0xF2: 
                         localPtr += 2; 
-                        break;
+                        continue;
                     case 0xF3: 
                         localPtr += 1; 
-                        break;
+                        continue;
                     case 0xFF:
                         readEvent = *localPtr++;
                         if (readEvent == 0x51)
@@ -85,15 +88,16 @@ namespace SharpMIDI
                             int tempo = 0;
                             for (int i = 0; i < len; i++) 
                                 tempo = (tempo << 8) | *localPtr++;
-                            lock(tempMIDIstorage.temppos)
-                            {
-                                tempMIDIstorage.temppos.Add(new Tempo { tick = absolutetime, tempo = (uint24)tempo });
-                            }
+                            localTempos.Add(new Tempo { tick = absolutetime, tempo = (uint24)tempo });
                         }
                         else if (readEvent == 0x2F)
                         {
                             totalNotes = notecount;
                             ptr = localPtr;
+                            lock(tempMIDIstorage.temppos) 
+                                tempMIDIstorage.temppos.AddRange(localTempos);
+                            lock(tempMIDIstorage.SysEx)   
+                                tempMIDIstorage.SysEx.AddRange(localSysEx);
                             return;
                         }
                         else 
@@ -108,7 +112,7 @@ namespace SharpMIDI
                             }
                             localPtr += len;
                         }
-                        break;
+                        continue;
                 }
 
                 switch (status)
@@ -135,6 +139,7 @@ namespace SharpMIDI
                         }
                         else 
                         { 
+                            byte channel = (byte)(readEvent & 0x0F);
                             byte dummynoteoff = (byte)(0x80 | channel);  
                             msgPtr[pos] = (uint24)(dummynoteoff | (note << 8) | (64 << 16));
                             if(trackcolors) trackPtr[pos] = track;
@@ -202,16 +207,21 @@ namespace SharpMIDI
 
             while (localPtr < localEndPtr)
             {
-                int delta = 0;
                 // also inline varlen decode
-                while (true)
+                byte b = *localPtr++;
+                if ((b & 0x80) == 0)
+                    absolutetime += b;
+                else
                 {
-                    byte curByte = *localPtr++;
-                    delta = (delta << 7) | (curByte & 0x7F);
-                    if ((curByte & 0x80) == 0) 
-                        break;
+                    int delta = b & 0x7F;
+                    do 
+                    { 
+                        b = *localPtr++; 
+                        delta = (delta << 7) | (b & 0x7F); 
+                    } 
+                    while ((b & 0x80) != 0);
+                    absolutetime += delta;
                 }
-                absolutetime += delta;
 
                 byte readEvent = *localPtr++;
                 if (readEvent < 0x80)
@@ -271,6 +281,7 @@ namespace SharpMIDI
                             {
                                 tickCounts.Add(new TickGroup { tick = lastTick, notecount = notecount, offset = count });
                                 eventCount += count;
+                                totalNotes += notecount;
                             }
                             ptr = localPtr;
                             return;
@@ -281,6 +292,16 @@ namespace SharpMIDI
                         }
                         continue;
                 }
+
+                if (lastTick != absolutetime && count > 0)
+                {
+                    tickCounts.Add(new TickGroup { tick = lastTick, notecount = notecount, offset = count });
+                    eventCount += count;
+                    totalNotes += notecount;
+                    notecount = 0;
+                    count = 0;
+                }
+                lastTick = absolutetime;
 
                 switch (status)
                 {
@@ -303,17 +324,9 @@ namespace SharpMIDI
                         count++;
                         break;
                 }
-
-                if (delta > 0 && count > 0)
-                {
-                    tickCounts.Add(new TickGroup { tick = lastTick, notecount = notecount, offset = count });
-                    eventCount += count;
-                    totalNotes += notecount;
-                    notecount = 0;
-                    count = 0;
-                }
-                lastTick = absolutetime;
             }
+
+            MIDILoader.Crash("do you not have an end of track byte? this message isnt supposed to appear otherwise");
             ptr = localPtr;
         }
 

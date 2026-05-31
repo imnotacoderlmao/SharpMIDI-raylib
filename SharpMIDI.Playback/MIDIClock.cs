@@ -20,7 +20,7 @@ namespace SharpMIDI
         public static double ppq = 480;
         public static double tickscale;
         static double lastnow;
-        public const double stall_thresh = 1.0d/60.0d;
+        const double stall_thresh = 1.0d/60.0d;
         public static bool skipevents = true;
         public static bool throttle = !skipevents;
         public static bool paused;
