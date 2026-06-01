@@ -21,8 +21,7 @@ namespace SharpMIDI
         private struct KeyHeader
         {
             public fixed int NoteIdx[4]; 
-            public byte Head;
-            public byte Count;
+            public byte HeadNCount;
         }
 
         // since were using Rg32ui format for the texture, each texel = uvec2(StartTick_bits, PackedData), which is conviniently 1 gpunote
@@ -353,11 +352,14 @@ namespace SharpMIDI
 
                     if ((status & 0x10) == 0) // NoteOff bit 4 distinguishes from NoteOn
                     {
-                        if (header->Count > 0)
+                        int count = header->HeadNCount & 0xF;
+                        if (count > 0)
                         {
-                            int noteIdx = header->NoteIdx[header->Head];
-                            header->Head = (byte)((header->Head + 1) & 3);
-                            header->Count--;
+                            int head = header->HeadNCount >> 4;
+                            int noteIdx = header->NoteIdx[head];
+                            head = (byte)((head + 1) & 3);
+                            count--;
+                            header->HeadNCount = (byte)((head << 4) | count);
 
                             if (noteIdx >= _head - _ringCap)
                             {
@@ -372,7 +374,8 @@ namespace SharpMIDI
                     }
                     else
                     {
-                        if (header->Count >= 4) 
+                        int count = header->HeadNCount & 0xF;
+                        if (count >= 4) 
                             continue;
                         if (_head - _tail >= _ringCap)
                         {
@@ -380,8 +383,8 @@ namespace SharpMIDI
                             cpunotesLocal = _cpuNotes;
                             ring = _ring;
                         }
-
-                        int ringTail = (header->Head + header->Count) & 3;
+                        int head = header->HeadNCount >> 4;
+                        int ringTail = (head + count) & 3;
                         int absId = _head++;
                         int physIdx = absId & _mask;
                         uint colorIdx = (useTrack ? (uint)(tracks[idx] + channel) : channel) & 0xFFu;
@@ -390,7 +393,7 @@ namespace SharpMIDI
                         cpunotesLocal[physIdx].PackedData = 0xFFFFu | ((uint)note << 16) | (colorIdx << 24);
 
                         header->NoteIdx[ringTail] = absId;
-                        header->Count++;
+                        header->HeadNCount++; // head | count, so increment applies to count lmao
 
                         if (absId < _appendMin) 
                             _appendMin = absId;
@@ -435,22 +438,22 @@ namespace SharpMIDI
         private static void AdvanceTail(int viewStart)
         {
             int safeTail = _head - _ringCap;
-            int forcecullthresh =  Math.Clamp(_lookaheadTicks * 2, 8000, ushort.MaxValue);
             if (_tail < safeTail) _tail = safeTail;
 
+            int forcecullthresh = Math.Clamp(_lookaheadTicks * 2, 8000, ushort.MaxValue);
+            bool forceCull = NotesDrawnLastFrame > 262144;
+            int forceCullBefore = viewStart - forcecullthresh;
             while (_tail < _head)
             {
                 int physIdx = _tail & _mask;
                 uint duration = _cpuNotes[physIdx].PackedData & 0xFFFFu;
                 int endTick = _cpuNotes[physIdx].StartTick + (int)duration;
-                
                 // the start tick condition is very ghetto to be fair. but long notes ideally should be covered by shorter ones from the depth test regardless
                 // if youre having hella notes rendered that is
-                if (endTick < viewStart || NotesDrawnLastFrame > 262144 &&  _cpuNotes[physIdx].StartTick < (viewStart - forcecullthresh))
+                if (endTick < viewStart || (forceCull && _cpuNotes[physIdx].StartTick < forceCullBefore))
                     _tail++;
                 else
                     break;
-                    
             }
         }
 
