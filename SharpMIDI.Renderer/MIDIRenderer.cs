@@ -20,24 +20,21 @@ namespace SharpMIDI
         [StructLayout(LayoutKind.Sequential, Pack = 1)]
         private struct KeyHeader
         {
-            public fixed int NoteIdx[4]; 
-            public byte HeadNCount;
+            public fixed int NoteIdx[4];
+            public byte Count;
         }
 
-        // since were using Rg32ui format for the texture, each texel = uvec2(StartTick_bits, PackedData), which is conviniently 1 gpunote
-        // still wondering if the string could be represented better though....
         private const string LineVertSrc =
             "#version 330 core\n"
           + "uniform vec4 uMetrics;\n"
           + "uniform int uViewStart;\n"
           + "uniform int uViewEnd;\n"
-          + "uniform int uTboStart;\n" // = _tail & _mask
-          + "uniform int uTboMask;\n" // = _mask
+          + "uniform int uTboStart;\n"
+          + "uniform int uTboMask;\n"
           + "uniform usamplerBuffer uNotesTbo;\n"
           + "uniform sampler2D uPalette;\n"
           + "flat out vec4 vColor;\n"
           + "void main() {\n"
-                 // resolve ring offset, tbomask handles wrap
           + "    int physIdx = (gl_InstanceID + uTboStart) & uTboMask;\n"
           + "    uvec2 nd = texelFetch(uNotesTbo, physIdx).rg;\n"
           + "    int aStartTick = int(nd.r);\n"
@@ -50,7 +47,6 @@ namespace SharpMIDI
           + "    float endX = startX + max(dur * uMetrics.x, uMetrics.y);\n"
           + "    float x = mix(startX, endX, float(isEnd));\n"
           + "    float y = uMetrics.z + float(((aPackedData >> 16) & 0xFFu) + isTop) * uMetrics.w;\n"
-                 // max z = 65534/65535 < 1.0 so GL_LESS never fails at the clear-depth boundary
           + "    float z = min(float(rawDur), 65534.0) / 65535.0;\n"
           + "    vColor = texelFetch(uPalette, ivec2(int(aPackedData >> 24), 0), 0);\n"
           + "    gl_Position = vec4(x, y, z, 1.0);\n"
@@ -61,28 +57,22 @@ namespace SharpMIDI
           + "flat in vec4 vColor;\n"
           + "out vec4 fragColor;\n"
           + "void main() {\n"
-          + "fragColor = vColor;\n" 
+          + "   fragColor = vColor;\n" 
           + "}\n";
 
         private static int _lineShader;
         private static int _uMetrics, _uViewStart, _uViewEnd;
         private static int _uNotesTbo, _uTboStart, _uTboMask, _uPalette;
-        private static int _vao;
-        private static int _tboBuffer;
-        private static int _tboTex;
-        private static int _paletteTex;
+        private static int _vao, _tboBuffer, _tboTex, _paletteTex;
 
-        // ring is a persistently mapped pointer into tboBuffer
+        // no more cpu side array. memory usage cut in half (yay)
         private static GpuNote* _ring;
-        private static GpuNote* _cpuNotes;
 
         private static int _ringCap = 1 << 23;
         private static int _deferred_ringCap = -1;
         private static int _mask;
         private static int _head;
         private static int _tail;
-        private static int _appendMin = int.MaxValue;
-        private static int _appendMax = -1;
 
         private static KeyHeader* _keyHeaders;
         private const int TOTAL_KEYS = 128 * 16;
@@ -124,8 +114,7 @@ namespace SharpMIDI
             _paletteTex = GL.GenTexture();
 
             _keyHeaders = (KeyHeader*)NativeMemory.AlignedAlloc(TOTAL_KEYS * (nuint)sizeof(KeyHeader), 64);
-            _cpuNotes = (GpuNote*)NativeMemory.AlignedAlloc((nuint)(_ringCap * sizeof(GpuNote)), 64);
-
+                        
             AllocTbo(_ringCap);
             _isInitialized = true;
         }
@@ -145,11 +134,13 @@ namespace SharpMIDI
             _tboBuffer = GL.GenBuffer();
 
             GL.BindBuffer(BufferTarget.TextureBuffer, _tboBuffer);
+            
+            // MapReadBit added so cpu can actually read stuff from it
             GL.BufferStorage(BufferTarget.TextureBuffer, (nint)(cap * sizeof(GpuNote)), IntPtr.Zero,
-                BufferStorageFlags.MapWriteBit | BufferStorageFlags.MapPersistentBit | BufferStorageFlags.MapCoherentBit);
+                BufferStorageFlags.MapWriteBit | BufferStorageFlags.MapReadBit | BufferStorageFlags.MapPersistentBit | BufferStorageFlags.MapCoherentBit);
 
             _ring = (GpuNote*)GL.MapBufferRange(BufferTarget.TextureBuffer, IntPtr.Zero, (nint)(cap * sizeof(GpuNote)),
-                MapBufferAccessMask.MapWriteBit | MapBufferAccessMask.MapPersistentBit | MapBufferAccessMask.MapCoherentBit);
+                MapBufferAccessMask.MapWriteBit | MapBufferAccessMask.MapReadBit | MapBufferAccessMask.MapPersistentBit | MapBufferAccessMask.MapCoherentBit);
 
             GL.BindTexture(TextureTarget.TextureBuffer, _tboTex);
             GL.TexBuffer(TextureBufferTarget.TextureBuffer, SizedInternalFormat.Rg32ui, _tboBuffer);
@@ -165,8 +156,6 @@ namespace SharpMIDI
             NativeMemory.Clear(_keyHeaders, TOTAL_KEYS * (nuint)sizeof(KeyHeader));
             _head = 0;
             _tail = 0;
-            _appendMin = int.MaxValue;
-            _appendMax = -1;
             _lastSweepEnd = -1;
             _lastWindowTicks = -1;
             _paletteUploadPending = true;
@@ -178,8 +167,6 @@ namespace SharpMIDI
             _isInitialized = false;
             _head = 0;
             _tail = 0;
-            _appendMin = int.MaxValue;
-            _appendMax = -1;
             _lastSweepEnd = -1;
             _lastWindowTicks = -1;
             if (_ringCap != 1 << 23) 
@@ -190,7 +177,6 @@ namespace SharpMIDI
         {
             _isInitialized = false;
             if (_keyHeaders != null) { NativeMemory.AlignedFree(_keyHeaders); _keyHeaders = null; }
-            if (_cpuNotes != null) { NativeMemory.AlignedFree(_cpuNotes); _cpuNotes = null; }
 
             if (_tboBuffer != 0)
             {
@@ -255,8 +241,6 @@ namespace SharpMIDI
             {
                 _head = 0;
                 _tail = 0;
-                _appendMin = int.MaxValue;
-                _appendMax = -1;
                 NativeMemory.Clear(_keyHeaders, TOTAL_KEYS * (nuint)sizeof(KeyHeader));
                 SweepRange(Math.Max(0, viewStart - WindowTicks), sweepEnd);
             }
@@ -267,7 +251,6 @@ namespace SharpMIDI
 
             _lastSweepEnd = sweepEnd;
             AdvanceTail(viewStart);
-            SyncAppendedBlocksToGpu();
 
             Raylib_cs.Rlgl.DrawRenderBatchActive();
 
@@ -317,8 +300,7 @@ namespace SharpMIDI
         [MethodImpl(MethodImplOptions.AggressiveOptimization)]
         private static void SweepRange(int fromTick, int toTick)
         {
-            GpuNote* cpunotesLocal = _cpuNotes;
-            GpuNote* ring = _ring;
+            GpuNote* ringLocal = _ring;
             KeyHeader* keyheader = _keyHeaders;
 
             BigArray<TickGroup> groups = MIDIEvent.TickGroupArray;
@@ -328,8 +310,11 @@ namespace SharpMIDI
 
             int limit = Math.Min(toTick, (int)groups.Length - 2);
             TickGroup* tickgroups = groups.Pointer;
-            
-            // currentoffset used for skipping ticks with no notes
+            int headLocal = _head;
+            int maskLocal = _mask;
+            int tailLocal = _tail;
+            int cap = _ringCap;
+
             long currentOffset = tickgroups[fromTick].offset;
             for (int tick = fromTick; tick <= limit; tick++)
             {
@@ -338,100 +323,87 @@ namespace SharpMIDI
                     continue;
 
                 byte* ev = messages + currentOffset * 3;
+                long idx = currentOffset;
                 byte* evEnd = messages + nextOffset * 3;
 
-                for (long idx = currentOffset; ev < evEnd; ev += 3, idx++)
+                // for loop that was done looked too scary so i just went with another way to do a loop
+                while (ev < evEnd)
                 {
                     byte status = ev[0];
-                    if ((status & 0xE0) != 0x80) 
+                    if ((status & 0xE0) != 0x80)
+                    {
+                        ev += 3;
+                        idx++;
                         continue;
+                    }
 
                     byte channel = (byte)(status & 0x0F);
                     byte note = ev[1];
+
                     KeyHeader* header = keyheader + ((channel << 7) | note);
 
-                    if ((status & 0x10) == 0) // NoteOff bit 4 distinguishes from NoteOn
+                    if ((status & 0x10) == 0) // NoteOff
                     {
-                        int count = header->HeadNCount & 0xF;
+                        byte count = header->Count;
                         if (count > 0)
                         {
-                            int head = header->HeadNCount >> 4;
-                            int noteIdx = header->NoteIdx[head];
-                            head = (byte)((head + 1) & 3);
-                            count--;
-                            header->HeadNCount = (byte)((head << 4) | count);
+                            int noteIdx = header->NoteIdx[0];
+                            // wonder if shifting could be done better
+                            header->NoteIdx[0] = header->NoteIdx[1];
+                            header->NoteIdx[1] = header->NoteIdx[2];
+                            header->NoteIdx[2] = header->NoteIdx[3];
+                            header->Count = (byte)(count - 1);
 
-                            if (noteIdx >= _head - _ringCap)
+                            if (noteIdx >= headLocal - cap)
                             {
-                                int physIdx = noteIdx & _mask;
-                                int duration = Math.Min(tick - cpunotesLocal[physIdx].StartTick, 65534);
-                                uint newPacked = (cpunotesLocal[physIdx].PackedData & 0xFFFF0000u) | (uint)duration;
-                                cpunotesLocal[physIdx].PackedData = newPacked;
-                                if (ring != null)
-                                    ring[physIdx].PackedData = newPacked;
+                                int physIdx = noteIdx & maskLocal;
+
+                                // for the sake of not reading write combined memory several times that probably caused stutters or something
+                                GpuNote noteData = ringLocal[physIdx]; 
+                                int duration = tick - noteData.StartTick;
+                                noteData.PackedData = (noteData.PackedData & 0xFFFF0000u) | (uint)duration;
+
+                                ringLocal[physIdx] = noteData; 
                             }
                         }
                     }
                     else
                     {
-                        int count = header->HeadNCount & 0xF;
-                        if (count >= 4) 
-                            continue;
-                        if (_head - _tail >= _ringCap)
+                        int count = header->Count;
+                        if (count < 4) 
                         {
-                            ResizeRing(_ringCap * 2);
-                            cpunotesLocal = _cpuNotes;
-                            ring = _ring;
+                            if (headLocal - tailLocal >= cap)
+                            {
+                                // flush first to prevent striping
+                                _tail = tailLocal;
+                                _head = headLocal;
+                                ResizeRing(cap * 2);
+                                cap = _ringCap;
+                                maskLocal = _mask;
+                                ringLocal = _ring;
+                            }
+
+                            int absId = headLocal++;
+                            int physIdx = absId & maskLocal;
+                            uint colorIdx = (useTrack ? (uint)(tracks[idx] + channel) : channel) & 0xFFu;
+
+                            ringLocal[physIdx] = new GpuNote
+                            {
+                                StartTick = tick,
+                                PackedData = 0xFFFFu | ((uint)note << 16) | (colorIdx << 24)
+                            };
+
+                            header->NoteIdx[count] = absId;
+                            header->Count = (byte)(count + 1);
                         }
-                        int head = header->HeadNCount >> 4;
-                        int ringTail = (head + count) & 3;
-                        int absId = _head++;
-                        int physIdx = absId & _mask;
-                        uint colorIdx = (useTrack ? (uint)(tracks[idx] + channel) : channel) & 0xFFu;
-
-                        cpunotesLocal[physIdx].StartTick  = tick;
-                        cpunotesLocal[physIdx].PackedData = 0xFFFFu | ((uint)note << 16) | (colorIdx << 24);
-
-                        header->NoteIdx[ringTail] = absId;
-                        header->HeadNCount++; // head | count, so increment applies to count lmao
-
-                        if (absId < _appendMin) 
-                            _appendMin = absId;
-                        if (absId > _appendMax) 
-                            _appendMax = absId;
                     }
+                    ev += 3;
+                    idx++;
                 }
                 currentOffset = nextOffset;
             }
-        }
-
-        // copies only newly appended noteons from the cpu side array to the tbo, well to prevent sending each note to the gpu
-        // noteoff updates skip this mostly due to notes being very funky if it dosent
-        [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-        private static void SyncAppendedBlocksToGpu()
-        {
-            if (_appendMin > _appendMax) return;
-
-            int startAbs = _appendMin;
-            int endAbs = _appendMax;
-            if (endAbs - startAbs >= _ringCap) 
-                startAbs = endAbs - _ringCap + 1;
-
-            int startIdx = startAbs & _mask;
-            int endIdx = endAbs & _mask;
-
-            if (startIdx <= endIdx)
-            {
-                Unsafe.CopyBlockUnaligned(_ring + startIdx, _cpuNotes + startIdx, (uint)((endIdx - startIdx + 1) * sizeof(GpuNote)));
-            }
-            else
-            {
-                Unsafe.CopyBlockUnaligned(_ring + startIdx, _cpuNotes + startIdx, (uint)((_ringCap - startIdx) * sizeof(GpuNote)));
-                Unsafe.CopyBlockUnaligned(_ring, _cpuNotes, (uint)((endIdx + 1) * sizeof(GpuNote)));
-            }
-
-            _appendMin = int.MaxValue;
-            _appendMax = -1;
+            _tail = tailLocal;
+            _head = headLocal;
         }
 
         [MethodImpl(MethodImplOptions.AggressiveOptimization)]
@@ -443,36 +415,62 @@ namespace SharpMIDI
             int forcecullthresh = Math.Clamp(_lookaheadTicks * 2, 8000, ushort.MaxValue);
             bool forceCull = NotesDrawnLastFrame > 262144;
             int forceCullBefore = viewStart - forcecullthresh;
-            while (_tail < _head)
+            
+            GpuNote* ringLocal = _ring;
+            int maskLocal = _mask;
+            int headLocal = _head;
+            int tailLocal = _tail;
+
+            while (tailLocal < headLocal)
             {
-                int physIdx = _tail & _mask;
-                uint duration = _cpuNotes[physIdx].PackedData & 0xFFFFu;
-                int endTick = _cpuNotes[physIdx].StartTick + (int)duration;
-                // the start tick condition is very ghetto to be fair. but long notes ideally should be covered by shorter ones from the depth test regardless
-                // if youre having hella notes rendered that is
-                if (endTick < viewStart || (forceCull && _cpuNotes[physIdx].StartTick < forceCullBefore))
-                    _tail++;
+                int physIdx = tailLocal & maskLocal;
+                GpuNote note = ringLocal[physIdx];
+
+                uint duration = note.PackedData & 0xFFFFu;
+                int endTick = note.StartTick + (int)duration;
+                
+                if (endTick < viewStart || (forceCull && note.StartTick < forceCullBefore))
+                    tailLocal++;
                 else
                     break;
             }
+            _tail = tailLocal;
         }
 
         [MethodImpl(MethodImplOptions.NoInlining)]
         private static void ResizeRing(int newCap)
         {
+            if (newCap > int.MaxValue || newCap < 0) 
+                return;
             int newMask = newCap - 1;
-            GpuNote* newCpu = (GpuNote*)NativeMemory.AlignedAlloc((nuint)(newCap * sizeof(GpuNote)), 64);
+            
+            int newBuffer = GL.GenBuffer();
+            GL.BindBuffer(BufferTarget.TextureBuffer, newBuffer);
+            GL.BufferStorage(BufferTarget.TextureBuffer, (nint)(newCap * sizeof(GpuNote)), IntPtr.Zero,
+                BufferStorageFlags.MapWriteBit | BufferStorageFlags.MapReadBit | BufferStorageFlags.MapPersistentBit | BufferStorageFlags.MapCoherentBit);
+
+            GpuNote* newRing = (GpuNote*)GL.MapBufferRange(BufferTarget.TextureBuffer, IntPtr.Zero, (nint)(newCap * sizeof(GpuNote)),
+                MapBufferAccessMask.MapWriteBit | MapBufferAccessMask.MapReadBit | MapBufferAccessMask.MapPersistentBit | MapBufferAccessMask.MapCoherentBit);
 
             for (int absId = _tail; absId < _head; absId++)
-                newCpu[absId & newMask] = _cpuNotes[absId & _mask];
+                newRing[absId & newMask] = _ring[absId & _mask];
 
-            NativeMemory.AlignedFree(_cpuNotes);
-            _cpuNotes = newCpu;
+            if (_ring != null)
+            {
+                GL.BindBuffer(BufferTarget.TextureBuffer, _tboBuffer);
+                GL.UnmapBuffer(BufferTarget.TextureBuffer);
+            }
+            GL.DeleteBuffer(_tboBuffer);
 
-            // alloctbo remaps ring to the new tbo. mark everything for reupload after
-            AllocTbo(newCap);
-            _appendMin = _tail;
-            _appendMax = _head - 1;
+            _tboBuffer = newBuffer;
+            _ring = newRing;
+            _mask = newMask;
+            _ringCap = newCap;
+
+            GL.BindTexture(TextureTarget.TextureBuffer, _tboTex);
+            GL.TexBuffer(TextureBufferTarget.TextureBuffer, SizedInternalFormat.Rg32ui, _tboBuffer);
+            GL.BindTexture(TextureTarget.TextureBuffer, 0);
+            GL.BindBuffer(BufferTarget.TextureBuffer, 0);
         }
 
         private static int BuildShader(string vert, string frag)
