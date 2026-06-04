@@ -347,11 +347,9 @@ namespace SharpMIDI
                         byte count = header->Count;
                         if (count > 0)
                         {
+                            // shifting could infact be done better
                             int noteIdx = header->NoteIdx[0];
-                            // wonder if shifting could be done better
-                            header->NoteIdx[0] = header->NoteIdx[1];
-                            header->NoteIdx[1] = header->NoteIdx[2];
-                            header->NoteIdx[2] = header->NoteIdx[3];
+                            Unsafe.CopyBlockUnaligned(&header->NoteIdx[0], &header->NoteIdx[1], (uint)((count - 1) * 4));
                             header->Count = (byte)(count - 1);
 
                             if (noteIdx >= headLocal - cap)

@@ -6,9 +6,9 @@ namespace SharpMIDI
     {
         public static byte[] gmreset = [0xF0, 0x7E, 0x7F, 0x09, 0x01, 0xF7];
         public static byte[] rolandreset = [0xF0, 0x41, 0x10, 0x42, 0x12, 0x40, 0x00, 0x7F, 0x00, 0x41, 0xF7];
-        public static long totalFrames = 0, playedNotes, playedNotes2, notespersec = 0;
+        public static long totalFrames = 0, playedNotes, playedNotes2;
         public static int curr_tick = 0;
-        public static long MIDIFps = 0;
+        public static double MIDIFps = 0, notespersec = 0;
         public static bool stopping = true;
         public static bool skipping = false;
         public static bool potato_mode = false;
@@ -68,12 +68,10 @@ namespace SharpMIDI
                         msgcur = msgptr + currtg->offset;
                         playedNotes -= currtg->notecount;
                     }
-                    if(tevs.Length > 1) 
-                        while (tevs[tempoidx].tick > clock && tempoidx > 0) 
-                            tempoidx--;
-                    if(sysExes.Length > 1)
-                        while (sysExes[sysexidx].tick > clock && sysexidx > 0) 
-                            sysexidx--;
+                    while (tevs[tempoidx].tick > clock && tempoidx > 0) 
+                        tempoidx--;
+                    while (sysExes[sysexidx].tick > clock && sysexidx > 0) 
+                        sysexidx--;
                 }
                 while (currtg->tick <= clock)
                 {
@@ -161,8 +159,8 @@ namespace SharpMIDI
                 if (curr_tick >= MIDILoader.maxTick) stopping = true;
                 if (delta > updateperiod)
                 {
-                    MIDIFps = (long)(totalFrames / delta);
-                    notespersec = (long)((playedNotes - playedNotes2) / delta);
+                    MIDIFps = totalFrames / delta;
+                    notespersec = (playedNotes - playedNotes2) / delta;
                     playedNotes2 = playedNotes;
                     totalFrames = 0;
                     last = Timer.Seconds();
