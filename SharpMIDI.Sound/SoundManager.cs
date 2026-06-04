@@ -83,8 +83,10 @@ namespace SharpMIDI
             }
         }
 
-        static void AllocateEvBuffer() => ringbuffer = (uint24*)NativeMemory.AllocZeroed((nuint)(bufferSize * sizeof(uint24)));
-        
+        static void AllocateEvBuffer() 
+        {
+            ringbuffer = (uint24*)NativeMemory.AllocZeroed((nuint)(bufferSize * sizeof(uint24)));
+        }
         public static void StartAudioThread()
         {
             if (running) return;

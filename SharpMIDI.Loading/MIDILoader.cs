@@ -1,7 +1,7 @@
 #pragma warning disable 8602
-using MIDIModificationFramework;
-using SharpMIDI.Renderer;
 using System.Diagnostics;
+using System.IO.MemoryMappedFiles;
+
 namespace SharpMIDI
 {
     static class MIDILoader
@@ -13,18 +13,16 @@ namespace SharpMIDI
         }
 
         private static readonly List<TrackProperties> trackProperties = new List<TrackProperties>();
-        static Stream midistream;
+        private static unsafe byte* filePtr = null;
+        private static long fileLength = 0;
+        private static long filePos = 0; 
+
         public static long totalNotes = 0;
         public static long eventCount = 0;
         public static int maxTick = 0;
         public static int trackAmount = 0;
         public static int loadedtracks = 0;
-        public static int parse_buffer_size = 4; // 4mb after being multiplied where the parser itself gets called
-        static uint headersize = 0; 
-        static uint fmt = 0;
-        static uint ppq = 0;
-        static bool success;
-        public static bool midiLoaded = false;
+        public static volatile bool midiLoaded = false;
         public static string? filename;
         public static string loadstatus = "No MIDI Loaded";
 
@@ -36,124 +34,134 @@ namespace SharpMIDI
                 loadstatus = error;
                 Console.WriteLine(error);
                 await Task.Delay(1000);
-                if(loadstatus == error) loadstatus = prevstatus;
+                if (loadstatus == error) 
+                    loadstatus = prevstatus;
                 throw new Exception();
             });
         }
 
-        public static void LoadMIDI(string path)
+        public static unsafe void LoadMIDI(string path)
         {
             UnloadMIDI();
             filename = Path.GetFileName(path);
             loadstatus = $"Loading MIDI file: {filename}";
+            Console.WriteLine(loadstatus);
             if (!path.EndsWith(".mid"))
             { 
-                Crash("file dosent end with 'mid'. are you even loading a midi file?");
+                Crash("file doesn't end with 'mid'. are you even loading a midi file?");
                 return;
             }
-            midistream = File.Open(path, FileMode.Open);
-            loadstatus = $"verifying header";
-            VerifyHeader();
-            MIDIClock.ppq = ppq;
-            filename = Path.GetFileName(path);
+            filePos = 0;
+            double parsetime;
+            using (var mmf = MemoryMappedFile.CreateFromFile(path, FileMode.Open, null, 0, MemoryMappedFileAccess.Read))
+            using (var accessor = mmf.CreateViewAccessor(0, 0, MemoryMappedFileAccess.Read))
+            {
+                byte* basePtr = null;
+                accessor.SafeMemoryMappedViewHandle.AcquirePointer(ref basePtr);
+                try
+                {
+                    filePtr = basePtr;
+                    fileLength = accessor.Capacity;
 
-            trackAmount = 0; 
-            loadedtracks = 0;
-            loadstatus = $"Indexing MIDI tracks...";
-            while (midistream.Position < midistream.Length)
-            {
-                if (!IndexTrack()) break;
-                loadstatus = $"Indexing MIDI tracks... {trackAmount} found..";
-            }
-            DiskReadProvider threadStream = new DiskReadProvider(midistream);
-            unsafe
-            {
-                int bufferSize = parse_buffer_size * 1048576; 
-                List<TickGroup> histogram = new();
-                loadstatus = $"scanning events for grouping";
-                // this will very severely overallocate. for now ill just let it since it wont be as big of an allocation as the events itself
-                // plus itll get freed after building the actual tickgroup, it does become a problem at huge track counts though
-                long countednotes = 0;
-                double parsestart = Timer.Seconds();
-                Parallel.For (0, trackAmount, i =>
-                {
-                    FastTrack t = new FastTrack(new BufferByteReader(threadStream, bufferSize, trackProperties[i].start, trackProperties[i].len));
-                    t.ScanEvents(histogram);
-                    Interlocked.Add(ref eventCount, t.eventCount);
-                    Interlocked.Add(ref countednotes, t.totalNotes);
-                    Interlocked.Increment(ref loadedtracks);
-                    Console.Write($"\rscanned track {loadedtracks}/{trackAmount} event count = {t.eventCount}, total = {eventCount}      ");
-                    t.Dispose();
-                });
-                double parseend = Timer.Seconds();
-                double parsetime = parseend - parsestart;
-                histogram.TrimExcess();
-                Console.WriteLine($"\nfinished scanning {trackAmount} tracks with {eventCount} events which {countednotes} were notes in {parsetime} seconds ({countednotes/parsetime} notes/s) now building tick groups for events.");
-                long[] writeCursors = new long[maxTick + 2];
-                TickGroup[] tickgroup = new TickGroup[maxTick + 2];
-                foreach (TickGroup g in histogram)
-                {
-                    tickgroup[g.tick].offset += g.offset;
-                    tickgroup[g.tick].notecount += g.notecount;
-                }
-                histogram = null;
-                long event_offset = 0;
-                for (int t = 0; t <= maxTick; t++)
-                {
-                    writeCursors[t] = event_offset;
-                    long tickEventCount = tickgroup[t].offset;
-                    tickgroup[t] = new TickGroup 
-                    { 
-                        tick = t, 
-                        notecount = tickgroup[t].notecount, 
-                        offset = event_offset
-                    };
-                    event_offset += tickEventCount;
-                }
-                SynthEvent.Alloc(eventCount, WindowManager.trackcolors);
-                uint24* msgPtr = SynthEvent.messages.Pointer;
-                ushort* trackPtr = null;
-                if (WindowManager.trackcolors) trackPtr = SynthEvent.track.Pointer;
-                loadstatus = $"actually parsing events now";
-                Console.WriteLine(loadstatus);
-                loadedtracks = 0;
-                totalNotes = 0;
-                parsestart = Timer.Seconds();
-                Parallel.For(0, trackAmount, i =>
-                {
-                    fixed (long* wc = writeCursors)
+                    loadstatus = $"verifying header";
+                    VerifyHeader();
+                    MIDIClock.ppq = ppq;
+                    trackAmount = 0; 
+                    loadedtracks = 0;
+                    loadstatus = $"Indexing MIDI tracks...";
+
+                    while (filePos < fileLength)
                     {
-                        FastTrack t = new FastTrack(new BufferByteReader(threadStream, bufferSize, trackProperties[i].start, trackProperties[i].len));
-                        t.ParseTrackEvents(msgPtr, trackPtr, wc, (ushort)i);
+                        if (!IndexTrack()) break;
+                        loadstatus = $"Indexing MIDI tracks... {trackAmount} found..";
+                    }
+
+                    BigArray<TickGroup>[]? trackHistogram = new BigArray<TickGroup>[trackAmount];
+                    loadstatus = $"scanning events for grouping";
+                    long countednotes = 0;
+                    double parsestart = Timer.Seconds();
+
+                    Parallel.For(0, trackAmount, i =>
+                    {
+                        byte* trackStartPtr = filePtr + trackProperties[i].start;
+                        FastTrack t = new FastTrack(trackStartPtr, trackProperties[i].len);
+                        t.ScanEvents(ref trackHistogram[i]);
+                        Interlocked.Add(ref eventCount, t.eventCount);
+                        Interlocked.Add(ref countednotes, t.totalNotes);
+                        Interlocked.Increment(ref loadedtracks);
+                        Console.Write($"\rcounted {loadedtracks}/{trackAmount} tracks | total nc: {countednotes:N0}");
+                        t.Dispose();
+                    });
+                    
+                    double parseend = Timer.Seconds();
+                    parsetime = parseend - parsestart;
+                    Console.WriteLine($"\ncounted {countednotes:N0} notes in {parsetime}s ({countednotes/parsetime:N0} notes/sec)");
+                    
+                    BigArray<long> writeCursors = new BigArray<long>(maxTick + 2);
+                    BigArray<TickGroup> tickgroup = new BigArray<TickGroup>(maxTick + 2);
+                    
+                    for (int i = 0; i < trackAmount; i++)
+                    {
+                        BigArray<TickGroup> list = trackHistogram[i];
+                        if (list == null) continue;
+                        for (int j = 0; j < list.Count; j++)
+                        {
+                            TickGroup g = list.Pointer[j];
+                            tickgroup.Pointer[g.tick].offset += g.offset;
+                            tickgroup.Pointer[g.tick].notecount += g.notecount;
+                        }
+                        list.Dispose();
+                    }
+                    trackHistogram = null;
+                    
+                    long event_offset = 0;
+                    for (int t = 0; t <= maxTick; t++)
+                    {
+                        writeCursors.Pointer[t] = event_offset;
+                        long tickEventCount = tickgroup.Pointer[t].offset;
+                        tickgroup.Pointer[t] = new TickGroup 
+                        { 
+                            tick = t, 
+                            notecount = tickgroup.Pointer[t].notecount, 
+                            offset = event_offset
+                        };
+                        event_offset += tickEventCount;
+                    }
+
+                    SynthEvent.Alloc(eventCount, WindowManager.trackcolors);
+                    uint24* msgPtr = SynthEvent.messages.Pointer;
+                    ushort* trackPtr = WindowManager.trackcolors ? SynthEvent.track.Pointer : null;
+                    long* writeCursorsptr = writeCursors.Pointer;
+
+                    loadstatus = $"actually parsing events now";
+                    Console.WriteLine(loadstatus);
+                    loadedtracks = 0;
+                    totalNotes = 0;
+                    parsestart = Timer.Seconds();
+
+                    Parallel.For(0, trackAmount, i =>
+                    {
+                        byte* trackStartPtr = filePtr + trackProperties[i].start;
+                        FastTrack t = new FastTrack(trackStartPtr, trackProperties[i].len);
+                        t.ParseTrackEvents(msgPtr, trackPtr, writeCursorsptr, (ushort)i);
                         Interlocked.Add(ref totalNotes, t.totalNotes);
                         Interlocked.Increment(ref loadedtracks);
-                        loadstatus = $"Loading {filename} ({loadedtracks}/{trackAmount} tracks, {totalNotes} notes loaded)";
-                        Console.Write($"\r{loadstatus}");
+                        Console.Write($"\rparsed {loadedtracks} tracks | ({totalNotes:N0} notes parsed)");
                         t.Dispose();
-                    }
-                });
-                parseend = Timer.Seconds();
-                threadStream.Dispose();
-                midistream.Close();
-                tickgroup[maxTick + 1] = new TickGroup { tick = int.MaxValue, notecount = 0, offset = event_offset };
-                MIDIEvent.TickGroupArray = tickgroup;
-                Console.WriteLine("preprocessing for the renderer");
-                NoteProcessor.ProcessEventsForRendering(
-                MIDIEvent.TickGroupArray,
-                SynthEvent.messages,
-                SynthEvent.track,       // null if trackcolors is off — NoteProcessor handles this
-                eventCount,
-                maxTick);
-                SynthEvent.track.Dispose(); // not used anymore so just free
-                NoteProcessor.FinalizeBuckets(); 
-                Console.WriteLine($"\nLoaded {filename} with {totalNotes} notes loaded from {trackAmount} tracks");
-                parsetime = parseend - parsestart;
-                string memusage = Starter.toMemoryText(Process.GetCurrentProcess().WorkingSet64);
-                string eventmemusage = Starter.toMemoryText(SynthEvent.messages.Length * sizeof(uint24));
-                string trackmemusage = Starter.toMemoryText(SynthEvent.track != null ? SynthEvent.track.Length * sizeof(ushort) : 0);
-                string timingmemusage = Starter.toMemoryText(MIDIEvent.TickGroupArray.Length * sizeof(TickGroup));
-                string renderermemusage = Starter.toMemoryText(NoteProcessor.FlatNotes.Length * sizeof(uint));
-                Console.WriteLine($"parsed {totalNotes} notes in {parsetime}s ({totalNotes/parsetime} notes/sec)\ncurrent memory usage: {memusage} | events: {eventmemusage}\ntrack index: {trackmemusage} | timing: {timingmemusage} | renderer: {renderermemusage}");
+                    });
+
+                    parseend = Timer.Seconds();
+                    tickgroup.Pointer[maxTick + 1] = new TickGroup { tick = int.MaxValue, notecount = 0, offset = event_offset };
+                    MIDIEvent.TickGroupArray = tickgroup;
+                    writeCursors.Dispose();
+                    parsetime = parseend - parsestart;
+                }
+                finally
+                {
+                    accessor.SafeMemoryMappedViewHandle.ReleasePointer();
+                    filePtr = null;
+                    fileLength = 0;
+                }
             }
 
             tempMIDIstorage.temppos.Add(new Tempo { tick = int.MaxValue, tempo = 500000 });
@@ -162,108 +170,112 @@ namespace SharpMIDI
             MIDIEvent.SysExArray = [.. tempMIDIstorage.SysEx];
             Array.Sort(MIDIEvent.TempoEventArray, (a, b) => a.tick.CompareTo(b.tick));
             Array.Sort(MIDIEvent.SysExArray, (a, b) => a.tick.CompareTo(b.tick));
-            tempMIDIstorage.temppos = null;
-            tempMIDIstorage.SysEx = null;
+            tempMIDIstorage.temppos.Clear();
+            tempMIDIstorage.SysEx.Clear();
+            string memusage = 
+@$"memory usage statistics below
+current usage: {Starter.toMemoryText(Process.GetCurrentProcess().WorkingSet64)}
+event array: {Starter.toMemoryText(eventCount * sizeof(uint24))} | track array: {Starter.toMemoryText(WindowManager.trackcolors? (eventCount * sizeof(ushort)) : 0)}
+tempo array: {Starter.toMemoryText(MIDIEvent.TempoEventArray.Length * sizeof(Tempo))} | timing: {Starter.toMemoryText((long)(maxTick + 2) * sizeof(TickGroup))}
+expected: {Starter.toMemoryText((eventCount * sizeof(uint24)) + (WindowManager.trackcolors? (eventCount * sizeof(ushort)) : 0) + ((long)(maxTick + 2) * sizeof(TickGroup)) + (MIDIEvent.TempoEventArray.Length * sizeof(Tempo)))}";
+                    
+            Console.WriteLine($"\nParsed {totalNotes:N0} notes in {parsetime}s ({totalNotes/parsetime:N0} notes/sec)");
+            Console.WriteLine(memusage);
+            
             midiLoaded = true;
             loadstatus = filename;
+            GLNoteRenderer.InitializeForMIDI();
         }
 
         public static void UnloadMIDI()
         {
             if (!midiLoaded) return;
-            loadstatus = $"unloading {filename}";
-            Console.WriteLine(loadstatus);
-            MIDIPlayer.stopping = true;
-            NoteProcessor.Cleanup();
+            Console.WriteLine($"unloading {filename}");
             midiLoaded = false;
+            MIDIPlayer.stopping = true;
+            GLNoteRenderer.ResetForUnload();
             totalNotes = 0;
             eventCount = 0;
             maxTick = 0;
             trackAmount = 0;
             trackProperties.Clear();
-            tempMIDIstorage.SysEx = [];
-            tempMIDIstorage.temppos = [];
             SynthEvent.Dispose();
-            MIDIEvent.TempoEventArray = null;
-            MIDIEvent.SysExArray = null;
-            MIDIEvent.TickGroupArray = null;
+            MIDIEvent.TickGroupArray.Dispose();
+            MIDIEvent.TempoEventArray = [];
+            MIDIEvent.SysExArray = [];
+            Console.WriteLine($"succesfully unloaded {filename}");
             loadstatus = $"No MIDI Loaded";
             GC.Collect();
         }
 
-        static uint VerifyHeader()
+        static uint headersize = 0; 
+        static uint fmt = 0;
+        static uint ppq = 0;
+
+        static void VerifyHeader()
         {
-            success = FindText("MThd");
-            if (success)
+            if (FindText("MThd"))
             {
                 headersize = ReadUInt32();
                 fmt = ReadUInt16();
-                midistream.Seek(midistream.Position + 2, SeekOrigin.Begin);
+                filePos += 2;
                 ppq = ReadUInt16();
-                if (fmt == 2)
+                if (fmt == 2) 
                     Crash("MIDI format 2 unsupported");
-                if (ppq < 0)
+                if (ppq < 0)  
                     Crash("PPQ is negative");
-                if (headersize != 6)
+                if (headersize != 6) 
                     Crash($"Incorrect header size of {headersize}");
-                return headersize;
             }
             else
             {
                 Crash("Header issue");
-                return 0;
             }
         }
 
         static bool IndexTrack()
         {
-            bool success = FindText("MTrk");
-            if (success)
+            if (FindText("MTrk"))
             {
                 uint size = ReadUInt32();
                 trackProperties.Add(new TrackProperties
                 {
-                    start = midistream.Position,
+                    start = filePos,
                     len = size
                 });
-                midistream.Position += size;
+                filePos += size;
                 trackAmount++;
                 return true;
             }
-            else
-            {
-                return false;
-            }
+            return false;
         }
 
-        static uint ReadUInt32()
+        static unsafe uint ReadUInt32()
         {
             uint length = 0;
             for (int i = 0; i != 4; i++)
-                length = (length << 8) | (byte)midistream.ReadByte();
+                length = (length << 8) | filePtr[filePos++];
             return length;
         }
 
-        static ushort ReadUInt16()
+        static unsafe ushort ReadUInt16()
         {
             ushort length = 0;
             for (int i = 0; i != 2; i++)
-                length = (ushort)((length << 8) | (byte)midistream.ReadByte());
+                length = (ushort)((length << 8) | filePtr[filePos++]);
             return length;
         }
 
-        static bool FindText(string text)
+        static unsafe bool FindText(string text)
         {
             for (int i = 0; i < text.Length; i++)
             {
-                int test = midistream.ReadByte();
-                if (test != text[i])
+                if (filePos >= fileLength) 
+                    return false;
+                if (filePtr[filePos++] != text[i])
                 {
-                    if(test == -1){
-                        return false;
-                    } else {
-                        Crash($"Header issue searching for {text}");
-                    }
+                    Crash($"Header issue searching for {text}");
+                    return false;
                 }
             }
             return true;

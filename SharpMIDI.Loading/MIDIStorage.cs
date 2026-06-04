@@ -1,10 +1,11 @@
+#pragma warning disable 8500, 8625
 using System.Runtime.InteropServices;
 namespace SharpMIDI
 {
     public static class SynthEvent
     {
-        public static BigArray<uint24> messages;
-        public static BigArray<ushort> track;
+        public static BigArray<uint24> messages = null;
+        public static BigArray<ushort> track = null;
 
         public static void Alloc(long length, bool trackcolors)
         {
@@ -43,7 +44,7 @@ namespace SharpMIDI
     
     static class MIDIEvent
     {
-        public static TickGroup[] TickGroupArray = Array.Empty<TickGroup>();
+        public static BigArray<TickGroup> TickGroupArray = null;
         public static Tempo[] TempoEventArray = Array.Empty<Tempo>();
         public static SysEx[] SysExArray = Array.Empty<SysEx>();
     }
@@ -57,6 +58,7 @@ namespace SharpMIDI
     public unsafe class BigArray<T> : IDisposable
     {
         public long Length;
+        public long Count;
         private T* ptr;
         public T* Pointer => ptr;
         
@@ -64,9 +66,19 @@ namespace SharpMIDI
         {
             Length = length;
             long bytes = Length * sizeof(T);
-            ptr = (T*)NativeMemory.Alloc((nuint)bytes);
+            ptr = (T*)NativeMemory.AllocZeroed((nuint)bytes);
         }
 
+        public void Add(T item)
+        {
+            if (Count >= Length)
+            {
+                long newLength = Length == 0 ? 2048 : Length * 2;
+                Resize(newLength);
+            }
+            ptr[Count++] = item;
+        }
+        
         public void Resize(long newLength)
         {
             Length = newLength;

@@ -6,9 +6,9 @@ namespace SharpMIDI
     {
         public static byte[] gmreset = [0xF0, 0x7E, 0x7F, 0x09, 0x01, 0xF7];
         public static byte[] rolandreset = [0xF0, 0x41, 0x10, 0x42, 0x12, 0x40, 0x00, 0x7F, 0x00, 0x41, 0xF7];
-        public static long totalFrames = 0, playedNotes, playedNotes2, notespersec = 0;
+        public static long totalFrames = 0, playedNotes, playedNotes2;
         public static int curr_tick = 0;
-        public static long MIDIFps = 0;
+        public static double MIDIFps = 0, notespersec = 0;
         public static bool stopping = true;
         public static bool skipping = false;
         public static bool potato_mode = false;
@@ -32,7 +32,8 @@ namespace SharpMIDI
             uint24* msgptr = midiev.Pointer;
             uint24* msgcur = msgptr;
             uint24* buffer = Sound.ringbuffer;
-            TickGroup[] tickGroupArr = MIDIEvent.TickGroupArray;
+            TickGroup* tickGroupArr = MIDIEvent.TickGroupArray.Pointer;
+            TickGroup* currtg = tickGroupArr;
             Tempo[] tevs = MIDIEvent.TempoEventArray;
             SysEx[] sysExes = MIDIEvent.SysExArray;
             int clock = 0;
@@ -51,73 +52,67 @@ namespace SharpMIDI
             if(!singlethread) 
                 Sound.StartAudioThread();
             MIDIClock.Start();
-            fixed (TickGroup* tg0 = tickGroupArr)
+            while (!stopping)
             {
-                TickGroup* currtg = tg0;
-                while (!stopping)
+                clock = (int)MIDIClock.Update();
+                totalFrames++;
+                if(MIDIClock.paused || potato_mode) 
                 {
-                    clock = (int)MIDIClock.Update();
-                    totalFrames++;
-                    if(MIDIClock.paused || potato_mode) 
+                    Thread.Sleep(1);
+                }
+                if (curr_tick > clock)
+                {
+                    while (currtg->tick > clock && (currtg - tickGroupArr) > 0)
                     {
-                        Thread.Sleep(1);
+                        currtg--;
+                        msgcur = msgptr + currtg->offset;
+                        playedNotes -= currtg->notecount;
                     }
-                    if (curr_tick > clock)
+                    while (tevs[tempoidx].tick > clock && tempoidx > 0) 
+                        tempoidx--;
+                    while (sysExes[sysexidx].tick > clock && sysexidx > 0) 
+                        sysexidx--;
+                }
+                while (currtg->tick <= clock)
+                {
+                    // accessing a field shouldnt be slow as hell mane js why
+                    curr_tick = currtg->tick;
+                    if (!skipping)
                     {
-                        while (currtg->tick > clock && (currtg - tg0) > 0)
+                        uint24* targetMsg = msgptr + currtg->offset;
+                        if (!singlethread)
                         {
-                            currtg--;
-                            msgcur = msgptr + currtg->offset;
-                            playedNotes -= currtg->notecount;
+                            while (msgcur < targetMsg)
+                                buffer[(ushort)msgcur] = *msgcur++;
                         }
-                        if(tevs.Length > 1) 
-                            while (tevs[tempoidx].tick > clock && tempoidx > 0) 
-                                tempoidx--;
-                        if(sysExes.Length > 1)
-                            while (sysExes[sysexidx].tick > clock && sysexidx > 0) 
-                                sysexidx--;
-                    }
-                    while (currtg->tick <= clock)
-                    {
-                        // accessing a global shouldnt be slow as hell mane js why
-                        curr_tick = currtg->tick;
-                        if (!skipping)
-                        {
-                            uint24* targetMsg = msgptr + currtg->offset;
-                            if (!singlethread)
+                        else   
+                        { 
+                            if (sendfn2 != null)
                             {
                                 while (msgcur < targetMsg)
-                                    buffer[(ushort)msgcur] = *msgcur++;
+                                    sendfn2(handle, (uint)msgcur++->Value);
                             }
-                            else   
-                            { 
-                                if (sendfn2 != null)
-                                {
-                                    while (msgcur < targetMsg)
-                                        sendfn2(handle, (uint)msgcur++->Value);
-                                }
-                                else
-                                {
-                                    while (msgcur < targetMsg)
-                                        sendfn((uint)msgcur++->Value);
-                                }
+                            else
+                            {
+                                while (msgcur < targetMsg)
+                                    sendfn((uint)msgcur++->Value);
                             }
                         }
-                        else
-                            msgcur = msgptr + currtg->offset;
-                        playedNotes += currtg->notecount;
-                        currtg++;
                     }
-                    while (tevs[tempoidx].tick <= clock)
-                    {
-                        MIDIClock.SubmitBPM(tevs[tempoidx].tempo);
-                        tempoidx++;
-                    }
-                    while (sysExes[sysexidx].tick <= clock)
-                    {
-                        SubmitSysEx(sysExes[sysexidx].message);
-                        sysexidx++;
-                    }
+                    else
+                        msgcur = msgptr + currtg->offset;
+                    playedNotes += currtg->notecount;
+                    currtg++;
+                }
+                while (tevs[tempoidx].tick <= clock)
+                {
+                    MIDIClock.SubmitBPM(tevs[tempoidx].tempo);
+                    tempoidx++;
+                }
+                while (sysExes[sysexidx].tick <= clock)
+                {
+                    SubmitSysEx(sysExes[sysexidx].message);
+                    sysexidx++;
                 }
             }
             SubmitSysEx(gmreset);
@@ -138,7 +133,6 @@ namespace SharpMIDI
                     uint send = KDMAPI._sendDirectLongDataLinux(messageptr, (uint)(sizeof(byte) * message.Length));
                     Console.WriteLine($"sysex send returned ({send})");
                 #elif WINDOWS 
-                    uint prepare = 255, send = 255, unprepare = 255; // fallback values
                     MIDIHDR header = new MIDIHDR 
                     {
                         lpData = messageptr,
@@ -165,8 +159,8 @@ namespace SharpMIDI
                 if (curr_tick >= MIDILoader.maxTick) stopping = true;
                 if (delta > updateperiod)
                 {
-                    MIDIFps = (long)(totalFrames / delta);
-                    notespersec = (long)((playedNotes - playedNotes2) / delta);
+                    MIDIFps = totalFrames / delta;
+                    notespersec = (playedNotes - playedNotes2) / delta;
                     playedNotes2 = playedNotes;
                     totalFrames = 0;
                     last = Timer.Seconds();
