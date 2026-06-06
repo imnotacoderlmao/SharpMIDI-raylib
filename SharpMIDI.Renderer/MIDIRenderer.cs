@@ -21,6 +21,8 @@ namespace SharpMIDI
         private struct KeyHeader
         {
             public fixed int NoteIdx[4];
+            public fixed int StartTick[4];
+            public fixed byte ColorIdx[4];
             public byte Count;
         }
 
@@ -323,7 +325,6 @@ namespace SharpMIDI
                     continue;
 
                 byte* ev = messages + currentOffset * 3;
-                long idx = currentOffset;
                 byte* evEnd = messages + nextOffset * 3;
 
                 // for loop that was done looked too scary so i just went with another way to do a loop
@@ -333,7 +334,6 @@ namespace SharpMIDI
                     if ((status & 0xE0) != 0x80)
                     {
                         ev += 3;
-                        idx++;
                         continue;
                     }
 
@@ -347,21 +347,25 @@ namespace SharpMIDI
                         byte count = header->Count;
                         if (count > 0)
                         {
-                            // shifting could infact be done better
+                            // could shifting could be done better again actually :sob:
                             int noteIdx = header->NoteIdx[0];
+                            int startTick = header->StartTick[0];
+                            uint colorIdx = header->ColorIdx[0];
                             Unsafe.CopyBlockUnaligned(&header->NoteIdx[0], &header->NoteIdx[1], (uint)((count - 1) * 4));
+                            Unsafe.CopyBlockUnaligned(&header->StartTick[0], &header->StartTick[1], (uint)((count - 1) * 4));
+                            Unsafe.CopyBlockUnaligned(&header->ColorIdx[0], &header->ColorIdx[1], (uint)(count - 1));
                             header->Count = (byte)(count - 1);
 
                             if (noteIdx >= headLocal - cap)
                             {
                                 int physIdx = noteIdx & maskLocal;
+                                int duration = tick - startTick;
 
-                                // for the sake of not reading write combined memory several times that probably caused stutters or something
-                                GpuNote noteData = ringLocal[physIdx]; 
-                                int duration = tick - noteData.StartTick;
-                                noteData.PackedData = (noteData.PackedData & 0xFFFF0000u) | (uint)duration;
-
-                                ringLocal[physIdx] = noteData; 
+                                ringLocal[physIdx] = new GpuNote
+                                {
+                                    StartTick = startTick,
+                                    PackedData = ((uint)duration & 0xFFFFu) | ((uint)note << 16) | (colorIdx << 24)
+                                };
                             }
                         }
                     }
@@ -383,20 +387,22 @@ namespace SharpMIDI
 
                             int absId = headLocal++;
                             int physIdx = absId & maskLocal;
-                            uint colorIdx = (useTrack ? (uint)(tracks[idx] + channel) : channel) & 0xFFu;
+                            // just to avoid incrementing 2 vars every event
+                            uint colorIdx = (useTrack ? (uint)(tracks[(ev - messages)/3] + channel) : channel) & 0xFFu;
 
                             ringLocal[physIdx] = new GpuNote
                             {
                                 StartTick = tick,
                                 PackedData = 0xFFFFu | ((uint)note << 16) | (colorIdx << 24)
                             };
-
+                            
                             header->NoteIdx[count] = absId;
+                            header->StartTick[count] = tick;
+                            header->ColorIdx[count] = (byte)colorIdx;
                             header->Count = (byte)(count + 1);
                         }
                     }
                     ev += 3;
-                    idx++;
                 }
                 currentOffset = nextOffset;
             }
@@ -410,7 +416,7 @@ namespace SharpMIDI
             int safeTail = _head - _ringCap;
             if (_tail < safeTail) _tail = safeTail;
 
-            int forcecullthresh = Math.Clamp(_lookaheadTicks * 2, 8000, ushort.MaxValue);
+            int forcecullthresh = Math.Min(_lookaheadTicks * 2, ushort.MaxValue);
             bool forceCull = NotesDrawnLastFrame > 262144;
             int forceCullBefore = viewStart - forcecullthresh;
             

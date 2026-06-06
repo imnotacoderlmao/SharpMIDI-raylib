@@ -59,11 +59,13 @@ namespace SharpMIDI
             double ASIOOutputLatency;
         }
         static IntPtr lib;
+        public static bool hasvoice = false;
         public static delegate* unmanaged[SuppressGCTransition]<uint, void> _sendDirectData;
         //public static delegate* unmanaged<int> _getActiveVoices;
         //public static delegate* unmanaged<bool> _isKDMAPIAvailable;
         public static delegate* unmanaged<int> _initializeKDMAPIStream;
         public static delegate* unmanaged<int> _terminateKDMAPIStream;
+        public static delegate* unmanaged<int> _getActiveVoices;
         //public static delegate* unmanaged<void> _resetKDMAPIStream;
         //public static delegate* unmanaged<uint, uint, uint, uint> _sendCustomEvent;
         #if LINUX
@@ -91,6 +93,9 @@ namespace SharpMIDI
             //_isKDMAPIAvailable = (delegate* unmanaged<bool>) NativeLibrary.GetExport(lib, "IsKDMAPIAvailable");
             _initializeKDMAPIStream = (delegate* unmanaged<int>) NativeLibrary.GetExport(lib, "InitializeKDMAPIStream");
             _terminateKDMAPIStream  = (delegate* unmanaged<int>) NativeLibrary.GetExport(lib, "TerminateKDMAPIStream");
+            bool hasvoice = NativeLibrary.TryGetExport(lib, "GetVoiceCount", out nint addr);
+            if (hasvoice)
+                _getActiveVoices = (delegate* unmanaged<int>) addr;
             //_resetKDMAPIStream = (delegate* unmanaged<void>) NativeLibrary.GetExport(lib, "ResetKDMAPIStream");
             //_getActiveVoices = (delegate* unmanaged<int>) NativeLibrary.GetExport(lib, "GetVoiceCount");
         }

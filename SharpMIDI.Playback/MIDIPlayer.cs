@@ -153,6 +153,7 @@ namespace SharpMIDI
         {
             const double updateperiod = 0.1d;
             double last = 0d;
+            bool kdmapi_hasvoice = Sound.currsynth == "KDMAPI" && KDMAPI.hasvoice;
             while(!stopping)
             {
                 double delta = Timer.Seconds() - last;
@@ -165,7 +166,10 @@ namespace SharpMIDI
                     totalFrames = 0;
                     last = Timer.Seconds();
                 }
-                Console.Write($"\rTick: {curr_tick:N0} / {MIDILoader.maxTick:N0} | Played Notes: {playedNotes:N0} / {MIDILoader.totalNotes:N0} ({notespersec:N0}/s) | MIDI Thread: @{MIDIFps:N0} fps         ");
+                if (kdmapi_hasvoice)
+                    Console.Write($"\rTick: {curr_tick:N0} / {MIDILoader.maxTick:N0} | Played Notes: {playedNotes:N0} / {MIDILoader.totalNotes:N0} ({notespersec:N0}/s) | MIDI Thread: @{MIDIFps:N0} fps | {KDMAPI._getActiveVoices()} voices         ");
+                else
+                    Console.Write($"\rTick: {curr_tick:N0} / {MIDILoader.maxTick:N0} | Played Notes: {playedNotes:N0} / {MIDILoader.totalNotes:N0} ({notespersec:N0}/s) | MIDI Thread: @{MIDIFps:N0} fps         ");
                 Thread.Sleep(1000/60);
             }
         }
