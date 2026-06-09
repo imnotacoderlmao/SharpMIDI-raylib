@@ -91,15 +91,7 @@ namespace SharpMIDI
                             localTempos.Add(new Tempo { tick = absolutetime, tempo = (uint24)tempo });
                         }
                         else if (readEvent == 0x2F)
-                        {
-                            totalNotes = notecount;
-                            ptr = localPtr;
-                            lock(tempMIDIstorage.temppos) 
-                                tempMIDIstorage.temppos.AddRange(localTempos);
-                            lock(tempMIDIstorage.SysEx)   
-                                tempMIDIstorage.SysEx.AddRange(localSysEx);
-                            return;
-                        }
+                            goto finalize;
                         else 
                         {
                             int len = 0;
@@ -191,7 +183,14 @@ namespace SharpMIDI
                     }
                 }
             }
-            ptr = localPtr;
+            finalize:
+                totalNotes = notecount;
+                ptr = localPtr;
+                lock(tempMIDIstorage.temppos) 
+                    tempMIDIstorage.temppos.AddRange(localTempos);
+                lock(tempMIDIstorage.SysEx)   
+                    tempMIDIstorage.SysEx.AddRange(localSysEx);
+                ptr = localPtr;
         }
 
         public void ScanEvents(ref BigArray<TickGroup> tickCounts)
@@ -273,18 +272,7 @@ namespace SharpMIDI
                         if (readEvent == 0x2F)
                         {
                             trackMaxTick = absolutetime;
-                            if (absolutetime > 1 << 28)
-                                MIDILoader.Crash($"dear lord what is wrong with your midi file's varlen. current tick = {absolutetime}");
-                            if (trackMaxTick > MIDILoader.maxTick)
-                                Interlocked.Exchange(ref MIDILoader.maxTick, trackMaxTick);
-                            if (count > 0)
-                            {
-                                tickCounts.Add(new TickGroup { tick = lastTick, notecount = notecount, offset = count });
-                                eventCount += count;
-                                totalNotes += notecount;
-                            }
-                            ptr = localPtr;
-                            return;
+                            goto finalize;
                         }
                         else 
                         {
@@ -326,8 +314,19 @@ namespace SharpMIDI
                 }
             }
 
-            MIDILoader.Crash("do you not have an end of track byte? this message isnt supposed to appear otherwise");
-            ptr = localPtr;
+            MIDILoader.Crash("does this midi not have an end of track byte? this message isnt supposed to appear otherwise");
+            finalize:
+                if (absolutetime > 1 << 28)
+                    MIDILoader.Crash($"dear lord what is wrong with your midi file's varlen. current tick = {absolutetime}");
+                if (trackMaxTick > MIDILoader.maxTick)
+                    Interlocked.Exchange(ref MIDILoader.maxTick, trackMaxTick);
+                if (count > 0)
+                {
+                    tickCounts.Add(new TickGroup { tick = lastTick, notecount = notecount, offset = count });
+                    eventCount += count;
+                    totalNotes += notecount;
+                }
+                ptr = localPtr;
         }
 
         public void Dispose()

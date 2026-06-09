@@ -10,71 +10,70 @@ namespace SharpMIDI
     public static unsafe class GLNoteRenderer
     {
         [StructLayout(LayoutKind.Sequential, Pack = 1)]
-        private struct GpuNote
+        private struct RenderNote
         {
             public int StartTick;
-            // bits 0-15 = duration, 16-23 = pitch, 24-31 = color index
             public uint PackedData;
         }
 
         [StructLayout(LayoutKind.Sequential, Pack = 1)]
         private struct KeyHeader
         {
-            public fixed int NoteIdx[4];
-            public fixed int StartTick[4];
-            public fixed byte ColorIdx[4];
-            public byte Count;
+            public int Head;
+            public int Tail;
         }
 
         private const string LineVertSrc =
-            "#version 330 core\n"
-          + "uniform vec4 uMetrics;\n"
-          + "uniform int uViewStart;\n"
-          + "uniform int uViewEnd;\n"
-          + "uniform int uTboStart;\n"
-          + "uniform int uTboMask;\n"
-          + "uniform usamplerBuffer uNotesTbo;\n"
-          + "uniform sampler2D uPalette;\n"
-          + "flat out vec4 vColor;\n"
-          + "void main() {\n"
-          + "    int physIdx = (gl_InstanceID + uTboStart) & uTboMask;\n"
-          + "    uvec2 nd = texelFetch(uNotesTbo, physIdx).rg;\n"
-          + "    int aStartTick = int(nd.r);\n"
-          + "    uint aPackedData = nd.g;\n"
-          + "    uint rawDur = aPackedData & 0xFFFFu;\n"
-          + "    float dur = mix(float(rawDur), float(max(uViewEnd - aStartTick, 0)), float(rawDur == 65535u));\n"
-          + "    uint isEnd = uint(gl_VertexID) & 1u;\n"
-          + "    uint isTop = (uint(gl_VertexID) >> 1) & 1u;\n"
-          + "    float startX = float(aStartTick - uViewStart) * uMetrics.x - 1.0;\n"
-          + "    float endX = startX + max(dur * uMetrics.x, uMetrics.y);\n"
-          + "    float x = mix(startX, endX, float(isEnd));\n"
-          + "    float y = uMetrics.z + float(((aPackedData >> 16) & 0xFFu) + isTop) * uMetrics.w;\n"
-          + "    float z = min(float(rawDur), 65534.0) / 65535.0;\n"
-          + "    vColor = texelFetch(uPalette, ivec2(int(aPackedData >> 24), 0), 0);\n"
-          + "    gl_Position = vec4(x, y, z, 1.0);\n"
-          + "}\n";
+@"#version 330 core
+uniform vec4 uMetrics;
+uniform int uViewStart;
+uniform int uViewEnd;
+uniform int uTboStart;
+uniform int uTboMask;
+uniform usamplerBuffer uNotesTbo;
+uniform sampler2D uPalette;
+flat out vec4 vColor;
+void main() {
+    int physIdx = (gl_InstanceID + uTboStart) & uTboMask;
+    uvec2 notedata = texelFetch(uNotesTbo, physIdx).rg;
+    int aStartTick = int(notedata.r & 0x7FFFFFFFu);
+    bool isNoteOn = bool(notedata.r & 0x80000000u);
+    uint aPackedData = notedata.g;
+    float dur = isNoteOn? float(uViewEnd - aStartTick) : float(aPackedData & 0xFFFFu);
+    uint isEnd = uint(gl_VertexID) & 1u;
+    uint isTop = uint(gl_VertexID >> 1) & 1u;
+    float startX = float(aStartTick - uViewStart) * uMetrics.x - 1.0;
+    float endX = startX + max(dur * uMetrics.x, uMetrics.y);
+    float x = bool(isEnd)? endX : startX;
+    float y = uMetrics.z + float(((aPackedData >> 16) & 0xFFu) + isTop) * uMetrics.w;
+    float z = dur / 65536.0;
+    vColor = texelFetch(uPalette, ivec2(int(aPackedData >> 24), 0), 0);
+    gl_Position = vec4(x, y, z, 1.0);
+}";
 
         private const string LineFragSrc =
-            "#version 330 core\n"
-          + "flat in vec4 vColor;\n"
-          + "out vec4 fragColor;\n"
-          + "void main() {\n"
-          + "   fragColor = vColor;\n" 
-          + "}\n";
+@"#version 330 core
+flat in vec4 vColor;
+out vec4 fragColor;
+void main() {
+   fragColor = vColor;
+}";
 
         private static int _lineShader;
         private static int _uMetrics, _uViewStart, _uViewEnd;
         private static int _uNotesTbo, _uTboStart, _uTboMask, _uPalette;
         private static int _vao, _tboBuffer, _tboTex, _paletteTex;
 
-        // no more cpu side array. memory usage cut in half (yay)
-        private static GpuNote* _ring;
+        private static RenderNote* _ring;
+        // required for linked list, more memory usage boooo :unamused:
+        private static int* _nextPtrs;
 
         private static int _ringCap = 1 << 23;
         private static int _deferred_ringCap = -1;
         private static int _mask;
-        private static int _head;
-        private static int _tail;
+        
+        private static int _head = 1;
+        private static int _tail = 1;
 
         private static KeyHeader* _keyHeaders;
         private const int TOTAL_KEYS = 128 * 16;
@@ -132,17 +131,20 @@ namespace SharpMIDI
                 _ring = null;
             }
 
+            if (_nextPtrs != null) 
+                NativeMemory.AlignedFree(_nextPtrs);
+            _nextPtrs = (int*)NativeMemory.AlignedAlloc((nuint)(cap * sizeof(int)), 64);
+
             GL.DeleteBuffer(_tboBuffer);
             _tboBuffer = GL.GenBuffer();
 
             GL.BindBuffer(BufferTarget.TextureBuffer, _tboBuffer);
             
-            // MapReadBit added so cpu can actually read stuff from it
-            GL.BufferStorage(BufferTarget.TextureBuffer, (nint)(cap * sizeof(GpuNote)), IntPtr.Zero,
-                BufferStorageFlags.MapWriteBit | BufferStorageFlags.MapReadBit | BufferStorageFlags.MapPersistentBit | BufferStorageFlags.MapCoherentBit);
+            GL.BufferStorage(BufferTarget.TextureBuffer, (nint)(cap * sizeof(RenderNote)), IntPtr.Zero, 
+            BufferStorageFlags.MapReadBit | BufferStorageFlags.MapWriteBit | BufferStorageFlags.MapPersistentBit | BufferStorageFlags.MapCoherentBit);
 
-            _ring = (GpuNote*)GL.MapBufferRange(BufferTarget.TextureBuffer, IntPtr.Zero, (nint)(cap * sizeof(GpuNote)),
-                MapBufferAccessMask.MapWriteBit | MapBufferAccessMask.MapReadBit | MapBufferAccessMask.MapPersistentBit | MapBufferAccessMask.MapCoherentBit);
+            _ring = (RenderNote*)GL.MapBufferRange(BufferTarget.TextureBuffer, IntPtr.Zero, (nint)(cap * sizeof(RenderNote)), 
+            MapBufferAccessMask.MapReadBit | MapBufferAccessMask.MapWriteBit | MapBufferAccessMask.MapPersistentBit | MapBufferAccessMask.MapCoherentBit);
 
             GL.BindTexture(TextureTarget.TextureBuffer, _tboTex);
             GL.TexBuffer(TextureBufferTarget.TextureBuffer, SizedInternalFormat.Rg32ui, _tboBuffer);
@@ -156,8 +158,8 @@ namespace SharpMIDI
         {
             _isInitialized = false;
             NativeMemory.Clear(_keyHeaders, TOTAL_KEYS * (nuint)sizeof(KeyHeader));
-            _head = 0;
-            _tail = 0;
+            _head = 1;
+            _tail = 1;
             _lastSweepEnd = -1;
             _lastWindowTicks = -1;
             _paletteUploadPending = true;
@@ -167,10 +169,11 @@ namespace SharpMIDI
         public static void ResetForUnload()
         {
             _isInitialized = false;
-            _head = 0;
-            _tail = 0;
+            _head = 1;
+            _tail = 1;
             _lastSweepEnd = -1;
             _lastWindowTicks = -1;
+            NativeMemory.Clear(_nextPtrs, (nuint)_ringCap * sizeof(int));
             if (_ringCap != 1 << 23) 
                 _deferred_ringCap = 1 << 23;
         }
@@ -179,6 +182,7 @@ namespace SharpMIDI
         {
             _isInitialized = false;
             if (_keyHeaders != null) { NativeMemory.AlignedFree(_keyHeaders); _keyHeaders = null; }
+            if (_nextPtrs != null) { NativeMemory.AlignedFree(_nextPtrs); _nextPtrs = null; }
 
             if (_tboBuffer != 0)
             {
@@ -241,8 +245,8 @@ namespace SharpMIDI
 
             if (!incremental)
             {
-                _head = 0;
-                _tail = 0;
+                _head = 1;
+                _tail = 1;
                 NativeMemory.Clear(_keyHeaders, TOTAL_KEYS * (nuint)sizeof(KeyHeader));
                 SweepRange(Math.Max(0, viewStart - WindowTicks), sweepEnd);
             }
@@ -265,7 +269,7 @@ namespace SharpMIDI
                 float yBottom = -1.0f + 2.0f * pad / screenHeight;
                 float yTop = 1.0f - 2.0f * pad / screenHeight;
                 float yStep = (yTop - yBottom) / 128.0f;
-                float minW = 2.0f / screenWidth;
+                float minW = 1.0f / screenWidth;
 
                 GL.Viewport(0, 0, screenWidth, screenHeight);
                 GL.Enable(EnableCap.DepthTest);
@@ -276,8 +280,6 @@ namespace SharpMIDI
                 GL.Uniform1(_uViewStart, viewStart);
                 GL.Uniform1(_uViewEnd, viewEnd);
                 
-                // shader resolves physIdx
-                // uTboMask handles ring wrap with no extra draw call
                 GL.Uniform1(_uTboStart,  _tail & _mask);
                 GL.Uniform1(_uTboMask,   _mask);
 
@@ -297,12 +299,15 @@ namespace SharpMIDI
                 GL.UseProgram(0);
                 GL.Disable(EnableCap.DepthTest);
             }
+            int linepos = (int)Math.Min(tick * _pixelsPerTick * screenWidth / 2, screenWidth / 2);
+            Raylib_cs.Raylib.DrawLine(linepos, 0, linepos, screenHeight, Raylib_cs.Color.Red);
         }
 
         [MethodImpl(MethodImplOptions.AggressiveOptimization)]
         private static void SweepRange(int fromTick, int toTick)
         {
-            GpuNote* ringLocal = _ring;
+            RenderNote* ringLocal = _ring;
+            int* nextPtrsLocal = _nextPtrs;
             KeyHeader* keyheader = _keyHeaders;
 
             BigArray<TickGroup> groups = MIDIEvent.TickGroupArray;
@@ -318,16 +323,14 @@ namespace SharpMIDI
             int cap = _ringCap;
 
             long currentOffset = tickgroups[fromTick].offset;
-            for (int tick = fromTick; tick <= limit; tick++)
+            int tick = fromTick;
+
+            while (tick <= limit)
             {
                 long nextOffset = tickgroups[tick + 1].offset;
-                if (currentOffset == nextOffset) 
-                    continue;
-
                 byte* ev = messages + currentOffset * 3;
                 byte* evEnd = messages + nextOffset * 3;
 
-                // for loop that was done looked too scary so i just went with another way to do a loop
                 while (ev < evEnd)
                 {
                     byte status = ev[0];
@@ -338,73 +341,79 @@ namespace SharpMIDI
                     }
 
                     byte channel = (byte)(status & 0x0F);
-                    byte note = ev[1];
-
-                    KeyHeader* header = keyheader + ((channel << 7) | note);
+                    byte key = ev[1];
+                    KeyHeader* header = keyheader + ((channel << 7) | key);
 
                     if ((status & 0x10) == 0) // NoteOff
                     {
-                        byte count = header->Count;
-                        if (count > 0)
+                        int oldest = header->Head;
+                        if (oldest != 0)
                         {
-                            // could shifting could be done better again actually :sob:
-                            int noteIdx = header->NoteIdx[0];
-                            int startTick = header->StartTick[0];
-                            uint colorIdx = header->ColorIdx[0];
-                            Unsafe.CopyBlockUnaligned(&header->NoteIdx[0], &header->NoteIdx[1], (uint)((count - 1) * 4));
-                            Unsafe.CopyBlockUnaligned(&header->StartTick[0], &header->StartTick[1], (uint)((count - 1) * 4));
-                            Unsafe.CopyBlockUnaligned(&header->ColorIdx[0], &header->ColorIdx[1], (uint)(count - 1));
-                            header->Count = (byte)(count - 1);
-
-                            if (noteIdx >= headLocal - cap)
+                            if (oldest >= headLocal - cap)
                             {
-                                int physIdx = noteIdx & maskLocal;
-                                int duration = tick - startTick;
+                                int physIdx = oldest & maskLocal;
+                                
+                                header->Head = nextPtrsLocal[physIdx];
+                                if (header->Head == 0) 
+                                    header->Tail = 0;
 
-                                ringLocal[physIdx] = new GpuNote
+                                RenderNote note = ringLocal[physIdx];
+                                int startTick = note.StartTick & 0x7FFFFFFF;
+                                uint packedDur = Math.Min((uint)(tick - startTick), ushort.MaxValue);
+                                ringLocal[physIdx] = new RenderNote
                                 {
-                                    StartTick = startTick,
-                                    PackedData = ((uint)duration & 0xFFFFu) | ((uint)note << 16) | (colorIdx << 24)
+                                    StartTick  = startTick,
+                                    PackedData = (note.PackedData & 0xFFFF0000u) | packedDur
                                 };
+                            }
+                            else
+                            {
+                                // reset head/tail if a note has been force culled to prevent reading garbage
+                                header->Head = 0;
+                                header->Tail = 0;
                             }
                         }
                     }
                     else
                     {
-                        int count = header->Count;
-                        if (count < 4) 
+                        if (headLocal - tailLocal >= cap)
                         {
-                            if (headLocal - tailLocal >= cap)
-                            {
-                                // flush first to prevent striping
-                                _tail = tailLocal;
-                                _head = headLocal;
-                                ResizeRing(cap * 2);
-                                cap = _ringCap;
-                                maskLocal = _mask;
-                                ringLocal = _ring;
-                            }
-
-                            int absId = headLocal++;
-                            int physIdx = absId & maskLocal;
-                            // just to avoid incrementing 2 vars every event
-                            uint colorIdx = (useTrack ? (uint)(tracks[(ev - messages)/3] + channel) : channel) & 0xFFu;
-
-                            ringLocal[physIdx] = new GpuNote
-                            {
-                                StartTick = tick,
-                                PackedData = 0xFFFFu | ((uint)note << 16) | (colorIdx << 24)
-                            };
-                            
-                            header->NoteIdx[count] = absId;
-                            header->StartTick[count] = tick;
-                            header->ColorIdx[count] = (byte)colorIdx;
-                            header->Count = (byte)(count + 1);
+                            _tail = tailLocal;
+                            _head = headLocal;
+                            ResizeRing(cap * 2);
+                            cap = _ringCap;
+                            maskLocal = _mask;
+                            ringLocal = _ring;
+                            nextPtrsLocal = _nextPtrs;
                         }
+
+                        int absId = headLocal++;
+                        int physIdx = absId & maskLocal;
+                        uint colorIdx = useTrack ? (uint)(tracks[(ev - messages) / 3] + channel) & 0xFFu : channel;
+
+                        // terminate new node
+                        nextPtrsLocal[physIdx] = 0;
+                        
+                        if (header->Tail == 0)
+                            header->Head = absId;
+                        else
+                            nextPtrsLocal[header->Tail & maskLocal] = absId;
+                        
+                        header->Tail = absId;
+
+                        // i was gonna wish that using the sign bit as a noteon/off flag was gonna save memory by removing duration 
+                        // but then i realized that you also need to store the end tick if you do that. oh well, simpler shader logic i guess
+                        // even then i dont have to use a dummy value for duration! (probably slower this way though lmao)
+                        ringLocal[physIdx] = new RenderNote
+                        {
+                            StartTick = (int)(tick | 0x80000000),
+                            PackedData = ((uint)key << 16) | (colorIdx << 24)
+                        };
                     }
                     ev += 3;
                 }
                 currentOffset = nextOffset;
+                tick++;
             }
             _tail = tailLocal;
             _head = headLocal;
@@ -414,13 +423,14 @@ namespace SharpMIDI
         private static void AdvanceTail(int viewStart)
         {
             int safeTail = _head - _ringCap;
-            if (_tail < safeTail) _tail = safeTail;
+            if (_tail < safeTail) 
+                _tail = safeTail;
 
             int forcecullthresh = Math.Min(_lookaheadTicks * 2, ushort.MaxValue);
             bool forceCull = NotesDrawnLastFrame > 262144;
             int forceCullBefore = viewStart - forcecullthresh;
             
-            GpuNote* ringLocal = _ring;
+            RenderNote* ring = _ring;
             int maskLocal = _mask;
             int headLocal = _head;
             int tailLocal = _tail;
@@ -428,12 +438,12 @@ namespace SharpMIDI
             while (tailLocal < headLocal)
             {
                 int physIdx = tailLocal & maskLocal;
-                GpuNote note = ringLocal[physIdx];
-
-                uint duration = note.PackedData & 0xFFFFu;
-                int endTick = note.StartTick + (int)duration;
+                RenderNote note = ring[physIdx];
+                bool isopen = note.StartTick < 0;
+                int startTick = (int)(note.StartTick & 0x7FFFFFFFu);
+                int endTick = (int)(startTick + (note.PackedData & 0xFFFFu));
                 
-                if (endTick < viewStart || (forceCull && note.StartTick < forceCullBefore))
+                if ((!isopen && endTick < viewStart) || (forceCull && startTick < forceCullBefore))
                     tailLocal++;
                 else
                     break;
@@ -448,16 +458,27 @@ namespace SharpMIDI
                 return;
             int newMask = newCap - 1;
             
+            nint totalBytes = (nint)newCap * sizeof(RenderNote);
+            int* newNext = (int*)NativeMemory.AlignedAlloc((nuint)newCap * sizeof(int), 64);
+
             int newBuffer = GL.GenBuffer();
             GL.BindBuffer(BufferTarget.TextureBuffer, newBuffer);
-            GL.BufferStorage(BufferTarget.TextureBuffer, (nint)(newCap * sizeof(GpuNote)), IntPtr.Zero,
-                BufferStorageFlags.MapWriteBit | BufferStorageFlags.MapReadBit | BufferStorageFlags.MapPersistentBit | BufferStorageFlags.MapCoherentBit);
+            GL.BufferStorage(BufferTarget.TextureBuffer, totalBytes, IntPtr.Zero, 
+                BufferStorageFlags.MapReadBit | BufferStorageFlags.MapWriteBit | BufferStorageFlags.MapPersistentBit | BufferStorageFlags.MapCoherentBit);
 
-            GpuNote* newRing = (GpuNote*)GL.MapBufferRange(BufferTarget.TextureBuffer, IntPtr.Zero, (nint)(newCap * sizeof(GpuNote)),
-                MapBufferAccessMask.MapWriteBit | MapBufferAccessMask.MapReadBit | MapBufferAccessMask.MapPersistentBit | MapBufferAccessMask.MapCoherentBit);
+            RenderNote* newRing = (RenderNote*)GL.MapBufferRange(BufferTarget.TextureBuffer, IntPtr.Zero, totalBytes,
+                MapBufferAccessMask.MapReadBit | MapBufferAccessMask.MapWriteBit | MapBufferAccessMask.MapPersistentBit | MapBufferAccessMask.MapCoherentBit);
 
             for (int absId = _tail; absId < _head; absId++)
-                newRing[absId & newMask] = _ring[absId & _mask];
+            {
+                int oldIdx = absId & _mask;
+                int newIdx = absId & newMask;
+                newRing[newIdx] = _ring[oldIdx];
+                newNext[newIdx] = _nextPtrs[oldIdx];
+            }
+
+            if (_nextPtrs != null) NativeMemory.AlignedFree(_nextPtrs);
+            _nextPtrs = newNext;
 
             if (_ring != null)
             {

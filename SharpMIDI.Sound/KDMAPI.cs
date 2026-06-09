@@ -93,7 +93,7 @@ namespace SharpMIDI
             //_isKDMAPIAvailable = (delegate* unmanaged<bool>) NativeLibrary.GetExport(lib, "IsKDMAPIAvailable");
             _initializeKDMAPIStream = (delegate* unmanaged<int>) NativeLibrary.GetExport(lib, "InitializeKDMAPIStream");
             _terminateKDMAPIStream  = (delegate* unmanaged<int>) NativeLibrary.GetExport(lib, "TerminateKDMAPIStream");
-            bool hasvoice = NativeLibrary.TryGetExport(lib, "GetVoiceCount", out nint addr);
+            hasvoice = NativeLibrary.TryGetExport(lib, "GetVoiceCount", out nint addr);
             if (hasvoice)
                 _getActiveVoices = (delegate* unmanaged<int>) addr;
             //_resetKDMAPIStream = (delegate* unmanaged<void>) NativeLibrary.GetExport(lib, "ResetKDMAPIStream");

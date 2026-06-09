@@ -61,7 +61,6 @@ namespace SharpMIDI
                 
                 Raylib.ClearBackground(Raylib_cs.Color.Black);
                 GLNoteRenderer.Render(currentWidth, currentHeight, tick, PAD);
-                Raylib.DrawLine(currentWidth >> 1, 0, currentWidth >> 1, currentHeight, Raylib_cs.Color.Red);
                 DrawText(); 
                 DrawUI();
                 

@@ -4,9 +4,9 @@ namespace SharpMIDI
 {
     static unsafe class MIDIPlayer
     {
-        public static byte[] gmreset = [0xF0, 0x7E, 0x7F, 0x09, 0x01, 0xF7];
-        public static byte[] rolandreset = [0xF0, 0x41, 0x10, 0x42, 0x12, 0x40, 0x00, 0x7F, 0x00, 0x41, 0xF7];
-        public static long totalFrames = 0, playedNotes, playedNotes2;
+        private static byte[] gmreset = [0xF0, 0x7E, 0x7F, 0x09, 0x01, 0xF7];
+        private static byte[] rolandreset = [0xF0, 0x41, 0x10, 0x42, 0x12, 0x40, 0x00, 0x7F, 0x00, 0x41, 0xF7];
+        private static long totalFrames = 0, playedNotes, playedNotes2;
         public static int curr_tick = 0;
         public static double MIDIFps = 0, notespersec = 0;
         public static bool stopping = true;
@@ -57,9 +57,7 @@ namespace SharpMIDI
                 clock = (int)MIDIClock.Update();
                 totalFrames++;
                 if(MIDIClock.paused || potato_mode) 
-                {
                     Thread.Sleep(1);
-                }
                 if (curr_tick > clock)
                 {
                     while (currtg->tick > clock && (currtg - tickGroupArr) > 0)
@@ -131,7 +129,8 @@ namespace SharpMIDI
                 Console.WriteLine($"\nSending SysEx message: {BitConverter.ToString(message)}");
                 #if LINUX
                     uint send = KDMAPI._sendDirectLongDataLinux(messageptr, (uint)(sizeof(byte) * message.Length));
-                    Console.WriteLine($"sysex send returned ({send})");
+                    if (send != 0)
+                        Console.WriteLine($"sysex send returned ({send})");
                 #elif WINDOWS 
                     MIDIHDR header = new MIDIHDR 
                     {

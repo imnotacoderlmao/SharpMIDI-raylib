@@ -52,15 +52,15 @@ namespace SharpMIDI
 
         public static double Update()
         {
-            if (paused || MIDIPlayer.stopping) return tick;
+            if (paused || MIDIPlayer.stopping) 
+                return tick;
             double now = Timer.Seconds();
             double advancetime = now - lastnow;
             bool stalled = advancetime > stall_thresh;
-            MIDIPlayer.skipping = skipevents && stalled;
-            if (throttle && stalled)
-            {
+            if (throttle)
                 advancetime = Math.Min(stall_thresh, advancetime);
-            }
+            else if (skipevents)
+                MIDIPlayer.skipping = stalled;
             lastnow = now;
             tick += advancetime * tickscale;
             return tick;
