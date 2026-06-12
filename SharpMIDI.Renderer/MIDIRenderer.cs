@@ -25,7 +25,7 @@ namespace SharpMIDI
 
         private const string LineVertSrc =
 @"#version 330 core
-uniform vec4 uMetrics;
+uniform vec3 uMetrics;
 uniform int uViewStart;
 uniform int uViewEnd;
 uniform int uTboStart;
@@ -43,9 +43,9 @@ void main() {
     uint isEnd = uint(gl_VertexID) & 1u;
     uint isTop = uint(gl_VertexID >> 1) & 1u;
     float startX = float(aStartTick - uViewStart) * uMetrics.x - 1.0;
-    float endX = startX + max(dur * uMetrics.x, uMetrics.y);
+    float endX = startX + dur * uMetrics.x;
     float x = bool(isEnd)? endX : startX;
-    float y = uMetrics.z + float(((aPackedData >> 16) & 0xFFu) + isTop) * uMetrics.w;
+    float y = uMetrics.y + float(((aPackedData >> 16) & 0xFFu) + isTop) * uMetrics.z;
     float z = dur / 65536.0;
     vColor = texelFetch(uPalette, ivec2(int(aPackedData >> 24), 0), 0);
     gl_Position = vec4(x, y, z, 1.0);
@@ -83,6 +83,7 @@ void main() {
         private static float _pixelsPerTick;
         private static int _lastWindowTicks = -1;
         private static int _lastSweepEnd = -1;
+        private readonly static byte[] paletteData = new byte[COLOR_SIZE * 3];
         private static bool _paletteUploadPending = false;
         private static bool _isInitialized;
 
@@ -203,7 +204,6 @@ void main() {
         {
             if (_paletteUploadPending)
             {
-                byte[] paletteData = new byte[COLOR_SIZE * 3];
                 for (int i = 0; i < COLOR_SIZE; i++)
                 {
                     uint c = (uint)Random.Shared.Next(0x808080, 0x1000000);
@@ -214,7 +214,6 @@ void main() {
                 GL.BindTexture(TextureTarget.Texture2D, _paletteTex);
                 GL.TexImage2D(TextureTarget.Texture2D, 0, PixelInternalFormat.Rgb8, COLOR_SIZE, 1, 0, PixelFormat.Rgb, PixelType.UnsignedByte, paletteData);
                 GL.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureMinFilter, (int)TextureMinFilter.Nearest);
-                GL.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureMagFilter, (int)TextureMagFilter.Nearest);
                 GL.BindTexture(TextureTarget.Texture2D, 0);
                 _paletteUploadPending = false;
             }
@@ -269,14 +268,13 @@ void main() {
                 float yBottom = -1.0f + 2.0f * pad / screenHeight;
                 float yTop = 1.0f - 2.0f * pad / screenHeight;
                 float yStep = (yTop - yBottom) / 128.0f;
-                float minW = 1.0f / screenWidth;
 
                 GL.Viewport(0, 0, screenWidth, screenHeight);
                 GL.Enable(EnableCap.DepthTest);
                 GL.DepthFunc(DepthFunction.Less);
                 GL.UseProgram(_lineShader);
 
-                GL.Uniform4(_uMetrics, _pixelsPerTick, minW, yBottom, yStep);
+                GL.Uniform3(_uMetrics, _pixelsPerTick, yBottom, yStep);
                 GL.Uniform1(_uViewStart, viewStart);
                 GL.Uniform1(_uViewEnd, viewEnd);
                 
@@ -454,7 +452,7 @@ void main() {
         [MethodImpl(MethodImplOptions.NoInlining)]
         private static void ResizeRing(int newCap)
         {
-            if (newCap > int.MaxValue || newCap < 0) 
+            if (newCap < 0) 
                 return;
             int newMask = newCap - 1;
             

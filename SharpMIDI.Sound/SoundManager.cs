@@ -146,13 +146,13 @@ namespace SharpMIDI
             #if WINDOWS
             if (currsynth == "WinMM")
             {
-                for (int channel = 0; channel < 16; ++channel)
+                for (int channel = 0; channel < 16; channel++)
                     WinMM._midiOutShortMsg((IntPtr)WinMM.handle, (uint)(0xB0 | channel) | (0x7B << 8));
                 return;
             }
             #endif
         
-            for (int channel = 0; channel < 16; ++channel)
+            for (int channel = 0; channel < 16; channel++)
                 sendTo((uint)(0xB0 | channel) | (0x7B << 8));
         }
 
