@@ -111,13 +111,12 @@ namespace SharpMIDI
                 IntPtr handle = (IntPtr)WinMM.handle;
                 while (running)
                 {
-                    uint val = (uint)buffer[readidx].Value;
-                    if (val != 0)
+                    while(readptr != writeptr)
                     {
+                        uint val = (uint)buffer[readidx].Value;
                         sendfn2(handle, val);
-                        buffer[readidx] = 0;
+                        readidx = (readidx + 1) & bufferMask;
                     }
-                    readidx = (readidx + 1) & bufferMask;
                 }
                 return;
             }

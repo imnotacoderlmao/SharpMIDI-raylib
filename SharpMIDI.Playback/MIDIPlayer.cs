@@ -88,10 +88,12 @@ namespace SharpMIDI
                                 long remaining = count - copied;
                                 uint free = Sound.bufferSize - write;
 
-                                long chunk = Math.Min(remaining, free);
-                                Buffer.MemoryCopy(msgcur + copied, buffer + write, chunk * sizeof(uint24), chunk * sizeof(uint24));
+                                uint chunk = (uint)Math.Min(remaining, free);
+                                // just hoping there isnt more than 1,431,655,765.33 events in a single tick
+                                uint bytes = chunk * (uint)sizeof(uint24);
+                                Unsafe.CopyBlockUnaligned(&buffer[write], &msgcur[copied], bytes);
                                 
-                                Sound.writeptr = (uint)((write + chunk) & Sound.bufferMask);
+                                Sound.writeptr = (write + chunk) & Sound.bufferMask;
                                 copied += chunk;
                             }
                             msgcur = targetMsg;

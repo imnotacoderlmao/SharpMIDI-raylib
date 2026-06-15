@@ -1,9 +1,7 @@
 using System;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
-using OpenTK.Graphics.OpenGL4;
-using OpenTK.Core.Native;
-using OpenTK;
+using Silk.NET.OpenGL;
 
 namespace SharpMIDI
 {
@@ -59,13 +57,14 @@ void main() {
    fragColor = vColor;
 }";
 
-        private static int _lineShader;
+        private static GL Gl;
+
+        private static uint _lineShader;
         private static int _uMetrics, _uViewStart, _uViewEnd;
         private static int _uNotesTbo, _uTboStart, _uTboMask, _uPalette;
-        private static int _vao, _tboBuffer, _tboTex, _paletteTex;
+        private static uint _vao, _tboBuffer, _tboTex, _paletteTex;
 
         private static RenderNote* _ring;
-        // required for linked list, more memory usage boooo :unamused:
         private static int* _nextPtrs;
 
         private static int _ringCap = 1 << 23;
@@ -94,26 +93,28 @@ void main() {
         public static void Initialize()
         {
             if (_isInitialized) return;
-            GL.LoadBindings(new NativeGLBindingsContext());
+            
+            // Seamless binding: Hook Silk.NET directly into Raylib's native context loader
+            Gl = GL.GetApi(NativeGLBindingsContext.GetProcAddress);
 
             _lineShader  = BuildShader(LineVertSrc, LineFragSrc);
-            _uMetrics    = GL.GetUniformLocation(_lineShader, "uMetrics");
-            _uViewStart  = GL.GetUniformLocation(_lineShader, "uViewStart");
-            _uViewEnd    = GL.GetUniformLocation(_lineShader, "uViewEnd");
-            _uNotesTbo   = GL.GetUniformLocation(_lineShader, "uNotesTbo");
-            _uTboStart   = GL.GetUniformLocation(_lineShader, "uTboStart");
-            _uTboMask    = GL.GetUniformLocation(_lineShader, "uTboMask");
-            _uPalette    = GL.GetUniformLocation(_lineShader, "uPalette");
+            _uMetrics    = Gl.GetUniformLocation(_lineShader, "uMetrics");
+            _uViewStart  = Gl.GetUniformLocation(_lineShader, "uViewStart");
+            _uViewEnd    = Gl.GetUniformLocation(_lineShader, "uViewEnd");
+            _uNotesTbo   = Gl.GetUniformLocation(_lineShader, "uNotesTbo");
+            _uTboStart   = Gl.GetUniformLocation(_lineShader, "uTboStart");
+            _uTboMask    = Gl.GetUniformLocation(_lineShader, "uTboMask");
+            _uPalette    = Gl.GetUniformLocation(_lineShader, "uPalette");
 
-            GL.UseProgram(_lineShader);
-            GL.Uniform1(_uPalette, 0);
-            GL.Uniform1(_uNotesTbo, 1);
-            GL.UseProgram(0);
+            Gl.UseProgram(_lineShader);
+            Gl.Uniform1(_uPalette, 0);
+            Gl.Uniform1(_uNotesTbo, 1);
+            Gl.UseProgram(0);
 
-            _vao = GL.GenVertexArray();
-            _tboTex = GL.GenTexture();
-            _tboBuffer = GL.GenBuffer();
-            _paletteTex = GL.GenTexture();
+            _vao = Gl.GenVertexArray();
+            _tboTex = Gl.GenTexture();
+            _tboBuffer = Gl.GenBuffer();
+            _paletteTex = Gl.GenTexture();
 
             _keyHeaders = (KeyHeader*)NativeMemory.AlignedAlloc(TOTAL_KEYS * (nuint)sizeof(KeyHeader), 64);
                         
@@ -127,8 +128,8 @@ void main() {
 
             if (_ring != null)
             {
-                GL.BindBuffer(BufferTarget.TextureBuffer, _tboBuffer);
-                GL.UnmapBuffer(BufferTarget.TextureBuffer);
+                Gl.BindBuffer(BufferTargetARB.TextureBuffer, _tboBuffer);
+                Gl.UnmapBuffer(BufferTargetARB.TextureBuffer);
                 _ring = null;
             }
 
@@ -136,21 +137,22 @@ void main() {
                 NativeMemory.AlignedFree(_nextPtrs);
             _nextPtrs = (int*)NativeMemory.AlignedAlloc((nuint)(cap * sizeof(int)), 64);
 
-            GL.DeleteBuffer(_tboBuffer);
-            _tboBuffer = GL.GenBuffer();
+            Gl.DeleteBuffer(_tboBuffer);
+            _tboBuffer = Gl.GenBuffer();
 
-            GL.BindBuffer(BufferTarget.TextureBuffer, _tboBuffer);
+            Gl.BindBuffer(BufferTargetARB.TextureBuffer, _tboBuffer);
             
-            GL.BufferStorage(BufferTarget.TextureBuffer, (nint)(cap * sizeof(RenderNote)), IntPtr.Zero, 
-            BufferStorageFlags.MapReadBit | BufferStorageFlags.MapWriteBit | BufferStorageFlags.MapPersistentBit | BufferStorageFlags.MapCoherentBit);
+            nuint totalBytes = (nuint)(cap * sizeof(RenderNote));
+            BufferStorageMask storageFlags = BufferStorageMask.MapReadBit | BufferStorageMask.MapWriteBit | BufferStorageMask.MapPersistentBit | BufferStorageMask.MapCoherentBit;
+            Gl.BufferStorage(GLEnum.TextureBuffer, totalBytes, null, (uint)storageFlags);
 
-            _ring = (RenderNote*)GL.MapBufferRange(BufferTarget.TextureBuffer, IntPtr.Zero, (nint)(cap * sizeof(RenderNote)), 
-            MapBufferAccessMask.MapReadBit | MapBufferAccessMask.MapWriteBit | MapBufferAccessMask.MapPersistentBit | MapBufferAccessMask.MapCoherentBit);
+            MapBufferAccessMask accessFlags = MapBufferAccessMask.ReadBit | MapBufferAccessMask.WriteBit | MapBufferAccessMask.PersistentBit | MapBufferAccessMask.CoherentBit;
+            _ring = (RenderNote*)Gl.MapBufferRange(BufferTargetARB.TextureBuffer, 0, totalBytes, (uint)accessFlags);
 
-            GL.BindTexture(TextureTarget.TextureBuffer, _tboTex);
-            GL.TexBuffer(TextureBufferTarget.TextureBuffer, SizedInternalFormat.Rg32ui, _tboBuffer);
-            GL.BindTexture(TextureTarget.TextureBuffer, 0);
-            GL.BindBuffer(BufferTarget.TextureBuffer, 0);
+            Gl.BindTexture(TextureTarget.TextureBuffer, _tboTex);
+            Gl.TexBuffer(GLEnum.TextureBuffer, GLEnum.RG32ui, _tboBuffer);
+            Gl.BindTexture(TextureTarget.TextureBuffer, 0);
+            Gl.BindBuffer(BufferTargetARB.TextureBuffer, 0);
 
             _ringCap = cap;
         }
@@ -187,16 +189,16 @@ void main() {
 
             if (_tboBuffer != 0)
             {
-                GL.BindBuffer(BufferTarget.TextureBuffer, _tboBuffer);
-                if (_ring != null) { GL.UnmapBuffer(BufferTarget.TextureBuffer); _ring = null; }
-                GL.BindBuffer(BufferTarget.TextureBuffer, 0);
-                GL.DeleteBuffer(_tboBuffer);
+                Gl.BindBuffer(BufferTargetARB.TextureBuffer, _tboBuffer);
+                if (_ring != null) { Gl.UnmapBuffer(BufferTargetARB.TextureBuffer); _ring = null; }
+                Gl.BindBuffer(BufferTargetARB.TextureBuffer, 0);
+                Gl.DeleteBuffer(_tboBuffer);
                 _tboBuffer = 0;
             }
-            if (_tboTex != 0) { GL.DeleteTexture(_tboTex); _tboTex = 0; }
-            if (_paletteTex != 0) { GL.DeleteTexture(_paletteTex); _paletteTex = 0; }
-            if (_vao != 0) { GL.DeleteVertexArray(_vao); _vao = 0; }
-            if (_lineShader != 0) { GL.DeleteProgram(_lineShader); _lineShader = 0; }
+            if (_tboTex != 0) { Gl.DeleteTexture(_tboTex); _tboTex = 0; }
+            if (_paletteTex != 0) { Gl.DeleteTexture(_paletteTex); _paletteTex = 0; }
+            if (_vao != 0) { Gl.DeleteVertexArray(_vao); _vao = 0; }
+            if (_lineShader != 0) { Gl.DeleteProgram(_lineShader); _lineShader = 0; }
         }
 
         [MethodImpl(MethodImplOptions.AggressiveOptimization)]
@@ -211,10 +213,13 @@ void main() {
                     paletteData[i * 3 + 1] = (byte)((c >>  8) & 0xFF);
                     paletteData[i * 3 + 2] = (byte)( c        & 0xFF);
                 }
-                GL.BindTexture(TextureTarget.Texture2D, _paletteTex);
-                GL.TexImage2D(TextureTarget.Texture2D, 0, PixelInternalFormat.Rgb8, COLOR_SIZE, 1, 0, PixelFormat.Rgb, PixelType.UnsignedByte, paletteData);
-                GL.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureMinFilter, (int)TextureMinFilter.Nearest);
-                GL.BindTexture(TextureTarget.Texture2D, 0);
+                Gl.BindTexture(TextureTarget.Texture2D, _paletteTex);
+                fixed (byte* ptr = paletteData)
+                {
+                    Gl.TexImage2D(TextureTarget.Texture2D, 0, InternalFormat.Rgb8, COLOR_SIZE, 1, 0, PixelFormat.Rgb, PixelType.UnsignedByte, ptr);
+                }
+                Gl.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureMinFilter, (int)TextureMinFilter.Nearest);
+                Gl.BindTexture(TextureTarget.Texture2D, 0);
                 _paletteUploadPending = false;
             }
 
@@ -269,33 +274,33 @@ void main() {
                 float yTop = 1.0f - 2.0f * pad / screenHeight;
                 float yStep = (yTop - yBottom) / 128.0f;
 
-                GL.Viewport(0, 0, screenWidth, screenHeight);
-                GL.Enable(EnableCap.DepthTest);
-                GL.DepthFunc(DepthFunction.Less);
-                GL.UseProgram(_lineShader);
+                Gl.Viewport(0, 0, (uint)screenWidth, (uint)screenHeight);
+                Gl.Enable(EnableCap.DepthTest);
+                Gl.DepthFunc(DepthFunction.Less);
+                Gl.UseProgram(_lineShader);
 
-                GL.Uniform3(_uMetrics, _pixelsPerTick, yBottom, yStep);
-                GL.Uniform1(_uViewStart, viewStart);
-                GL.Uniform1(_uViewEnd, viewEnd);
+                Gl.Uniform3(_uMetrics, _pixelsPerTick, yBottom, yStep);
+                Gl.Uniform1(_uViewStart, viewStart);
+                Gl.Uniform1(_uViewEnd, viewEnd);
                 
-                GL.Uniform1(_uTboStart,  _tail & _mask);
-                GL.Uniform1(_uTboMask,   _mask);
+                Gl.Uniform1(_uTboStart,  _tail & _mask);
+                Gl.Uniform1(_uTboMask,   _mask);
 
-                GL.ActiveTexture(TextureUnit.Texture0);
-                GL.BindTexture(TextureTarget.Texture2D, _paletteTex);
-                GL.ActiveTexture(TextureUnit.Texture1);
-                GL.BindTexture(TextureTarget.TextureBuffer, _tboTex);
+                Gl.ActiveTexture(TextureUnit.Texture0);
+                Gl.BindTexture(TextureTarget.Texture2D, _paletteTex);
+                Gl.ActiveTexture(TextureUnit.Texture1);
+                Gl.BindTexture(TextureTarget.TextureBuffer, _tboTex);
 
-                GL.BindVertexArray(_vao);
-                GL.DrawArraysInstanced(PrimitiveType.TriangleStrip, 0, 4, count);
-                GL.BindVertexArray(0);
+                Gl.BindVertexArray(_vao);
+                Gl.DrawArraysInstanced(PrimitiveType.TriangleStrip, 0, 4, (uint)count);
+                Gl.BindVertexArray(0);
 
-                GL.ActiveTexture(TextureUnit.Texture1);
-                GL.BindTexture(TextureTarget.TextureBuffer, 0);
-                GL.ActiveTexture(TextureUnit.Texture0);
-                GL.BindTexture(TextureTarget.Texture2D, 0);
-                GL.UseProgram(0);
-                GL.Disable(EnableCap.DepthTest);
+                Gl.ActiveTexture(TextureUnit.Texture1);
+                Gl.BindTexture(TextureTarget.TextureBuffer, 0);
+                Gl.ActiveTexture(TextureUnit.Texture0);
+                Gl.BindTexture(TextureTarget.Texture2D, 0);
+                Gl.UseProgram(0);
+                Gl.Disable(EnableCap.DepthTest);
             }
             int linepos = (int)Math.Min(tick * _pixelsPerTick * screenWidth / 2, screenWidth / 2);
             Raylib_cs.Raylib.DrawLine(linepos, 0, linepos, screenHeight, Raylib_cs.Color.Red);
@@ -328,6 +333,21 @@ void main() {
                 long nextOffset = tickgroups[tick + 1].offset;
                 byte* ev = messages + currentOffset * 3;
                 byte* evEnd = messages + nextOffset * 3;
+                long totalEventsInTick = nextOffset - currentOffset;
+                
+                if (totalEventsInTick > 0)
+                {
+                    while (headLocal - tailLocal + totalEventsInTick >= cap)
+                    {
+                        _tail = tailLocal;
+                        _head = headLocal;
+                        ResizeRing(cap * 2);
+                        cap = _ringCap;
+                        maskLocal = _mask;
+                        ringLocal = _ring;
+                        nextPtrsLocal = _nextPtrs;
+                    }
+                }
 
                 while (ev < evEnd)
                 {
@@ -350,7 +370,7 @@ void main() {
                             if (oldest >= headLocal - cap)
                             {
                                 int physIdx = oldest & maskLocal;
-                                
+
                                 header->Head = nextPtrsLocal[physIdx];
                                 if (header->Head == 0) 
                                     header->Tail = 0;
@@ -374,17 +394,6 @@ void main() {
                     }
                     else
                     {
-                        if (headLocal - tailLocal >= cap)
-                        {
-                            _tail = tailLocal;
-                            _head = headLocal;
-                            ResizeRing(cap * 2);
-                            cap = _ringCap;
-                            maskLocal = _mask;
-                            ringLocal = _ring;
-                            nextPtrsLocal = _nextPtrs;
-                        }
-
                         int absId = headLocal++;
                         int physIdx = absId & maskLocal;
                         uint colorIdx = useTrack ? (uint)(tracks[(ev - messages) / 3] + channel) & 0xFFu : channel;
@@ -456,16 +465,17 @@ void main() {
                 return;
             int newMask = newCap - 1;
             
-            nint totalBytes = (nint)newCap * sizeof(RenderNote);
+            nuint totalBytes = (nuint)newCap * (nuint)sizeof(RenderNote);
             int* newNext = (int*)NativeMemory.AlignedAlloc((nuint)newCap * sizeof(int), 64);
 
-            int newBuffer = GL.GenBuffer();
-            GL.BindBuffer(BufferTarget.TextureBuffer, newBuffer);
-            GL.BufferStorage(BufferTarget.TextureBuffer, totalBytes, IntPtr.Zero, 
-                BufferStorageFlags.MapReadBit | BufferStorageFlags.MapWriteBit | BufferStorageFlags.MapPersistentBit | BufferStorageFlags.MapCoherentBit);
+            uint newBuffer = Gl.GenBuffer();
+            Gl.BindBuffer(BufferTargetARB.TextureBuffer, newBuffer);
+            
+            BufferStorageMask storageFlags = BufferStorageMask.MapReadBit | BufferStorageMask.MapWriteBit | BufferStorageMask.MapPersistentBit | BufferStorageMask.MapCoherentBit;
+            Gl.BufferStorage(GLEnum.TextureBuffer, totalBytes, null, (uint)storageFlags);
 
-            RenderNote* newRing = (RenderNote*)GL.MapBufferRange(BufferTarget.TextureBuffer, IntPtr.Zero, totalBytes,
-                MapBufferAccessMask.MapReadBit | MapBufferAccessMask.MapWriteBit | MapBufferAccessMask.MapPersistentBit | MapBufferAccessMask.MapCoherentBit);
+            MapBufferAccessMask accessFlags = MapBufferAccessMask.ReadBit | MapBufferAccessMask.WriteBit | MapBufferAccessMask.PersistentBit | MapBufferAccessMask.CoherentBit;
+            RenderNote* newRing = (RenderNote*)Gl.MapBufferRange(BufferTargetARB.TextureBuffer, 0, totalBytes, (uint)accessFlags);
 
             for (int absId = _tail; absId < _head; absId++)
             {
@@ -480,55 +490,55 @@ void main() {
 
             if (_ring != null)
             {
-                GL.BindBuffer(BufferTarget.TextureBuffer, _tboBuffer);
-                GL.UnmapBuffer(BufferTarget.TextureBuffer);
+                Gl.BindBuffer(BufferTargetARB.TextureBuffer, _tboBuffer);
+                Gl.UnmapBuffer(BufferTargetARB.TextureBuffer);
             }
-            GL.DeleteBuffer(_tboBuffer);
+            Gl.DeleteBuffer(_tboBuffer);
 
             _tboBuffer = newBuffer;
             _ring = newRing;
             _mask = newMask;
             _ringCap = newCap;
 
-            GL.BindTexture(TextureTarget.TextureBuffer, _tboTex);
-            GL.TexBuffer(TextureBufferTarget.TextureBuffer, SizedInternalFormat.Rg32ui, _tboBuffer);
-            GL.BindTexture(TextureTarget.TextureBuffer, 0);
-            GL.BindBuffer(BufferTarget.TextureBuffer, 0);
+            Gl.BindTexture(TextureTarget.TextureBuffer, _tboTex);
+            Gl.TexBuffer(TextureTarget.TextureBuffer, GLEnum.RG32ui, _tboBuffer);
+            Gl.BindTexture(TextureTarget.TextureBuffer, 0);
+            Gl.BindBuffer(BufferTargetARB.TextureBuffer, 0);
         }
 
-        private static int BuildShader(string vert, string frag)
+        private static uint BuildShader(string vert, string frag)
         {
-            int vertex = CompileStage(ShaderType.VertexShader, vert);
-            int fragment = CompileStage(ShaderType.FragmentShader, frag);
-            int program = GL.CreateProgram();
-            GL.AttachShader(program, vertex);
-            GL.AttachShader(program, fragment);
-            GL.LinkProgram(program);
-            GL.GetProgram(program, GetProgramParameterName.LinkStatus, out int ok);
+            uint vertex = CompileStage(ShaderType.VertexShader, vert);
+            uint fragment = CompileStage(ShaderType.FragmentShader, frag);
+            uint program = Gl.CreateProgram();
+            Gl.AttachShader(program, vertex);
+            Gl.AttachShader(program, fragment);
+            Gl.LinkProgram(program);
+            Gl.GetProgram(program, GLEnum.LinkStatus, out int ok);
             if (ok == 0) 
-                throw new Exception("Shader link:\n" + GL.GetProgramInfoLog(program));
-            GL.DeleteShader(vertex);
-            GL.DeleteShader(fragment);
+                throw new Exception("Shader link:\n" + Gl.GetProgramInfoLog(program));
+            Gl.DeleteShader(vertex);
+            Gl.DeleteShader(fragment);
             return program;
         }
 
-        private static int CompileStage(ShaderType type, string src)
+        private static uint CompileStage(ShaderType type, string src)
         {
-            int shader = GL.CreateShader(type);
-            GL.ShaderSource(shader, src);
-            GL.CompileShader(shader);
-            GL.GetShader(shader, ShaderParameter.CompileStatus, out int ok);
+            uint shader = Gl.CreateShader(type);
+            Gl.ShaderSource(shader, src);
+            Gl.CompileShader(shader);
+            Gl.GetShader(shader, GLEnum.CompileStatus, out int ok);
             if (ok == 0) 
-                throw new Exception($"{type}:\n" + GL.GetShaderInfoLog(shader));
+                throw new Exception($"{type}:\n" + Gl.GetShaderInfoLog(shader));
             return shader;
         }
 
-        private sealed class NativeGLBindingsContext : IBindingsContext
+        public class NativeGLBindingsContext
         {
-            private static readonly nint s_gl = LoadGL();
+            private static readonly nint s_glLibrary = LoadGL();
             private static nint LoadGL()
             {
-                if (OperatingSystem.IsWindows())
+                if (OperatingSystem.IsWindows()) 
                     return NativeLibrary.Load("opengl32.dll");
                 if (OperatingSystem.IsLinux())
                     return NativeLibrary.TryLoad("libGL.so.1", out nint h) ? h : NativeLibrary.Load("libGL.so");
@@ -538,18 +548,17 @@ void main() {
             }
             [DllImport("opengl32.dll", EntryPoint = "wglGetProcAddress", ExactSpelling = true)]
             private static extern nint WglGetProcAddress(string name);
-            public nint GetProcAddress(string procName)
+            public static nint GetProcAddress(string procName)
             {
-                nint addr;
                 if (OperatingSystem.IsWindows())
                 {
-                    addr = WglGetProcAddress(procName);
-                    if (addr is 0 or 1 or 2 or 3 or -1) 
-                        NativeLibrary.TryGetExport(s_gl, procName, out addr);
+                    nint addr = WglGetProcAddress(procName);
+                    if (addr is 0 or 1 or 2 or 3 or -1)
+                        NativeLibrary.TryGetExport(s_glLibrary, procName, out addr);
+                    return addr;
                 }
-                else 
-                    NativeLibrary.TryGetExport(s_gl, procName, out addr);
-                return addr;
+                NativeLibrary.TryGetExport(s_glLibrary, procName, out nint unixAddr);
+                return unixAddr;
             }
         }
     }
