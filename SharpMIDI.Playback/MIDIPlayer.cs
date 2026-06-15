@@ -80,8 +80,21 @@ namespace SharpMIDI
                         uint24* targetMsg = msgptr + currtg->offset;
                         if (!singlethread)
                         {
-                            while (msgcur < targetMsg)
-                                buffer[(ushort)msgcur] = *msgcur++;
+                            long count = targetMsg - msgcur;
+                            long copied = 0;
+                            while (copied < count)
+                            {
+                                uint write = Sound.writeptr;
+                                long remaining = count - copied;
+                                uint free = Sound.bufferSize - write;
+
+                                long chunk = Math.Min(remaining, free);
+                                Buffer.MemoryCopy(msgcur + copied, buffer + write, chunk * sizeof(uint24), chunk * sizeof(uint24));
+                                
+                                Sound.writeptr = (uint)((write + chunk) & Sound.bufferMask);
+                                copied += chunk;
+                            }
+                            msgcur = targetMsg;
                         }
                         else   
                         { 

@@ -27,7 +27,9 @@ namespace SharpMIDI
     static unsafe class Sound
     {
         public static uint24* ringbuffer;
-        public const int bufferSize = ushort.MaxValue;
+        public const int bufferSize = 1 << 23; // 8 million somethuings
+        public const int bufferMask = bufferSize - 1;
+        public static uint readptr = 0, writeptr = 0;
         static bool running = false;
         public static bool issynthinitiated = false;
         public static string currsynth = "";
@@ -101,7 +103,6 @@ namespace SharpMIDI
         static void AudioThread()
         {
             uint24* buffer = ringbuffer;
-            ushort readidx = 0;
             var sendfn = sendTo;
             #if WINDOWS
             if (currsynth == "WinMM")
@@ -116,20 +117,19 @@ namespace SharpMIDI
                         sendfn2(handle, val);
                         buffer[readidx] = 0;
                     }
-                    readidx++;
+                    readidx = (readidx + 1) & bufferMask;
                 }
                 return;
             }
             #endif
             while (running)
             {
-                uint val = (uint)buffer[readidx].Value;
-                if (val != 0)
+                while(readptr != writeptr)
                 {
+                    uint val = (uint)buffer[readptr].Value;
                     sendfn(val);
-                    buffer[readidx] = 0;
+                    readptr = (readptr + 1) & bufferMask;
                 }
-                readidx++;
             }
         }
         
