@@ -21,7 +21,6 @@ namespace SharpMIDI
 
             while (localPtr < localEndPtr)
             {
-                // inline varlen decode
                 int delta = *localPtr++;
                 if (delta >= 0x80)
                 {
@@ -35,7 +34,7 @@ namespace SharpMIDI
                     while (b >= 0x80);
                 }
                 absolutetime += delta;
-
+                
                 byte readEvent = *localPtr;
                 if (readEvent >= 0x80)
                 {
@@ -49,15 +48,7 @@ namespace SharpMIDI
                 if (readEvent < 0xF0)
                 {
                     byte status = (byte)(readEvent & 0xF0);
-                    if (status == 0x80)
-                    {
-                        byte note = *localPtr++; 
-                        byte vel = *localPtr++;
-                        long pos = Interlocked.Increment(ref writeCursors[absolutetime]) - 1;
-                        msgPtr[pos] = (uint24)(readEvent | (note << 8) | (vel << 16));
-                        if(trackcolors) trackPtr[pos] = track;
-                    }
-                    else if (status == 0x90)
+                    if (status == 0x90)
                     {
                         byte note = *localPtr++;
                         byte vel = *localPtr++;
@@ -66,17 +57,24 @@ namespace SharpMIDI
                         { 
                             notecount++; 
                             msgPtr[pos] = (uint24)(readEvent | (note << 8) | (vel << 16));
-                            if(trackcolors) trackPtr[pos] = track;
                         }
                         else 
                         { 
                             byte channel = (byte)(readEvent & 0x0F);
                             byte dummynoteoff = (byte)(0x80 | channel);  
                             msgPtr[pos] = (uint24)(dummynoteoff | (note << 8) | (64 << 16));
-                            if(trackcolors) trackPtr[pos] = track;
                         }
+                        if(trackcolors) trackPtr[pos] = track;
                     }
-                    else if (status == 0xA0) 
+                    else if (status == 0x80)
+                    {
+                        byte note = *localPtr++; 
+                        byte vel = *localPtr++;
+                        long pos = Interlocked.Increment(ref writeCursors[absolutetime]) - 1;
+                        msgPtr[pos] = (uint24)(readEvent | (note << 8) | (vel << 16));
+                        if(trackcolors) trackPtr[pos] = track;
+                    }
+                    else if (status == 0xA0)
                     { 
                         byte note = *localPtr++;
                         byte pressure = *localPtr++; 
@@ -84,7 +82,7 @@ namespace SharpMIDI
                         msgPtr[pos] = (uint24)(readEvent | (note << 8) | (pressure << 16));
                         if(trackcolors) trackPtr[pos] = track;
                     }
-                    else if (status == 0xB0) 
+                    else if (status == 0xB0)
                     { 
                         byte controller = *localPtr++;
                         byte val = *localPtr++;      
@@ -92,29 +90,28 @@ namespace SharpMIDI
                         msgPtr[pos] = (uint24)(readEvent | (controller << 8) | (val << 16));
                         if(trackcolors) trackPtr[pos] = track;
                     }
-                    else if (status == 0xC0) 
+                    else if (status == 0xC0)
                     { 
                         byte prog = *localPtr++;                            
                         long pos = Interlocked.Increment(ref writeCursors[absolutetime]) - 1; 
                         msgPtr[pos] = (uint24)(readEvent | (prog << 8));
                         if(trackcolors) trackPtr[pos] = track;
                     }
-                    else if (status == 0xD0) 
+                    else if (status == 0xD0)
                     { 
                         byte pres = *localPtr++;                            
                         long pos = Interlocked.Increment(ref writeCursors[absolutetime]) - 1; 
                         msgPtr[pos] = (uint24)(readEvent | (pres << 8));
                         if(trackcolors) trackPtr[pos] = track;
                     }
-                    else if (status == 0xE0) 
+                    else if (status == 0xE0)
                     { 
-                        byte lsb  = *localPtr++; 
+                        byte lsb = *localPtr++; 
                         byte msb = *localPtr++;      
                         long pos = Interlocked.Increment(ref writeCursors[absolutetime]) - 1; 
                         msgPtr[pos] = (uint24)(readEvent | (lsb << 8) | (msb << 16));
                         if(trackcolors) trackPtr[pos] = track;
                     }
-                    
                 }
                 else
                 {
@@ -132,7 +129,6 @@ namespace SharpMIDI
                         for(uint i = 0; i < size; i++)
                             data.Add(*localPtr++);
                         localSysEx.Add(new SysEx { tick = absolutetime, message = [.. data] });
-                        
                     }
                     else if (readEvent == 0xF1 || readEvent == 0xF3)
                         localPtr++; 
@@ -175,12 +171,10 @@ namespace SharpMIDI
             }
             finalize:
                 totalNotes = notecount;
-                ptr = localPtr;
                 lock(tempMIDIstorage.temppos) 
                     tempMIDIstorage.temppos.AddRange(localTempos);
                 lock(tempMIDIstorage.SysEx)   
                     tempMIDIstorage.SysEx.AddRange(localSysEx);
-                ptr = localPtr;
         }
 
         public void ScanEvents(ref BigArray<TickGroup> tickCounts)
@@ -198,13 +192,23 @@ namespace SharpMIDI
 
             while (localPtr < localEndPtr)
             {
-                // also inline varlen decode
                 int delta = *localPtr++;
                 if (delta >= 0x80)
                 {
+                    delta &= 0x7F;
+                    byte b;
+                    do 
+                    {
+                        b = *localPtr++;
+                        delta = (delta << 7) | (b & 0x7F);
+                    } 
+                    while (b >= 0x80);
+                }
+
+                if (delta > 0)
+                {
                     if (count > 0)
                     {
-                        // inline tick add too
                         if (tick_idx >= tick_len)
                         {
                             tick_len *= 2;
@@ -222,17 +226,8 @@ namespace SharpMIDI
                         notecount = 0;
                         count = 0;
                     }
-                    
-                    delta &= 0x7F;
-                    byte b;
-                    do 
-                    {
-                        b = *localPtr++;
-                        delta = (delta << 7) | (b & 0x7F);
-                    } 
-                    while (b >= 0x80);
+                    absolutetime += delta;
                 }
-                absolutetime += delta;
 
                 byte readEvent = *localPtr;
                 if (readEvent >= 0x80)
@@ -259,7 +254,7 @@ namespace SharpMIDI
                         localPtr += 2;
                         count++;
                     }
-                    else if(status == 0xC0 || status == 0xD0)
+                    else if (status == 0xC0 || status == 0xD0)
                     {
                         localPtr++;
                         count++;
@@ -329,7 +324,6 @@ namespace SharpMIDI
                     totalNotes += notecount;
                 }
                 tickCounts.Count = tick_idx;
-                ptr = localPtr;
         }
 
         public void Dispose()

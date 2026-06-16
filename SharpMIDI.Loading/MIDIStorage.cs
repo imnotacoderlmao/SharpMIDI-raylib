@@ -45,14 +45,14 @@ namespace SharpMIDI
     static class MIDIEvent
     {
         public static BigArray<TickGroup> TickGroupArray = null;
-        public static Tempo[] TempoEventArray = Array.Empty<Tempo>();
-        public static SysEx[] SysExArray = Array.Empty<SysEx>();
+        public static Tempo[] TempoEventArray = [];
+        public static SysEx[] SysExArray = [];
     }
 
     static class tempMIDIstorage
     {
-        public static List<Tempo> temppos = new List<Tempo>();
-        public static List<SysEx> SysEx = new List<SysEx>();
+        public static List<Tempo> temppos = [];
+        public static List<SysEx> SysEx = [];
     }
     
     public unsafe class BigArray<T> : IDisposable

@@ -1,4 +1,3 @@
-#pragma warning disable 8602
 using System.Diagnostics;
 using System.IO.MemoryMappedFiles;
 
@@ -12,7 +11,7 @@ namespace SharpMIDI
             public uint len;
         }
 
-        private static readonly List<TrackProperties> trackProperties = new List<TrackProperties>();
+        private static readonly List<TrackProperties> trackProperties = [];
         private static unsafe byte* filePtr = null;
         private static long fileLength = 0;
         private static long filePos = 0; 
