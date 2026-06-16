@@ -68,16 +68,6 @@ namespace SharpMIDI
             long bytes = Length * sizeof(T);
             ptr = (T*)NativeMemory.AllocZeroed((nuint)bytes);
         }
-
-        public void Add(T item)
-        {
-            if (Count >= Length)
-            {
-                long newLength = Length == 0 ? 2048 : Length * 2;
-                Resize(newLength);
-            }
-            ptr[Count++] = item;
-        }
         
         public void Resize(long newLength)
         {

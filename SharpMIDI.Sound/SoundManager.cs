@@ -113,9 +113,9 @@ namespace SharpMIDI
                 {
                     while(readptr != writeptr)
                     {
-                        uint val = (uint)buffer[readidx].Value;
+                        uint val = (uint)buffer[readptr].Value;
                         sendfn2(handle, val);
-                        readidx = (readidx + 1) & bufferMask;
+                        readptr = (readptr + 1) & bufferMask;
                     }
                 }
                 return;

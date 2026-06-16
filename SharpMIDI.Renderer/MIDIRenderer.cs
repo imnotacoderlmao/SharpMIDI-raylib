@@ -94,7 +94,6 @@ void main() {
         {
             if (_isInitialized) return;
             
-            // Seamless binding: Hook Silk.NET directly into Raylib's native context loader
             Gl = GL.GetApi(NativeGLBindingsContext.GetProcAddress);
 
             _lineShader  = BuildShader(LineVertSrc, LineFragSrc);
