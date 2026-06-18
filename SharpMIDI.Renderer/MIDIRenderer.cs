@@ -22,16 +22,20 @@ namespace SharpMIDI
             public int Tail;
         }
 
-        private const string LineVertSrc =
+private const string LineVertSrc =
 @"#version 330 core
 uniform vec3 uMetrics;
 uniform int uViewStart;
 uniform int uViewEnd;
 uniform int uTboStart;
 uniform int uTboMask;
+uniform int uCurrentTick;
 uniform usamplerBuffer uNotesTbo;
 uniform sampler2D uPalette;
+
 flat out vec4 vColor;
+flat out int vIsActive;
+
 void main() {
     int physIdx = (gl_InstanceID + uTboStart) & uTboMask;
     uvec2 notedata = texelFetch(uNotesTbo, physIdx).rg;
@@ -47,15 +51,30 @@ void main() {
     float y = uMetrics.y + float(((aPackedData >> 16) & 0xFFu) + isTop) * uMetrics.z;
     float z = dur / 65536.0;
     vColor = texelFetch(uPalette, ivec2(int(aPackedData >> 24), 0), 0);
+    
+    // check if the note is currently being played
+    int endTick = aStartTick + (isNoteOn? (uViewEnd - aStartTick) : int(aPackedData & 0xFFFFu));
+    vIsActive = (uCurrentTick >= aStartTick && uCurrentTick <= endTick) ? 1 : 0;
+
     gl_Position = vec4(x, y, z, 1.0);
 }";
 
         private const string LineFragSrc =
 @"#version 330 core
 flat in vec4 vColor;
+flat in int vIsActive;
+
+uniform int uGlowEnabled;
 out vec4 fragColor;
+
 void main() {
-   fragColor = vColor;
+    if (uGlowEnabled == 1 && vIsActive == 1) {
+        // then brighten the entire note if it is
+        vec3 brightColor = vColor.rgb * 1.5 + vec3(0.1);
+        fragColor = vec4(min(brightColor, vec3(1.0)), vColor.a);
+    } else {
+        fragColor = vColor;
+    }
 }";
 
         private static GL Gl;
@@ -63,6 +82,7 @@ void main() {
         private static uint _lineShader;
         private static int _uMetrics, _uViewStart, _uViewEnd;
         private static int _uNotesTbo, _uTboStart, _uTboMask, _uPalette;
+        private static int _uGlowEnabled, _uCurrentTick;
         private static uint _vao, _tboBuffer, _tboTex, _paletteTex;
 
         private static RenderNote* _ring;
@@ -90,6 +110,8 @@ void main() {
         public static int WindowTicks = 2000;
         public static int RingCap;
         public static int NotesDrawnLastFrame;
+        public static bool UseForceCull = false;
+        public static bool EnableGlow = true;
 
         public static void Initialize()
         {
@@ -97,14 +119,16 @@ void main() {
             
             Gl = GL.GetApi(NativeGLBindingsContext.GetProcAddress);
 
-            _lineShader  = BuildShader(LineVertSrc, LineFragSrc);
-            _uMetrics    = Gl.GetUniformLocation(_lineShader, "uMetrics");
-            _uViewStart  = Gl.GetUniformLocation(_lineShader, "uViewStart");
-            _uViewEnd    = Gl.GetUniformLocation(_lineShader, "uViewEnd");
-            _uNotesTbo   = Gl.GetUniformLocation(_lineShader, "uNotesTbo");
-            _uTboStart   = Gl.GetUniformLocation(_lineShader, "uTboStart");
-            _uTboMask    = Gl.GetUniformLocation(_lineShader, "uTboMask");
-            _uPalette    = Gl.GetUniformLocation(_lineShader, "uPalette");
+            _lineShader   = BuildShader(LineVertSrc, LineFragSrc);
+            _uMetrics     = Gl.GetUniformLocation(_lineShader, "uMetrics");
+            _uViewStart   = Gl.GetUniformLocation(_lineShader, "uViewStart");
+            _uViewEnd     = Gl.GetUniformLocation(_lineShader, "uViewEnd");
+            _uNotesTbo    = Gl.GetUniformLocation(_lineShader, "uNotesTbo");
+            _uTboStart    = Gl.GetUniformLocation(_lineShader, "uTboStart");
+            _uTboMask     = Gl.GetUniformLocation(_lineShader, "uTboMask");
+            _uPalette     = Gl.GetUniformLocation(_lineShader, "uPalette");
+            _uGlowEnabled = Gl.GetUniformLocation(_lineShader, "uGlowEnabled");
+            _uCurrentTick = Gl.GetUniformLocation(_lineShader, "uCurrentTick");
 
             Gl.UseProgram(_lineShader);
             Gl.Uniform1(_uPalette, 0);
@@ -286,6 +310,9 @@ void main() {
                 Gl.Uniform1(_uTboStart,  _tail & _mask);
                 Gl.Uniform1(_uTboMask,   _mask);
 
+                Gl.Uniform1(_uGlowEnabled, EnableGlow ? 1 : 0);
+                Gl.Uniform1(_uCurrentTick, tick);
+
                 Gl.ActiveTexture(TextureUnit.Texture0);
                 Gl.BindTexture(TextureTarget.Texture2D, _paletteTex);
                 Gl.ActiveTexture(TextureUnit.Texture1);
@@ -396,7 +423,9 @@ void main() {
                     {
                         int absId = headLocal++;
                         int physIdx = absId & maskLocal;
-                        uint colorIdx = useTrack ? (uint)(tracks[(ev - messages) / 3] + channel) & 0xFFu : channel;
+                        // this should be equivalent to divison by 3, but what the fuck?
+                        long idx = ((ev - messages) * 0x5555555555555556L) >> 1;
+                        uint colorIdx = useTrack ? (uint)(tracks[idx] + channel) & 0xFFu : channel;
 
                         // terminate new node
                         nextPtrsLocal[physIdx] = 0;
@@ -434,7 +463,7 @@ void main() {
                 _tail = safeTail;
 
             int forcecullthresh = Math.Min(_lookaheadTicks * 2, ushort.MaxValue);
-            bool forceCull = NotesDrawnLastFrame > 262144;
+            bool forceCull = UseForceCull && NotesDrawnLastFrame > 262144;
             int forceCullBefore = viewStart - forcecullthresh;
             
             RenderNote* ring = _ring;

@@ -231,6 +231,16 @@ namespace SharpMIDI
                     {
                         ImGui.SetTooltip("oo... fake time based... (do not use this in demanding midis it forces a full redraw for now)");
                     }
+                    ImGui.Checkbox("Force cull notes", ref GLNoteRenderer.UseForceCull);
+                    if (ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled))
+                    {
+                        ImGui.SetTooltip("Force cull notes if held for a long time\n(due to how notes are stored, this prevents the vbo size from balloning too much. will break visuals in some cases though)");
+                    }
+                    ImGui.Checkbox("Note glow", ref GLNoteRenderer.EnableGlow);
+                    if (ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled))
+                    {
+                        ImGui.SetTooltip("Brighten notes that are being played");
+                    }
                     ImGui.Checkbox("Track colors", ref trackcolors);
                     if (ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled))
                     {

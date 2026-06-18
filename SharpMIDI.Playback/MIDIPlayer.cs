@@ -80,15 +80,15 @@ namespace SharpMIDI
                         uint24* targetMsg = msgptr + currtg->offset;
                         if (!singlethread)
                         {
-                            long count = targetMsg - msgcur;
-                            long copied = 0;
+                            uint count = (uint)(targetMsg - msgcur);
+                            uint copied = 0;
                             while (copied < count)
                             {
                                 uint write = Sound.writeptr;
-                                long remaining = count - copied;
+                                uint remaining = count - copied;
                                 uint free = Sound.bufferSize - write;
 
-                                uint chunk = (uint)Math.Min(remaining, free);
+                                uint chunk = Math.Min(remaining, free);
                                 // just hoping there isnt more than 1,431,655,765.33 events in a single tick
                                 uint bytes = chunk * (uint)sizeof(uint24);
                                 Unsafe.CopyBlockUnaligned(&buffer[write], &msgcur[copied], bytes);
