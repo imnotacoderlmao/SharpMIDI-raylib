@@ -30,12 +30,11 @@ namespace SharpMIDI
         public static bool Debug = false;
         public static bool IsRunning { get; private set; } = false;
         public static bool singlethreadplayback = false;
-        public static bool[] initiatedsynth = new bool[Sound.synths.Length];
+        public static int currsynth = 0;
 
         public static void StartRenderer()
         {
             if (IsRunning) return;
-            initiatedsynth[0] = true;
             IsRunning = true;
             RenderLoop();
         }
@@ -139,7 +138,8 @@ namespace SharpMIDI
                     else 
                         scrollfactor -= 0.5f;
                 }
-                GLNoteRenderer.WindowTicks = (int)Math.Max(100f, GLNoteRenderer.WindowTicks * 0.9f);
+                else
+                    GLNoteRenderer.WindowTicks = (int)Math.Max(100f, GLNoteRenderer.WindowTicks * 0.9f);
             }
             if (Raylib.IsKeyPressed(KeyboardKey.Down) || Raylib.IsKeyPressedRepeat(KeyboardKey.Down))
             {
@@ -150,7 +150,8 @@ namespace SharpMIDI
                     else 
                         scrollfactor += 0.5f;
                 }
-                GLNoteRenderer.WindowTicks = (int)Math.Min(100000f, GLNoteRenderer.WindowTicks * 1.1f);
+                else
+                    GLNoteRenderer.WindowTicks = (int)Math.Min(100000f, GLNoteRenderer.WindowTicks * 1.1f);
             }
 
             if (Raylib.IsKeyPressed(KeyboardKey.Left) || Raylib.IsKeyPressedRepeat(KeyboardKey.Left))
@@ -288,29 +289,14 @@ namespace SharpMIDI
                 }
                 if (ImGui.BeginTabItem("Synthesizer"))
                 {
-                    // dear god
-                    if (ImGui.Checkbox("Empty", ref initiatedsynth[0]))
-                    {
+                    // no more dear god. genuinely forgot radiobuttons existed at all
+                    if (ImGui.RadioButton("Empty", ref currsynth, 0))
                         Sound.Close();
-                        initiatedsynth[0] = true;
-                        initiatedsynth[1] = false;
-                        initiatedsynth[2] = false;
-                    }
-                    if (ImGui.Checkbox("KDMAPI", ref initiatedsynth[1]))
-                    {
+                    if (ImGui.RadioButton("KDMAPI", ref currsynth, 1))
                         Sound.InitSynth("KDMAPI", "");
-                        initiatedsynth[0] = false;
-                        initiatedsynth[1] = true;
-                        initiatedsynth[2] = false;
-                    }
                     #if WINDOWS
-                    if (ImGui.Checkbox("WinMM", ref initiatedsynth[2]))
-                    {
-                        initiatedsynth[0] = false;
-                        initiatedsynth[1] = false;
-                        initiatedsynth[2] = true;
-                    }
-                    if (initiatedsynth[2] && ImGui.BeginCombo("WinMM Device", selectedwinmmout))
+                    ImGui.RadioButton("WinMM", ref currsynth, 2);
+                    if (currsynth == 2 && ImGui.BeginCombo("WinMM Device", selectedwinmmout))
                     {
                         foreach (string i in WinMM.winMMDevices)
                         {

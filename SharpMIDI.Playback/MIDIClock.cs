@@ -44,7 +44,7 @@ namespace SharpMIDI
             if (skipTo)
                 targetTick = SkipTick;
             
-            if (targetTick == 0) 
+            if (targetTick < 0) 
                 targetTick = 0;
             
             tick = targetTick; 

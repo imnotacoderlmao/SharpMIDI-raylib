@@ -22,26 +22,33 @@ namespace SharpMIDI
             public int Tail;
         }
 
-private const string LineVertSrc =
-@"#version 330 core
+        private const string LineVertSrc =
+@"#version 430 core
+struct RenderNote {
+    int StartTick;
+    uint PackedData;
+};
+
+layout(std430, binding = 0) readonly buffer NoteBuffer {
+    RenderNote notes[];
+};
 uniform vec3 uMetrics;
 uniform int uViewStart;
 uniform int uViewEnd;
-uniform int uTboStart;
-uniform int uTboMask;
+uniform int uRingStart;
+uniform int uRingMask;
 uniform int uCurrentTick;
-uniform usamplerBuffer uNotesTbo;
 uniform sampler2D uPalette;
 
 flat out vec4 vColor;
 flat out int vIsActive;
 
 void main() {
-    int physIdx = (gl_InstanceID + uTboStart) & uTboMask;
-    uvec2 notedata = texelFetch(uNotesTbo, physIdx).rg;
-    int aStartTick = int(notedata.r & 0x7FFFFFFFu);
-    bool isNoteOn = bool(notedata.r & 0x80000000u);
-    uint aPackedData = notedata.g;
+    int physIdx = (gl_InstanceID + uRingStart) & uRingMask;
+    RenderNote notedata = notes[physIdx];
+    int aStartTick = int(uint(notedata.StartTick) & 0x7FFFFFFFu);
+    bool isNoteOn = bool(notedata.StartTick & 0x80000000u);
+    uint aPackedData = notedata.PackedData;
     float dur = isNoteOn? float(uViewEnd - aStartTick) : float(aPackedData & 0xFFFFu);
     uint isEnd = uint(gl_VertexID) & 1u;
     uint isTop = uint(gl_VertexID >> 1) & 1u;
@@ -60,7 +67,7 @@ void main() {
 }";
 
         private const string LineFragSrc =
-@"#version 330 core
+@"#version 430 core
 flat in vec4 vColor;
 flat in int vIsActive;
 
@@ -68,24 +75,25 @@ uniform int uGlowEnabled;
 out vec4 fragColor;
 
 void main() {
-    if (uGlowEnabled == 1 && vIsActive == 1) {
-        // then brighten the entire note if it is
-        vec3 brightColor = vColor.rgb * 1.5 + vec3(0.1);
-        fragColor = vec4(min(brightColor, vec3(1.0)), vColor.a);
-    } else {
-        fragColor = vColor;
-    }
+    // then brighten the entire note if it is
+    fragColor = (uGlowEnabled == 1 && vIsActive == 1)? vec4(min(vColor.rgb * 1.5 + vec3(0.1), vec3(1.0)), vColor.a) : vColor;
 }";
 
         private static GL Gl;
-
+        private const BufferStorageMask storageFlags = BufferStorageMask.MapWriteBit |
+                                                       BufferStorageMask.MapPersistentBit | BufferStorageMask.MapCoherentBit;
+        private const MapBufferAccessMask accessFlags = MapBufferAccessMask.WriteBit | 
+                                                        MapBufferAccessMask.PersistentBit | MapBufferAccessMask.CoherentBit;
         private static uint _lineShader;
         private static int _uMetrics, _uViewStart, _uViewEnd;
-        private static int _uNotesTbo, _uTboStart, _uTboMask, _uPalette;
+        private static int _uRingStart, _uRingMask, _uPalette;
         private static int _uGlowEnabled, _uCurrentTick;
-        private static uint _vao, _tboBuffer, _tboTex, _paletteTex;
+        private static uint _vao, _ssboBuffer, _paletteTex;
 
         private static RenderNote* _ring;
+        // shadow cpu array, 2x memory usage BOOOOO (hey at least _ring is actually on vram now)
+        private static RenderNote* _cpuRing;
+        
         private static int* _nextPtrs;
 
         private static int _ringCap = 1 << 23;
@@ -97,7 +105,7 @@ void main() {
 
         private static KeyHeader* _keyHeaders;
         private const int TOTAL_KEYS = 128 * 16;
-        private const int COLOR_SIZE  = 256;
+        private const int COLOR_SIZE  = 16;
 
         private static int _lookaheadTicks = 4000;
         private static float _pixelsPerTick;
@@ -116,67 +124,55 @@ void main() {
         public static void Initialize()
         {
             if (_isInitialized) return;
-            
             Gl = GL.GetApi(NativeGLBindingsContext.GetProcAddress);
 
             _lineShader   = BuildShader(LineVertSrc, LineFragSrc);
             _uMetrics     = Gl.GetUniformLocation(_lineShader, "uMetrics");
             _uViewStart   = Gl.GetUniformLocation(_lineShader, "uViewStart");
             _uViewEnd     = Gl.GetUniformLocation(_lineShader, "uViewEnd");
-            _uNotesTbo    = Gl.GetUniformLocation(_lineShader, "uNotesTbo");
-            _uTboStart    = Gl.GetUniformLocation(_lineShader, "uTboStart");
-            _uTboMask     = Gl.GetUniformLocation(_lineShader, "uTboMask");
+            _uRingStart   = Gl.GetUniformLocation(_lineShader, "uRingStart");
+            _uRingMask    = Gl.GetUniformLocation(_lineShader, "uRingMask");
             _uPalette     = Gl.GetUniformLocation(_lineShader, "uPalette");
             _uGlowEnabled = Gl.GetUniformLocation(_lineShader, "uGlowEnabled");
             _uCurrentTick = Gl.GetUniformLocation(_lineShader, "uCurrentTick");
 
             Gl.UseProgram(_lineShader);
             Gl.Uniform1(_uPalette, 0);
-            Gl.Uniform1(_uNotesTbo, 1);
             Gl.UseProgram(0);
 
+            _keyHeaders = (KeyHeader*)NativeMemory.Alloc(TOTAL_KEYS * (nuint)sizeof(KeyHeader));
+            
             _vao = Gl.GenVertexArray();
-            _tboTex = Gl.GenTexture();
-            _tboBuffer = Gl.GenBuffer();
             _paletteTex = Gl.GenTexture();
-
-            _keyHeaders = (KeyHeader*)NativeMemory.AlignedAlloc(TOTAL_KEYS * (nuint)sizeof(KeyHeader), 64);
                         
-            AllocTbo(_ringCap);
+            AllocRing(_ringCap);
             _isInitialized = true;
         }
         
-        private static void AllocTbo(int cap)
+        private static void AllocRing(int cap)
         {
             _mask = cap - 1;
-
-            if (_ring != null)
+            
+            if (_ssboBuffer != 0)
             {
-                Gl.BindBuffer(BufferTargetARB.TextureBuffer, _tboBuffer);
-                Gl.UnmapBuffer(BufferTargetARB.TextureBuffer);
-                _ring = null;
+                Gl.BindBuffer(BufferTargetARB.ShaderStorageBuffer, _ssboBuffer);
+                Gl.UnmapBuffer(BufferTargetARB.ShaderStorageBuffer);
+                Gl.DeleteBuffer(_ssboBuffer);
             }
-
-            if (_nextPtrs != null) 
-                NativeMemory.AlignedFree(_nextPtrs);
-            _nextPtrs = (int*)NativeMemory.AlignedAlloc((nuint)(cap * sizeof(int)), 64);
-
-            Gl.DeleteBuffer(_tboBuffer);
-            _tboBuffer = Gl.GenBuffer();
-
-            Gl.BindBuffer(BufferTargetARB.TextureBuffer, _tboBuffer);
+            
+            _ssboBuffer = Gl.GenBuffer();
+            Gl.BindBuffer(BufferTargetARB.ShaderStorageBuffer, _ssboBuffer);
             
             nuint totalBytes = (nuint)(cap * sizeof(RenderNote));
-            BufferStorageMask storageFlags = BufferStorageMask.MapReadBit | BufferStorageMask.MapWriteBit | BufferStorageMask.MapPersistentBit | BufferStorageMask.MapCoherentBit;
-            Gl.BufferStorage(GLEnum.TextureBuffer, totalBytes, null, (uint)storageFlags);
+            Gl.BufferStorage(GLEnum.ShaderStorageBuffer, totalBytes, null, (uint)storageFlags);
+            _ring = (RenderNote*)Gl.MapBufferRange(BufferTargetARB.ShaderStorageBuffer, 0, totalBytes, (uint)accessFlags);
+            Gl.BindBuffer(BufferTargetARB.ShaderStorageBuffer, 0);
 
-            MapBufferAccessMask accessFlags = MapBufferAccessMask.ReadBit | MapBufferAccessMask.WriteBit | MapBufferAccessMask.PersistentBit | MapBufferAccessMask.CoherentBit;
-            _ring = (RenderNote*)Gl.MapBufferRange(BufferTargetARB.TextureBuffer, 0, totalBytes, (uint)accessFlags);
+            if (_nextPtrs != null) NativeMemory.Free(_nextPtrs);
+            _nextPtrs = (int*)NativeMemory.AllocZeroed((nuint)(cap * sizeof(int)));
 
-            Gl.BindTexture(TextureTarget.TextureBuffer, _tboTex);
-            Gl.TexBuffer(GLEnum.TextureBuffer, GLEnum.RG32ui, _tboBuffer);
-            Gl.BindTexture(TextureTarget.TextureBuffer, 0);
-            Gl.BindBuffer(BufferTargetARB.TextureBuffer, 0);
+            if (_cpuRing != null) NativeMemory.Free(_cpuRing);
+            _cpuRing = (RenderNote*)NativeMemory.AllocZeroed(totalBytes);
 
             _ringCap = cap;
         }
@@ -208,18 +204,17 @@ void main() {
         public static void Dispose()
         {
             _isInitialized = false;
-            if (_keyHeaders != null) { NativeMemory.AlignedFree(_keyHeaders); _keyHeaders = null; }
-            if (_nextPtrs != null) { NativeMemory.AlignedFree(_nextPtrs); _nextPtrs = null; }
-
-            if (_tboBuffer != 0)
+            if (_nextPtrs != null) { NativeMemory.Free(_nextPtrs); _nextPtrs = null; }
+            if (_keyHeaders != null) { NativeMemory.Free(_keyHeaders); _keyHeaders = null; }
+            if (_cpuRing != null) { NativeMemory.Free(_cpuRing); _cpuRing = null; }
+            if (_ssboBuffer != 0)
             {
-                Gl.BindBuffer(BufferTargetARB.TextureBuffer, _tboBuffer);
-                if (_ring != null) { Gl.UnmapBuffer(BufferTargetARB.TextureBuffer); _ring = null; }
-                Gl.BindBuffer(BufferTargetARB.TextureBuffer, 0);
-                Gl.DeleteBuffer(_tboBuffer);
-                _tboBuffer = 0;
+                Gl.BindBuffer(BufferTargetARB.ShaderStorageBuffer, _ssboBuffer);
+                Gl.UnmapBuffer(BufferTargetARB.ShaderStorageBuffer);
+                Gl.DeleteBuffer(_ssboBuffer);
+                _ssboBuffer = 0;
+                _ring = null;
             }
-            if (_tboTex != 0) { Gl.DeleteTexture(_tboTex); _tboTex = 0; }
             if (_paletteTex != 0) { Gl.DeleteTexture(_paletteTex); _paletteTex = 0; }
             if (_vao != 0) { Gl.DeleteVertexArray(_vao); _vao = 0; }
             if (_lineShader != 0) { Gl.DeleteProgram(_lineShader); _lineShader = 0; }
@@ -232,16 +227,14 @@ void main() {
             {
                 for (int i = 0; i < COLOR_SIZE; i++)
                 {
-                    uint c = (uint)Random.Shared.Next(0x808080, 0x1000000);
+                    uint c = (uint)Random.Shared.Next(0x400000, 0x1000000);
                     paletteData[i * 3 + 0] = (byte)((c >> 16) & 0xFF);
                     paletteData[i * 3 + 1] = (byte)((c >>  8) & 0xFF);
                     paletteData[i * 3 + 2] = (byte)( c        & 0xFF);
                 }
                 Gl.BindTexture(TextureTarget.Texture2D, _paletteTex);
                 fixed (byte* ptr = paletteData)
-                {
                     Gl.TexImage2D(TextureTarget.Texture2D, 0, InternalFormat.Rgb8, COLOR_SIZE, 1, 0, PixelFormat.Rgb, PixelType.UnsignedByte, ptr);
-                }
                 Gl.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureMinFilter, (int)TextureMinFilter.Nearest);
                 Gl.BindTexture(TextureTarget.Texture2D, 0);
                 _paletteUploadPending = false;
@@ -285,14 +278,28 @@ void main() {
 
             _lastSweepEnd = sweepEnd;
             AdvanceTail(viewStart);
+            // bulk write to ring instead of doing it every event
+            int uploadCount = _head - _tail;
+            if (uploadCount > 0)
+            {
+                int startIdx = _tail & _mask;
+                if (startIdx + uploadCount <= _ringCap)
+                    Unsafe.CopyBlock(_ring + startIdx, _cpuRing + startIdx, (uint)(uploadCount * sizeof(RenderNote)));
+                else // wraparound case. should be rare enough but just for safety sakes
+                {
+                    int firstChunk = _ringCap - startIdx;
+                    int secondChunk = uploadCount - firstChunk;
+                    Unsafe.CopyBlock(_ring + startIdx, _cpuRing + startIdx, (uint)(firstChunk * sizeof(RenderNote)));
+                    Unsafe.CopyBlock(_ring, _cpuRing, (uint)(secondChunk * sizeof(RenderNote)));
+                }
+            }
 
             Raylib_cs.Rlgl.DrawRenderBatchActive();
 
-            int count = _head - _tail;
-            NotesDrawnLastFrame = count;
+            NotesDrawnLastFrame = uploadCount;
             RingCap = _ringCap;
 
-            if (count > 0)
+            if (uploadCount > 0)
             {
                 float yBottom = -1.0f + 2.0f * pad / screenHeight;
                 float yTop = 1.0f - 2.0f * pad / screenHeight;
@@ -306,24 +313,21 @@ void main() {
                 Gl.Uniform3(_uMetrics, _pixelsPerTick, yBottom, yStep);
                 Gl.Uniform1(_uViewStart, viewStart);
                 Gl.Uniform1(_uViewEnd, viewEnd);
-                
-                Gl.Uniform1(_uTboStart,  _tail & _mask);
-                Gl.Uniform1(_uTboMask,   _mask);
-
+                Gl.Uniform1(_uRingStart, _tail & _mask);
+                Gl.Uniform1(_uRingMask, _mask);
                 Gl.Uniform1(_uGlowEnabled, EnableGlow ? 1 : 0);
                 Gl.Uniform1(_uCurrentTick, tick);
 
                 Gl.ActiveTexture(TextureUnit.Texture0);
                 Gl.BindTexture(TextureTarget.Texture2D, _paletteTex);
-                Gl.ActiveTexture(TextureUnit.Texture1);
-                Gl.BindTexture(TextureTarget.TextureBuffer, _tboTex);
+                
+                Gl.BindBufferBase(BufferTargetARB.ShaderStorageBuffer, 0, _ssboBuffer);
 
                 Gl.BindVertexArray(_vao);
-                Gl.DrawArraysInstanced(PrimitiveType.TriangleStrip, 0, 4, (uint)count);
+                Gl.DrawArraysInstanced(PrimitiveType.TriangleStrip, 0, 4, (uint)uploadCount);
                 Gl.BindVertexArray(0);
 
-                Gl.ActiveTexture(TextureUnit.Texture1);
-                Gl.BindTexture(TextureTarget.TextureBuffer, 0);
+                Gl.BindBufferBase(BufferTargetARB.ShaderStorageBuffer, 0, 0);
                 Gl.ActiveTexture(TextureUnit.Texture0);
                 Gl.BindTexture(TextureTarget.Texture2D, 0);
                 Gl.UseProgram(0);
@@ -336,7 +340,8 @@ void main() {
         [MethodImpl(MethodImplOptions.AggressiveOptimization)]
         private static void SweepRange(int fromTick, int toTick)
         {
-            RenderNote* ringLocal = _ring;
+            // this is ghetto as hell mane
+            ulong* ringLocal_ulong = (ulong*)_cpuRing;
             int* nextPtrsLocal = _nextPtrs;
             KeyHeader* keyheader = _keyHeaders;
 
@@ -371,7 +376,7 @@ void main() {
                         ResizeRing(cap * 2);
                         cap = _ringCap;
                         maskLocal = _mask;
-                        ringLocal = _ring;
+                        ringLocal_ulong = (ulong*)_cpuRing;
                         nextPtrsLocal = _nextPtrs;
                     }
                 }
@@ -402,14 +407,10 @@ void main() {
                                 if (header->Head == 0) 
                                     header->Tail = 0;
 
-                                RenderNote note = ringLocal[physIdx];
-                                int startTick = note.StartTick & 0x7FFFFFFF;
+                                ulong note = ringLocal_ulong[physIdx];
+                                uint startTick = (uint)note & 0x7FFFFFFF;
                                 uint packedDur = Math.Min((uint)(tick - startTick), ushort.MaxValue);
-                                ringLocal[physIdx] = new RenderNote
-                                {
-                                    StartTick  = startTick,
-                                    PackedData = (note.PackedData & 0xFFFF0000u) | packedDur
-                                };
+                                ringLocal_ulong[physIdx] = startTick | (note & 0xFFFF000000000000UL) | ((ulong)packedDur << 32);
                             }
                             else
                             {
@@ -424,8 +425,7 @@ void main() {
                         int absId = headLocal++;
                         int physIdx = absId & maskLocal;
                         // this should be equivalent to divison by 3, but what the fuck?
-                        long idx = ((ev - messages) * 0x5555555555555556L) >> 1;
-                        uint colorIdx = useTrack ? (uint)(tracks[idx] + channel) & 0xFFu : channel;
+                        uint colorIdx = useTrack ? (uint)(tracks[((ev - messages) * 0x5555555555555556L) >> 1] + channel) & 0xFu : channel;
 
                         // terminate new node
                         nextPtrsLocal[physIdx] = 0;
@@ -440,11 +440,7 @@ void main() {
                         // i was gonna wish that using the sign bit as a noteon/off flag was gonna save memory by removing duration 
                         // but then i realized that you also need to store the end tick if you do that. oh well, simpler shader logic i guess
                         // even then i dont have to use a dummy value for duration! (probably slower this way though lmao)
-                        ringLocal[physIdx] = new RenderNote
-                        {
-                            StartTick = (int)(tick | 0x80000000),
-                            PackedData = ((uint)key << 16) | (colorIdx << 24)
-                        };
+                        ringLocal_ulong[physIdx] = (uint)(tick | 0x80000000) | ((ulong)(((uint)key << 16) | (colorIdx << 24))) << 32;
                     }
                     ev += 3;
                 }
@@ -466,7 +462,7 @@ void main() {
             bool forceCull = UseForceCull && NotesDrawnLastFrame > 262144;
             int forceCullBefore = viewStart - forcecullthresh;
             
-            RenderNote* ring = _ring;
+            RenderNote* ring = _cpuRing;
             int maskLocal = _mask;
             int headLocal = _head;
             int tailLocal = _tail;
@@ -495,44 +491,52 @@ void main() {
             int newMask = newCap - 1;
             
             nuint totalBytes = (nuint)newCap * (nuint)sizeof(RenderNote);
-            int* newNext = (int*)NativeMemory.AlignedAlloc((nuint)newCap * sizeof(int), 64);
-
+            int* newNext = (int*)NativeMemory.AllocZeroed((nuint)newCap * sizeof(int));
             uint newBuffer = Gl.GenBuffer();
-            Gl.BindBuffer(BufferTargetARB.TextureBuffer, newBuffer);
+            Gl.BindBuffer(BufferTargetARB.ShaderStorageBuffer, newBuffer);
+            Gl.BufferStorage(GLEnum.ShaderStorageBuffer, totalBytes, null, (uint)storageFlags);
+            RenderNote* newRing = (RenderNote*)Gl.MapBufferRange(BufferTargetARB.ShaderStorageBuffer, 0, totalBytes, (uint)accessFlags);
+            RenderNote* newCpuRing = (RenderNote*)NativeMemory.AllocZeroed(totalBytes);
             
-            BufferStorageMask storageFlags = BufferStorageMask.MapReadBit | BufferStorageMask.MapWriteBit | BufferStorageMask.MapPersistentBit | BufferStorageMask.MapCoherentBit;
-            Gl.BufferStorage(GLEnum.TextureBuffer, totalBytes, null, (uint)storageFlags);
-
-            MapBufferAccessMask accessFlags = MapBufferAccessMask.ReadBit | MapBufferAccessMask.WriteBit | MapBufferAccessMask.PersistentBit | MapBufferAccessMask.CoherentBit;
-            RenderNote* newRing = (RenderNote*)Gl.MapBufferRange(BufferTargetARB.TextureBuffer, 0, totalBytes, (uint)accessFlags);
-
-            for (int absId = _tail; absId < _head; absId++)
+            if (_cpuRing != null && _head > _tail)
             {
-                int oldIdx = absId & _mask;
-                int newIdx = absId & newMask;
-                newRing[newIdx] = _ring[oldIdx];
-                newNext[newIdx] = _nextPtrs[oldIdx];
+                int remaining = _head - _tail;
+                int absId = _tail;
+                
+                while (remaining > 0)
+                {
+                    int oldIdx = absId & _mask;
+                    int newIdx = absId & newMask;
+                    int chunk = Math.Min(remaining, Math.Min(_ringCap - oldIdx, newCap - newIdx));
+                    // reminder that cpblk bulk copies is also why the playback loop got a lot faster from when it used a while loop
+                    // and wrote elements to the ring buffer  o n e  b y  o n e  :sob:
+                    Unsafe.CopyBlock(newCpuRing + newIdx, _cpuRing + oldIdx, (uint)(chunk * sizeof(RenderNote)));
+                    Unsafe.CopyBlock(newNext + newIdx, _nextPtrs + oldIdx, (uint)(chunk * sizeof(int)));
+                    Unsafe.CopyBlock(newRing + newIdx, newCpuRing + newIdx, (uint)(chunk * sizeof(RenderNote)));
+                    
+                    absId += chunk;
+                    remaining -= chunk;
+                }
             }
 
-            if (_nextPtrs != null) NativeMemory.AlignedFree(_nextPtrs);
+            if (_ssboBuffer != 0)
+            {
+                Gl.BindBuffer(BufferTargetARB.ShaderStorageBuffer, _ssboBuffer);
+                Gl.UnmapBuffer(BufferTargetARB.ShaderStorageBuffer);
+                Gl.DeleteBuffer(_ssboBuffer);
+            }
+            
+            if (_nextPtrs != null) NativeMemory.Free(_nextPtrs);
+            if (_cpuRing != null) NativeMemory.Free(_cpuRing);
+            
             _nextPtrs = newNext;
-
-            if (_ring != null)
-            {
-                Gl.BindBuffer(BufferTargetARB.TextureBuffer, _tboBuffer);
-                Gl.UnmapBuffer(BufferTargetARB.TextureBuffer);
-            }
-            Gl.DeleteBuffer(_tboBuffer);
-
-            _tboBuffer = newBuffer;
+            _cpuRing = newCpuRing;
+            _ssboBuffer = newBuffer;
             _ring = newRing;
             _mask = newMask;
             _ringCap = newCap;
 
-            Gl.BindTexture(TextureTarget.TextureBuffer, _tboTex);
-            Gl.TexBuffer(TextureTarget.TextureBuffer, GLEnum.RG32ui, _tboBuffer);
-            Gl.BindTexture(TextureTarget.TextureBuffer, 0);
-            Gl.BindBuffer(BufferTargetARB.TextureBuffer, 0);
+            Gl.BindBuffer(BufferTargetARB.ShaderStorageBuffer, 0);
         }
 
         private static uint BuildShader(string vert, string frag)
