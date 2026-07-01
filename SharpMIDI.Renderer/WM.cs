@@ -14,7 +14,7 @@ namespace SharpMIDI
         private static float scrollfactor = 1f;
         static string filepath = string.Empty;
 
-        private static int currentWidth  = 1280;
+        private static int currentWidth = 1280;
         private static int currentHeight = 720;
         private static int tick;
 
@@ -28,18 +28,10 @@ namespace SharpMIDI
         #endif
         public static bool trackcolors = true;
         public static bool Debug = false;
-        public static bool IsRunning { get; private set; } = false;
         public static bool singlethreadplayback = false;
         public static int currsynth = 0;
 
         public static void StartRenderer()
-        {
-            if (IsRunning) return;
-            IsRunning = true;
-            RenderLoop();
-        }
-
-        private static void RenderLoop()
         {
             Raylib.SetConfigFlags(ConfigFlags.ResizableWindow);
             Raylib.InitWindow(currentWidth, currentHeight, "SharpMIDI");
@@ -53,7 +45,7 @@ namespace SharpMIDI
                 UpdateWindowDimensions();
                 HandleInput();
 
-                if (dynascroll && GLNoteRenderer.WindowTicks != MIDIClock.tickscale)
+                if (dynascroll && GLNoteRenderer.WindowTicks != MIDIClock.tickscale * scrollfactor)
                     GLNoteRenderer.WindowTicks = (int)(MIDIClock.tickscale * scrollfactor);
 
                 Raylib.BeginDrawing();
@@ -69,7 +61,6 @@ namespace SharpMIDI
             rlImGui.Shutdown();
             GLNoteRenderer.Dispose();
             Raylib.CloseWindow();
-            IsRunning = false;
         }
 
         private static void UpdateWindowDimensions()
@@ -78,7 +69,6 @@ namespace SharpMIDI
             {
                 currentWidth = Raylib.GetScreenWidth();
                 currentHeight = Raylib.GetScreenHeight();
-                //GLNoteRenderer.HandleResize();
             }
         }
 
@@ -330,7 +320,5 @@ namespace SharpMIDI
         }
 
         public static long GetMemoryUsage() => Process.GetCurrentProcess().WorkingSet64;
-
-        public static void StopRenderer() => IsRunning = false;
     }
 }

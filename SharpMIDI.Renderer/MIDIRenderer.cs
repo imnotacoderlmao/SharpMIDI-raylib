@@ -18,8 +18,8 @@ namespace SharpMIDI
         [StructLayout(LayoutKind.Sequential, Pack = 1)]
         private struct KeyHeader
         {
-            public int Head;
-            public int Tail;
+            public int ActiveAbsId;
+            public int ActiveCount;
         }
 
         private const string LineVertSrc =
@@ -46,10 +46,11 @@ flat out int vIsActive;
 void main() {
     int physIdx = (gl_InstanceID + uRingStart) & uRingMask;
     RenderNote notedata = notes[physIdx];
-    int aStartTick = int(uint(notedata.StartTick) & 0x7FFFFFFFu);
-    bool isNoteOn = bool(notedata.StartTick & 0x80000000u);
+    int aStartTick = notedata.StartTick;
     uint aPackedData = notedata.PackedData;
-    float dur = isNoteOn? float(uViewEnd - aStartTick) : float(aPackedData & 0xFFFFu);
+    int rawdur = int(aPackedData & 0xFFFFu);
+    bool isNoteOff = bool(rawdur > 0? 1 : 0);
+    float dur = isNoteOff? float(rawdur) : float(uViewEnd - aStartTick);
     uint isEnd = uint(gl_VertexID) & 1u;
     uint isTop = uint(gl_VertexID >> 1) & 1u;
     float startX = float(aStartTick - uViewStart) * uMetrics.x - 1.0;
@@ -59,8 +60,7 @@ void main() {
     float z = dur / 65536.0;
     vColor = texelFetch(uPalette, ivec2(int(aPackedData >> 24), 0), 0);
     
-    // check if the note is currently being played
-    int endTick = aStartTick + (isNoteOn? (uViewEnd - aStartTick) : int(aPackedData & 0xFFFFu));
+    int endTick = aStartTick + (isNoteOff? int(rawdur) : (uViewEnd - aStartTick));
     vIsActive = (uCurrentTick >= aStartTick && uCurrentTick <= endTick) ? 1 : 0;
 
     gl_Position = vec4(x, y, z, 1.0);
@@ -75,8 +75,7 @@ uniform int uGlowEnabled;
 out vec4 fragColor;
 
 void main() {
-    // then brighten the entire note if it is
-    fragColor = (uGlowEnabled == 1 && vIsActive == 1)? vec4(min(vColor.rgb * 1.5 + vec3(0.1), vec3(1.0)), vColor.a) : vColor;
+    fragColor = (uGlowEnabled == 1 && vIsActive == 1)? vec4(min(vColor.rgb * 2 + vec3(0.1), vec3(1.0)), vColor.a) : vColor;
 }";
 
         private static GL Gl;
@@ -93,8 +92,6 @@ void main() {
         private static RenderNote* _ring;
         // shadow cpu array, 2x memory usage BOOOOO (hey at least _ring is actually on vram now)
         private static RenderNote* _cpuRing;
-        
-        private static int* _nextPtrs;
 
         private static int _ringCap = 1 << 23;
         private static int _deferred_ringCap = -1;
@@ -102,17 +99,17 @@ void main() {
         
         private static int _head = 1;
         private static int _tail = 1;
-
+        
+        private readonly static byte[] paletteData = new byte[16 * 3];
+        private static bool _paletteUploadPending = false;
+        
         private static KeyHeader* _keyHeaders;
-        private const int TOTAL_KEYS = 128 * 16;
-        private const int COLOR_SIZE  = 16;
+        private const int TOTAL_KEYS = 128 * 16 * 16;
 
         private static int _lookaheadTicks = 4000;
         private static float _pixelsPerTick;
         private static int _lastWindowTicks = -1;
         private static int _lastSweepEnd = -1;
-        private readonly static byte[] paletteData = new byte[COLOR_SIZE * 3];
-        private static bool _paletteUploadPending = false;
         private static bool _isInitialized;
 
         public static int WindowTicks = 2000;
@@ -168,9 +165,6 @@ void main() {
             _ring = (RenderNote*)Gl.MapBufferRange(BufferTargetARB.ShaderStorageBuffer, 0, totalBytes, (uint)accessFlags);
             Gl.BindBuffer(BufferTargetARB.ShaderStorageBuffer, 0);
 
-            if (_nextPtrs != null) NativeMemory.Free(_nextPtrs);
-            _nextPtrs = (int*)NativeMemory.AllocZeroed((nuint)(cap * sizeof(int)));
-
             if (_cpuRing != null) NativeMemory.Free(_cpuRing);
             _cpuRing = (RenderNote*)NativeMemory.AllocZeroed(totalBytes);
 
@@ -196,7 +190,6 @@ void main() {
             _tail = 1;
             _lastSweepEnd = -1;
             _lastWindowTicks = -1;
-            NativeMemory.Clear(_nextPtrs, (nuint)_ringCap * sizeof(int));
             if (_ringCap != 1 << 23) 
                 _deferred_ringCap = 1 << 23;
         }
@@ -204,7 +197,6 @@ void main() {
         public static void Dispose()
         {
             _isInitialized = false;
-            if (_nextPtrs != null) { NativeMemory.Free(_nextPtrs); _nextPtrs = null; }
             if (_keyHeaders != null) { NativeMemory.Free(_keyHeaders); _keyHeaders = null; }
             if (_cpuRing != null) { NativeMemory.Free(_cpuRing); _cpuRing = null; }
             if (_ssboBuffer != 0)
@@ -225,16 +217,16 @@ void main() {
         {
             if (_paletteUploadPending)
             {
-                for (int i = 0; i < COLOR_SIZE; i++)
+                for (int i = 0; i < 16; i++)
                 {
-                    uint c = (uint)Random.Shared.Next(0x400000, 0x1000000);
+                    uint c = (uint)Random.Shared.Next(0x808080, 0x1000000);
                     paletteData[i * 3 + 0] = (byte)((c >> 16) & 0xFF);
                     paletteData[i * 3 + 1] = (byte)((c >>  8) & 0xFF);
                     paletteData[i * 3 + 2] = (byte)( c        & 0xFF);
                 }
                 Gl.BindTexture(TextureTarget.Texture2D, _paletteTex);
                 fixed (byte* ptr = paletteData)
-                    Gl.TexImage2D(TextureTarget.Texture2D, 0, InternalFormat.Rgb8, COLOR_SIZE, 1, 0, PixelFormat.Rgb, PixelType.UnsignedByte, ptr);
+                    Gl.TexImage2D(TextureTarget.Texture2D, 0, InternalFormat.Rgb8, 16, 1, 0, PixelFormat.Rgb, PixelType.UnsignedByte, ptr);
                 Gl.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureMinFilter, (int)TextureMinFilter.Nearest);
                 Gl.BindTexture(TextureTarget.Texture2D, 0);
                 _paletteUploadPending = false;
@@ -341,12 +333,11 @@ void main() {
         private static void SweepRange(int fromTick, int toTick)
         {
             // this is ghetto as hell mane
-            ulong* ringLocal_ulong = (ulong*)_cpuRing;
-            int* nextPtrsLocal = _nextPtrs;
+            RenderNote* ringLocal = _cpuRing;
             KeyHeader* keyheader = _keyHeaders;
 
             BigArray<TickGroup> groups = MIDIEvent.TickGroupArray;
-            byte* messages = (byte*)SynthEvent.messages.Pointer;
+            uint24* messages = SynthEvent.messages.Pointer;
             ushort* tracks = SynthEvent.track != null ? SynthEvent.track.Pointer : null;
             bool useTrack = tracks != null;
 
@@ -363,8 +354,6 @@ void main() {
             while (tick <= limit)
             {
                 long nextOffset = tickgroups[tick + 1].offset;
-                byte* ev = messages + currentOffset * 3;
-                byte* evEnd = messages + nextOffset * 3;
                 long totalEventsInTick = nextOffset - currentOffset;
                 
                 if (totalEventsInTick > 0)
@@ -376,73 +365,63 @@ void main() {
                         ResizeRing(cap * 2);
                         cap = _ringCap;
                         maskLocal = _mask;
-                        ringLocal_ulong = (ulong*)_cpuRing;
-                        nextPtrsLocal = _nextPtrs;
+                        ringLocal = _cpuRing;
                     }
                 }
 
-                while (ev < evEnd)
+                while (currentOffset < nextOffset)
                 {
-                    byte status = ev[0];
-                    if ((status & 0xE0) != 0x80)
+                    byte* synthev = (byte*)messages + (currentOffset * 3);
+                    if ((synthev[0] & 0xE0) != 0x80)
                     {
-                        ev += 3;
+                        currentOffset++;
                         continue;
                     }
 
-                    byte channel = (byte)(status & 0x0F);
-                    byte key = ev[1];
-                    KeyHeader* header = keyheader + ((channel << 7) | key);
+                    byte channel = (byte)(synthev[0] & 0xFu);
+                    byte key = synthev[1];
+                    uint colorIdx = useTrack? (uint)(tracks[currentOffset] + channel) & 0xFu : channel;
 
-                    if ((status & 0x10) == 0) // NoteOff
+                    // "key" is now used to merge notes instead of tracking oldest/newest for the linked list. which sadly means duration based layering kinda goes bye bye.
+                    // its also why indexing became whatever concoction this is
+                    KeyHeader* header = keyheader + ((channel << 11) | (key << 4) | colorIdx);
+
+                    if ((synthev[0] & 0x10) == 0) // NoteOff
                     {
-                        int oldest = header->Head;
-                        if (oldest != 0)
+                        if (header->ActiveCount > 0)
                         {
-                            if (oldest >= headLocal - cap)
+                            header->ActiveCount--;
+                            if (header->ActiveCount == 0)
                             {
-                                int physIdx = oldest & maskLocal;
-
-                                header->Head = nextPtrsLocal[physIdx];
-                                if (header->Head == 0) 
-                                    header->Tail = 0;
-
-                                ulong note = ringLocal_ulong[physIdx];
-                                uint startTick = (uint)note & 0x7FFFFFFF;
-                                uint packedDur = Math.Min((uint)(tick - startTick), ushort.MaxValue);
-                                ringLocal_ulong[physIdx] = startTick | (note & 0xFFFF000000000000UL) | ((ulong)packedDur << 32);
-                            }
-                            else
-                            {
-                                // reset head/tail if a note has been force culled to prevent reading garbage
-                                header->Head = 0;
-                                header->Tail = 0;
+                                int absId = header->ActiveAbsId;
+                                if (absId >= headLocal - cap)
+                                {
+                                    int physIdx = absId & maskLocal;
+                                    ringLocal[physIdx].PackedData |= (ushort)(tick - ringLocal[physIdx].StartTick);
+                                }
                             }
                         }
                     }
                     else
                     {
-                        int absId = headLocal++;
-                        int physIdx = absId & maskLocal;
-                        // this should be equivalent to divison by 3, but what the fuck?
-                        uint colorIdx = useTrack ? (uint)(tracks[((ev - messages) * 0x5555555555555556L) >> 1] + channel) & 0xFu : channel;
+                        if (header->ActiveCount == 0)
+                        {
+                            int physIdx = headLocal & maskLocal;
 
-                        // terminate new node
-                        nextPtrsLocal[physIdx] = 0;
-                        
-                        if (header->Tail == 0)
-                            header->Head = absId;
+                            header->ActiveAbsId = headLocal;
+                            header->ActiveCount = 1;
+
+                            ringLocal[physIdx] = new RenderNote
+                            {
+                                StartTick = tick,
+                                PackedData = (colorIdx << 24) | ((uint)key << 16)
+                            };
+                            headLocal++;
+                        }
                         else
-                            nextPtrsLocal[header->Tail & maskLocal] = absId;
-                        
-                        header->Tail = absId;
-
-                        // i was gonna wish that using the sign bit as a noteon/off flag was gonna save memory by removing duration 
-                        // but then i realized that you also need to store the end tick if you do that. oh well, simpler shader logic i guess
-                        // even then i dont have to use a dummy value for duration! (probably slower this way though lmao)
-                        ringLocal_ulong[physIdx] = (uint)(tick | 0x80000000) | ((ulong)(((uint)key << 16) | (colorIdx << 24))) << 32;
+                            header->ActiveCount++;
                     }
-                    ev += 3;
+                    currentOffset++;
                 }
                 currentOffset = nextOffset;
                 tick++;
@@ -471,8 +450,8 @@ void main() {
             {
                 int physIdx = tailLocal & maskLocal;
                 RenderNote note = ring[physIdx];
-                bool isopen = note.StartTick < 0;
-                int startTick = (int)(note.StartTick & 0x7FFFFFFFu);
+                bool isopen = (note.PackedData & 0xFFFFu) == 0;
+                int startTick = note.StartTick;
                 int endTick = (int)(startTick + (note.PackedData & 0xFFFFu));
                 
                 if ((!isopen && endTick < viewStart) || (forceCull && startTick < forceCullBefore))
@@ -491,7 +470,6 @@ void main() {
             int newMask = newCap - 1;
             
             nuint totalBytes = (nuint)newCap * (nuint)sizeof(RenderNote);
-            int* newNext = (int*)NativeMemory.AllocZeroed((nuint)newCap * sizeof(int));
             uint newBuffer = Gl.GenBuffer();
             Gl.BindBuffer(BufferTargetARB.ShaderStorageBuffer, newBuffer);
             Gl.BufferStorage(GLEnum.ShaderStorageBuffer, totalBytes, null, (uint)storageFlags);
@@ -508,10 +486,8 @@ void main() {
                     int oldIdx = absId & _mask;
                     int newIdx = absId & newMask;
                     int chunk = Math.Min(remaining, Math.Min(_ringCap - oldIdx, newCap - newIdx));
-                    // reminder that cpblk bulk copies is also why the playback loop got a lot faster from when it used a while loop
-                    // and wrote elements to the ring buffer  o n e  b y  o n e  :sob:
+
                     Unsafe.CopyBlock(newCpuRing + newIdx, _cpuRing + oldIdx, (uint)(chunk * sizeof(RenderNote)));
-                    Unsafe.CopyBlock(newNext + newIdx, _nextPtrs + oldIdx, (uint)(chunk * sizeof(int)));
                     Unsafe.CopyBlock(newRing + newIdx, newCpuRing + newIdx, (uint)(chunk * sizeof(RenderNote)));
                     
                     absId += chunk;
@@ -526,10 +502,9 @@ void main() {
                 Gl.DeleteBuffer(_ssboBuffer);
             }
             
-            if (_nextPtrs != null) NativeMemory.Free(_nextPtrs);
-            if (_cpuRing != null) NativeMemory.Free(_cpuRing);
-            
-            _nextPtrs = newNext;
+            if (_cpuRing != null) 
+                NativeMemory.Free(_cpuRing);
+
             _cpuRing = newCpuRing;
             _ssboBuffer = newBuffer;
             _ring = newRing;

@@ -1,5 +1,7 @@
+using System.Buffers.Binary;
 using System.Diagnostics;
 using System.IO.MemoryMappedFiles;
+using System.Runtime.CompilerServices;
 
 namespace SharpMIDI
 {
@@ -35,7 +37,6 @@ namespace SharpMIDI
                 await Task.Delay(1000);
                 if (loadstatus == error) 
                     loadstatus = prevstatus;
-                throw new Exception();
             });
         }
 
@@ -252,17 +253,17 @@ expected: {Starter.toMemoryText((eventCount * sizeof(uint24)) + (WindowManager.t
         static unsafe uint ReadUInt32()
         {
             uint length = 0;
-            for (int i = 0; i != 4; i++)
-                length = (length << 8) | filePtr[filePos++];
-            return length;
+            Unsafe.CopyBlock(&length, filePtr + filePos, 4);
+            filePos += 4;
+            return BinaryPrimitives.ReverseEndianness(length);
         }
 
         static unsafe ushort ReadUInt16()
         {
             ushort length = 0;
-            for (int i = 0; i != 2; i++)
-                length = (ushort)((length << 8) | filePtr[filePos++]);
-            return length;
+            Unsafe.CopyBlock(&length, filePtr + filePos, 2);
+            filePos += 2;
+            return BinaryPrimitives.ReverseEndianness(length);
         }
 
         static unsafe bool FindText(string text)

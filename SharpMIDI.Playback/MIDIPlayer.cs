@@ -80,16 +80,14 @@ namespace SharpMIDI
                         uint24* targetMsg = msgptr + currtg->offset;
                         if (!singlethread)
                         {
-                            uint count = (uint)(targetMsg - msgcur);
-                            uint copied = 0;
+                            long count = targetMsg - msgcur;
+                            long copied = 0;
                             while (copied < count)
                             {
                                 uint write = Sound.writeptr;
-                                uint remaining = count - copied;
-                                uint free = Sound.bufferSize - write;
-
-                                uint chunk = Math.Min(remaining, free);
+                                
                                 // just hoping there isnt more than 1,431,655,765.33 events in a single tick
+                                uint chunk = (uint)Math.Min(count - copied, Sound.bufferSize - write);
                                 uint bytes = chunk * (uint)sizeof(uint24);
                                 Unsafe.CopyBlockUnaligned(buffer + write, msgcur + copied, bytes);
                                 
@@ -128,7 +126,7 @@ namespace SharpMIDI
                     sysexidx++;
                 }
             }
-            SubmitSysEx(gmreset);
+            //SubmitSysEx(gmreset);
             SubmitSysEx(rolandreset);
             MIDIClock.Reset();
             curr_tick = 0;
