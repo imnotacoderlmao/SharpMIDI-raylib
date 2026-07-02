@@ -270,7 +270,7 @@ expected: {Starter.toMemoryText((eventCount * sizeof(uint24)) + (WindowManager.t
         {
             for (int i = 0; i < text.Length; i++)
             {
-                if (filePos >= fileLength) 
+                if (filePos >= fileLength)
                     return false;
                 if (filePtr[filePos++] != text[i])
                 {

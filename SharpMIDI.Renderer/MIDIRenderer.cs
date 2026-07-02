@@ -38,7 +38,7 @@ uniform int uViewEnd;
 uniform int uRingStart;
 uniform int uRingMask;
 uniform int uCurrentTick;
-uniform sampler2D uPalette;
+uniform sampler1D uPalette;
 
 flat out vec4 vColor;
 flat out int vIsActive;
@@ -48,19 +48,19 @@ void main() {
     RenderNote notedata = notes[physIdx];
     int aStartTick = notedata.StartTick;
     uint aPackedData = notedata.PackedData;
-    int rawdur = int(aPackedData & 0xFFFFu);
-    bool isNoteOff = bool(rawdur > 0? 1 : 0);
+    int rawdur = int(aPackedData & 0xFFFFFu);
+    bool isNoteOff = rawdur > 0;
     float dur = isNoteOff? float(rawdur) : float(uViewEnd - aStartTick);
     uint isEnd = uint(gl_VertexID) & 1u;
     uint isTop = uint(gl_VertexID >> 1) & 1u;
     float startX = float(aStartTick - uViewStart) * uMetrics.x - 1.0;
     float endX = startX + dur * uMetrics.x;
     float x = bool(isEnd)? endX : startX;
-    float y = uMetrics.y + float(((aPackedData >> 16) & 0xFFu) + isTop) * uMetrics.z;
-    float z = dur / 65536.0;
-    vColor = texelFetch(uPalette, ivec2(int(aPackedData >> 24), 0), 0);
+    float y = uMetrics.y + float(((aPackedData >> 20) & 0xFFu) + isTop) * uMetrics.z;
+    float z = dur / 1048576.0;
+    vColor = texelFetch(uPalette, int(aPackedData >> 28), 0);
     
-    int endTick = aStartTick + (isNoteOff? int(rawdur) : (uViewEnd - aStartTick));
+    int endTick = aStartTick + int(dur);
     vIsActive = (uCurrentTick >= aStartTick && uCurrentTick <= endTick) ? 1 : 0;
 
     gl_Position = vec4(x, y, z, 1.0);
@@ -224,11 +224,11 @@ void main() {
                     paletteData[i * 3 + 1] = (byte)((c >>  8) & 0xFF);
                     paletteData[i * 3 + 2] = (byte)( c        & 0xFF);
                 }
-                Gl.BindTexture(TextureTarget.Texture2D, _paletteTex);
+                Gl.BindTexture(TextureTarget.Texture1D, _paletteTex);
                 fixed (byte* ptr = paletteData)
-                    Gl.TexImage2D(TextureTarget.Texture2D, 0, InternalFormat.Rgb8, 16, 1, 0, PixelFormat.Rgb, PixelType.UnsignedByte, ptr);
-                Gl.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureMinFilter, (int)TextureMinFilter.Nearest);
-                Gl.BindTexture(TextureTarget.Texture2D, 0);
+                    Gl.TexImage1D(TextureTarget.Texture1D, 0, InternalFormat.Rgb8, 16, 0, PixelFormat.Rgb, PixelType.UnsignedByte, ptr);
+                Gl.TexParameter(TextureTarget.Texture1D, TextureParameterName.TextureMinFilter, (int)TextureMinFilter.Nearest);
+                Gl.BindTexture(TextureTarget.Texture1D, 0);
                 _paletteUploadPending = false;
             }
 
@@ -311,7 +311,7 @@ void main() {
                 Gl.Uniform1(_uCurrentTick, tick);
 
                 Gl.ActiveTexture(TextureUnit.Texture0);
-                Gl.BindTexture(TextureTarget.Texture2D, _paletteTex);
+                Gl.BindTexture(TextureTarget.Texture1D, _paletteTex);
                 
                 Gl.BindBufferBase(BufferTargetARB.ShaderStorageBuffer, 0, _ssboBuffer);
 
@@ -321,7 +321,7 @@ void main() {
 
                 Gl.BindBufferBase(BufferTargetARB.ShaderStorageBuffer, 0, 0);
                 Gl.ActiveTexture(TextureUnit.Texture0);
-                Gl.BindTexture(TextureTarget.Texture2D, 0);
+                Gl.BindTexture(TextureTarget.Texture1D, 0);
                 Gl.UseProgram(0);
                 Gl.Disable(EnableCap.DepthTest);
             }
@@ -384,7 +384,7 @@ void main() {
 
                     // "key" is now used to merge notes instead of tracking oldest/newest for the linked list. which sadly means duration based layering kinda goes bye bye.
                     // its also why indexing became whatever concoction this is
-                    KeyHeader* header = keyheader + ((channel << 11) | (key << 4) | colorIdx);
+                    KeyHeader* header = keyheader + ((channel << 11) | (key << 4) | (int)colorIdx);
 
                     if ((synthev[0] & 0x10) == 0) // NoteOff
                     {
@@ -397,7 +397,7 @@ void main() {
                                 if (absId >= headLocal - cap)
                                 {
                                     int physIdx = absId & maskLocal;
-                                    ringLocal[physIdx].PackedData |= (ushort)(tick - ringLocal[physIdx].StartTick);
+                                    ringLocal[physIdx].PackedData |= (uint)(tick - ringLocal[physIdx].StartTick);
                                 }
                             }
                         }
@@ -414,7 +414,7 @@ void main() {
                             ringLocal[physIdx] = new RenderNote
                             {
                                 StartTick = tick,
-                                PackedData = (colorIdx << 24) | ((uint)key << 16)
+                                PackedData = (colorIdx << 28) | ((uint)key << 20)
                             };
                             headLocal++;
                         }
