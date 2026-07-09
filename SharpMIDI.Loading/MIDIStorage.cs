@@ -5,12 +5,13 @@ namespace SharpMIDI
     public static class SynthEvent
     {
         public static BigArray<uint24> messages = null;
-        public static BigArray<ushort> track = null;
+        // i might as well just compress to a byte since this is never used outside the renderer
+        public static BigArray<byte> track = null;
 
         public static void Alloc(long length, bool trackcolors)
         {
             messages = new BigArray<uint24>(length);
-            if (trackcolors) track = new BigArray<ushort>(length);
+            if (trackcolors) track = new BigArray<byte>(length);
         }
 
         public static void Dispose()
@@ -59,21 +60,21 @@ namespace SharpMIDI
     {
         public long Length;
         public long Count;
-        private T* ptr;
-        public T* Pointer => ptr;
+        private void* ptr;
+        public T* Pointer => (T*)ptr;
         
         public BigArray(long length)
         {
             Length = length;
             long bytes = Length * sizeof(T);
-            ptr = (T*)NativeMemory.AllocZeroed((nuint)bytes);
+            ptr = NativeMemory.AllocZeroed((nuint)bytes);
         }
         
         public void Resize(long newLength)
         {
             Length = newLength;
             long bytes = Length * sizeof(T);
-            ptr = (T*)NativeMemory.Realloc(ptr, (nuint)bytes);
+            ptr = NativeMemory.Realloc(ptr, (nuint)bytes);
         }
 
         public void Dispose()

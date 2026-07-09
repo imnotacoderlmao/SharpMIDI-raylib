@@ -28,15 +28,12 @@ namespace SharpMIDI
             playedNotes = 0;
             playedNotes2 = 0;
             stopping = false;
-            var midiev = SynthEvent.messages;
-            uint24* msgptr = midiev.Pointer;
-            uint24* msgcur = msgptr;
+            uint24* msgptr = SynthEvent.messages.Pointer;
             uint24* buffer = Sound.ringbuffer;
-            TickGroup* tickGroupArr = MIDIEvent.TickGroupArray.Pointer;
-            TickGroup* currtg = tickGroupArr;
+            TickGroup* currtg = MIDIEvent.TickGroupArray.Pointer;
             Tempo[] tevs = MIDIEvent.TempoEventArray;
             SysEx[] sysExes = MIDIEvent.SysExArray;
-            int clock = 0;
+            long played = 0;
             uint sysexidx = 0, tempoidx = 0;
             Task.Run(UpdatePlaybackStats);
             var sendfn = Sound.sendTo;
@@ -54,16 +51,16 @@ namespace SharpMIDI
             MIDIClock.Start();
             while (!stopping)
             {
-                clock = (int)MIDIClock.Update();
+                int clock = (int)MIDIClock.Update();
                 totalFrames++;
                 if(MIDIClock.paused || potato_mode) 
                     Thread.Sleep(1);
                 if (curr_tick > clock)
                 {
-                    while (currtg->tick > clock && (currtg - tickGroupArr) > 0)
+                    while (currtg->tick > clock)
                     {
                         currtg--;
-                        msgcur = msgptr + currtg->offset;
+                        played = currtg->offset;
                         playedNotes -= currtg->notecount;
                     }
                     while (tevs[tempoidx].tick > clock && tempoidx > 0) 
@@ -77,41 +74,36 @@ namespace SharpMIDI
                     curr_tick = currtg->tick;
                     if (!skipping)
                     {
-                        uint24* targetMsg = msgptr + currtg->offset;
+                        long offset = currtg->offset;
                         if (!singlethread)
                         {
-                            long count = targetMsg - msgcur;
-                            long copied = 0;
-                            while (copied < count)
+                            while (played < offset)
                             {
                                 uint write = Sound.writeptr;
-                                
                                 // just hoping there isnt more than 1,431,655,765.33 events in a single tick
-                                uint chunk = (uint)Math.Min(count - copied, Sound.bufferSize - write);
+                                uint chunk = (uint)Math.Min(offset - played, Sound.bufferSize - write);
                                 uint bytes = chunk * (uint)sizeof(uint24);
-                                Unsafe.CopyBlockUnaligned(buffer + write, msgcur + copied, bytes);
-                                
+                                Unsafe.CopyBlockUnaligned(buffer + write, msgptr + played, bytes);
                                 Sound.writeptr = (write + chunk) & Sound.bufferMask;
-                                copied += chunk;
+                                played += chunk;
                             }
-                            msgcur = targetMsg;
                         }
                         else   
                         { 
                             if (sendfn2 != null)
                             {
-                                while (msgcur < targetMsg)
-                                    sendfn2(handle, (uint)msgcur++->Value);
+                                while (played < offset)
+                                    sendfn2(handle, (uint)msgptr[played++].Value);
                             }
                             else
                             {
-                                while (msgcur < targetMsg)
-                                    sendfn((uint)msgcur++->Value);
+                                while (played < offset)
+                                    sendfn((uint)msgptr[played++].Value);
                             }
                         }
                     }
                     else
-                        msgcur = msgptr + currtg->offset;
+                        played = currtg->offset;
                     playedNotes += currtg->notecount;
                     currtg++;
                 }

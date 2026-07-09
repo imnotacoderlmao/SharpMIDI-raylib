@@ -2,6 +2,7 @@ using System.Buffers.Binary;
 using System.Diagnostics;
 using System.IO.MemoryMappedFiles;
 using System.Runtime.CompilerServices;
+using System.Text.RegularExpressions;
 
 namespace SharpMIDI
 {
@@ -29,11 +30,11 @@ namespace SharpMIDI
 
         public static void Crash(string error)
         {        
+            Console.WriteLine(error);
             Task.Run(async () =>
             {
                 string prevstatus = loadstatus;
                 loadstatus = error;
-                Console.WriteLine(error);
                 await Task.Delay(1000);
                 if (loadstatus == error) 
                     loadstatus = prevstatus;
@@ -72,7 +73,15 @@ namespace SharpMIDI
 
                     while (filePos < fileLength)
                     {
-                        if (!IndexTrack()) break;
+                        int ret = IndexTrack();
+                        if (ret == 0) 
+                            break;
+                        else if (ret == 2)
+                        {
+                            Console.WriteLine("aborting....");
+                            UnloadMIDI();
+                            return;
+                        }
                         loadstatus = $"Indexing MIDI tracks... {trackAmount} found..";
                     }
 
@@ -130,7 +139,7 @@ namespace SharpMIDI
 
                     SynthEvent.Alloc(eventCount, WindowManager.trackcolors);
                     uint24* msgPtr = SynthEvent.messages.Pointer;
-                    ushort* trackPtr = WindowManager.trackcolors ? SynthEvent.track.Pointer : null;
+                    byte* trackPtr = WindowManager.trackcolors ? SynthEvent.track.Pointer : null;
                     long* writeCursorsptr = writeCursors.Pointer;
 
                     loadstatus = $"actually parsing events now";
@@ -143,7 +152,7 @@ namespace SharpMIDI
                     {
                         byte* trackStartPtr = filePtr + trackProperties[i].start;
                         FastTrack t = new FastTrack(trackStartPtr, trackProperties[i].len);
-                        t.ParseTrackEvents(msgPtr, trackPtr, writeCursorsptr, (ushort)i);
+                        t.ParseTrackEvents(msgPtr, trackPtr, writeCursorsptr, (byte)i);
                         Interlocked.Add(ref totalNotes, t.totalNotes);
                         Interlocked.Increment(ref loadedtracks);
                         Console.Write($"\rparsed {loadedtracks} tracks | ({totalNotes:N0} notes parsed)");
@@ -175,9 +184,9 @@ namespace SharpMIDI
             string memusage = 
 @$"memory usage statistics below
 current usage: {Starter.toMemoryText(Process.GetCurrentProcess().WorkingSet64)}
-event array: {Starter.toMemoryText(eventCount * sizeof(uint24))} | track array: {Starter.toMemoryText(WindowManager.trackcolors? (eventCount * sizeof(ushort)) : 0)}
+event array: {Starter.toMemoryText(eventCount * sizeof(uint24))} | track array: {Starter.toMemoryText(WindowManager.trackcolors? (eventCount * sizeof(byte)) : 0)}
 tempo array: {Starter.toMemoryText(MIDIEvent.TempoEventArray.Length * sizeof(Tempo))} | timing: {Starter.toMemoryText((long)(maxTick + 2) * sizeof(TickGroup))}
-expected: {Starter.toMemoryText((eventCount * sizeof(uint24)) + (WindowManager.trackcolors? (eventCount * sizeof(ushort)) : 0) + ((long)(maxTick + 2) * sizeof(TickGroup)) + (MIDIEvent.TempoEventArray.Length * sizeof(Tempo)))}";
+expected: {Starter.toMemoryText((eventCount * sizeof(uint24)) + (WindowManager.trackcolors? (eventCount * sizeof(byte)) : 0) + ((long)(maxTick + 2) * sizeof(TickGroup)) + (MIDIEvent.TempoEventArray.Length * sizeof(Tempo)))}";
                     
             Console.WriteLine($"\nParsed {totalNotes:N0} notes in {parsetime}s ({totalNotes/parsetime:N0} notes/sec)");
             Console.WriteLine(memusage);
@@ -189,6 +198,9 @@ expected: {Starter.toMemoryText((eventCount * sizeof(uint24)) + (WindowManager.t
 
         public static void UnloadMIDI()
         {
+            trackAmount = 0;
+            trackProperties.Clear();
+            loadstatus = $"No MIDI Loaded";
             if (!midiLoaded) return;
             Console.WriteLine($"unloading {filename}");
             midiLoaded = false;
@@ -197,14 +209,11 @@ expected: {Starter.toMemoryText((eventCount * sizeof(uint24)) + (WindowManager.t
             totalNotes = 0;
             eventCount = 0;
             maxTick = 0;
-            trackAmount = 0;
-            trackProperties.Clear();
             SynthEvent.Dispose();
             MIDIEvent.TickGroupArray.Dispose();
             MIDIEvent.TempoEventArray = [];
             MIDIEvent.SysExArray = [];
             Console.WriteLine($"succesfully unloaded {filename}");
-            loadstatus = $"No MIDI Loaded";
             GC.Collect();
         }
 
@@ -214,7 +223,7 @@ expected: {Starter.toMemoryText((eventCount * sizeof(uint24)) + (WindowManager.t
 
         static void VerifyHeader()
         {
-            if (FindText("MThd"))
+            if (FindText("MThd") == 1)
             {
                 headersize = ReadUInt32();
                 fmt = ReadUInt16();
@@ -233,9 +242,10 @@ expected: {Starter.toMemoryText((eventCount * sizeof(uint24)) + (WindowManager.t
             }
         }
 
-        static bool IndexTrack()
+        static int IndexTrack()
         {
-            if (FindText("MTrk"))
+            int ret = FindText("MTrk");
+            if (ret == 1)
             {
                 uint size = ReadUInt32();
                 trackProperties.Add(new TrackProperties
@@ -245,9 +255,22 @@ expected: {Starter.toMemoryText((eventCount * sizeof(uint24)) + (WindowManager.t
                 });
                 filePos += size;
                 trackAmount++;
-                return true;
+                return ret;
             }
-            return false;
+            else if (ret == 2)
+            {
+                loadstatus = "Your MIDI file might be corrupted. are you sure you want to continue parsing?";
+                Console.WriteLine(loadstatus);
+                string choice = Console.ReadLine().Trim();
+                if (Regex.IsMatch(choice, @"^(yes|y)$", RegexOptions.IgnoreCase))
+                {
+                    Console.WriteLine("will continue parsing...");
+                    return 0;
+                }
+                else
+                    return ret;
+            }
+            return ret;
         }
 
         static unsafe uint ReadUInt32()
@@ -266,19 +289,19 @@ expected: {Starter.toMemoryText((eventCount * sizeof(uint24)) + (WindowManager.t
             return BinaryPrimitives.ReverseEndianness(length);
         }
 
-        static unsafe bool FindText(string text)
+        static unsafe int FindText(string text)
         {
             for (int i = 0; i < text.Length; i++)
             {
                 if (filePos >= fileLength)
-                    return false;
+                    return 0;
                 if (filePtr[filePos++] != text[i])
                 {
                     Crash($"Header issue searching for {text}");
-                    return false;
+                    return 2;
                 }
             }
-            return true;
+            return 1;
         }
     }
 }

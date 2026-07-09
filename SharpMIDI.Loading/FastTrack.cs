@@ -8,7 +8,7 @@ namespace SharpMIDI
         private byte* ptr = trackData;
         private byte* endPtr = trackData + len;
 
-        public void ParseTrackEvents(uint24* msgPtr, ushort* trackPtr, long* writeCursors, ushort track)
+        public void ParseTrackEvents(uint24* msgPtr, byte* trackPtr, long* writeCursors, byte track)
         {
             byte* localPtr = ptr;
             byte* localEndPtr = endPtr;

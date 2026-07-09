@@ -1,6 +1,5 @@
 #pragma warning disable 169
 using System.Runtime.InteropServices;
-using System.Transactions;
 namespace SharpMIDI
 {
     static unsafe class KDMAPI
@@ -89,10 +88,10 @@ namespace SharpMIDI
             Console.WriteLine("loading from libOmniMIDI.so");
             _sendDirectLongDataLinux = (delegate* unmanaged<byte*, uint, uint>) NativeLibrary.GetExport(lib, "SendDirectLongData");
         #endif
-            _sendDirectData = (delegate* unmanaged[SuppressGCTransition]<uint, void>) NativeLibrary.GetExport(lib, "SendDirectData");
-            //_isKDMAPIAvailable = (delegate* unmanaged<bool>) NativeLibrary.GetExport(lib, "IsKDMAPIAvailable");
             _initializeKDMAPIStream = (delegate* unmanaged<int>) NativeLibrary.GetExport(lib, "InitializeKDMAPIStream");
             _terminateKDMAPIStream  = (delegate* unmanaged<int>) NativeLibrary.GetExport(lib, "TerminateKDMAPIStream");
+            _sendDirectData = (delegate* unmanaged[SuppressGCTransition]<uint, void>) NativeLibrary.GetExport(lib, "SendDirectData");
+            //_isKDMAPIAvailable = (delegate* unmanaged<bool>) NativeLibrary.GetExport(lib, "IsKDMAPIAvailable");
             hasvoice = NativeLibrary.TryGetExport(lib, "GetVoiceCount", out nint addr);
             if (hasvoice)
                 _getActiveVoices = (delegate* unmanaged<int>) addr;

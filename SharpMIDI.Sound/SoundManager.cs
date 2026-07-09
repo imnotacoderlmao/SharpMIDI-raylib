@@ -164,11 +164,11 @@ namespace SharpMIDI
                 switch(currsynth){
                     case "KDMAPI":
                         KDMAPI._terminateKDMAPIStream();
-                        return;
+                        break;
                     #if WINDOWS
                     case "WinMM":
                         WinMM.midiOutClose((IntPtr)WinMM.handle);
-                        return;
+                        break;
                     #endif
                 }
                 currsynth = "Empty";

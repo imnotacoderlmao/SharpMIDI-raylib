@@ -337,7 +337,7 @@ void main() {
         
             TickGroup* group = MIDIEvent.TickGroupArray.Pointer;
             uint24* messages = SynthEvent.messages.Pointer;
-            ushort* tracks = WindowManager.trackcolors? SynthEvent.track.Pointer : null;
+            byte* tracks = SynthEvent.track.Pointer;
         
             int limit = Math.Min(toTick, MIDILoader.maxTick);
             int headLocal = _head;
