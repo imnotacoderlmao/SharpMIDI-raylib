@@ -326,7 +326,7 @@ void main() {
         
             TickGroup* group = MIDIEvent.TickGroupArray.Pointer;
             uint24* messages = SynthEvent.messages.Pointer;
-            byte* tracks = SynthEvent.track.Pointer;
+            byte* tracks = SynthEvent.track != null? SynthEvent.track.Pointer : null;
         
             int limit = Math.Min(toTick, MIDILoader.maxTick);
             int headLocal = _head;
@@ -399,23 +399,22 @@ void main() {
                     while (currentOffset < nextOffset)
                     {
                         byte* synthev = (byte*)messages + (currentOffset * 3);
-                        byte status = synthev[0];
-    
-                        if ((status & 0xE0) != 0x80)
+                        if ((*synthev & 0xE0) != 0x80)
                         {
                             currentOffset++;
                             continue;
                         }
     
-                        uint channel = status & 0xFu;
+                        uint channel = *synthev & 0xFu;
                         KeyHeader* header = keyheader + ((channel << 8) | synthev[1]);
                         ushort count = header->ActiveCount;
+                        int absid = header->ActiveAbsId;
     
-                        if ((status & 0x10) != 0)
+                        if ((*synthev & 0x10) != 0)
                         {
                             if (count == 0)
                             {
-                                header->ActiveAbsId = headLocal;
+                                absid = headLocal;
                                 ringLocal[headLocal & maskLocal] = new RenderNote
                                 {
                                     StartTick = tick,
@@ -433,13 +432,13 @@ void main() {
                                 count--;
                                 if (count == 0)
                                 {
-                                    int absId = header->ActiveAbsId;
-                                    if (absId >= headLocal - (maskLocal + 1))
-                                        ringLocal[absId & maskLocal].EndTick = tick;
+                                    if (absid >= headLocal - (maskLocal + 1))
+                                        ringLocal[absid & maskLocal].EndTick = tick;
                                 }
                             }
                         }
                         header->ActiveCount = count;
+                        header->ActiveAbsId = absid;
                         currentOffset++;
                     }
                 }
