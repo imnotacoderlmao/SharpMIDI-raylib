@@ -315,33 +315,12 @@ namespace SharpMIDI
                 }
                 else
                 {
-                    switch (prevEvent >> 4)
-                    {
-                        case 9:
-                        {
-                            localPtr++;
-                            count++;
-                            if (*localPtr++ != 0) 
-                                notecount++;
-                            continue;
-                        }
-                        case 8: 
-                        case 10: 
-                        case 11:
-                        case 14:
-                        {
-                            localPtr += 2;
-                            count++;
-                            continue;
-                        }
-                        case 12: 
-                        case 13:
-                        {
-                            localPtr++;
-                            count++;
-                            continue;
-                        }
-                    }
+                    int status = prevEvent & 0xF0;
+                    if (status == 0x90 && *(localPtr + 1) != 0)
+                        notecount++;
+                    int dataBytes = (status == 0xC0 || status == 0xD0) ? 1 : 2;
+                    localPtr += dataBytes;
+                    count++;
                 }
             }
 
