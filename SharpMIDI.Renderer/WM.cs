@@ -227,6 +227,11 @@ namespace SharpMIDI
                     {
                         ImGui.SetTooltip("Force cull notes if held for a long time\n(due to how notes are stored, this prevents the vbo size from balloning too much. will break visuals in some cases though)");
                     }
+                    ImGui.Checkbox("Note Transparency", ref GLNoteRenderer.EnableTransparency);
+                    if (ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled))
+                    {
+                        ImGui.SetTooltip("Note transparency linear to their velocity");
+                    }
                     ImGui.Checkbox("Note glow", ref GLNoteRenderer.EnableGlow);
                     if (ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled))
                     {
@@ -235,7 +240,7 @@ namespace SharpMIDI
                     ImGui.Checkbox("Track colors", ref trackcolors);
                     if (ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled))
                     {
-                        ImGui.SetTooltip("Disabling track colors will save around 40%% memory at the cost of visuals being... subpar at least");
+                        ImGui.SetTooltip("Disabling track colors will save around 25%% memory at the cost of visuals being... subpar at least");
                     }
                     ImGui.Checkbox("Debug stats", ref Debug);
                     if (ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled))

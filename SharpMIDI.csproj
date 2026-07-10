@@ -20,7 +20,7 @@
         <DefineConstants>LINUX</DefineConstants>
     </PropertyGroup>
     <ItemGroup>
-        <PackageReference Include="raylib-cs" Version="7.0.2" />
+        <PackageReference Include="raylib-cs" Version="8.0.0" />
         <PackageReference Include="rlImgui-cs" Version="3.2.0" />
         <PackageReference Include="Silk.NET" Version="2.23.0" />
     </ItemGroup>
