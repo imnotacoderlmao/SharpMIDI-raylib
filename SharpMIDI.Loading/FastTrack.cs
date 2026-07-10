@@ -47,12 +47,20 @@ namespace SharpMIDI
 
                 if (readEvent < 0xF0)
                 {
-                    byte status = (byte)(readEvent & 0xF0);
                     // lowkey curious in the difference between else if and switch cases but theyre the same
                     // also switches in this case seems more readable imo.
-                    switch (status)
+                    switch (readEvent >> 4)
                     {
-                        case 0x90:
+                        case 8:
+                        {
+                            byte note = *localPtr++; 
+                            byte vel = *localPtr++;
+                            long pos = Interlocked.Increment(ref writeCursors[absolutetime]) - 1;
+                            msgPtr[pos] = (uint24)(readEvent | (note << 8) | (vel << 16));
+                            if(trackcolors) trackPtr[pos] = track;
+                            continue;
+                        }
+                        case 9:
                         {
                             byte note = *localPtr++;
                             byte vel = *localPtr++;
@@ -71,16 +79,7 @@ namespace SharpMIDI
                             if(trackcolors) trackPtr[pos] = track;
                             continue;
                         }
-                        case 0x80:
-                        {
-                            byte note = *localPtr++; 
-                            byte vel = *localPtr++;
-                            long pos = Interlocked.Increment(ref writeCursors[absolutetime]) - 1;
-                            msgPtr[pos] = (uint24)(readEvent | (note << 8) | (vel << 16));
-                            if(trackcolors) trackPtr[pos] = track;
-                            continue;
-                        }
-                        case 0xA0:
+                        case 10:
                         { 
                             byte note = *localPtr++;
                             byte pressure = *localPtr++; 
@@ -89,7 +88,7 @@ namespace SharpMIDI
                             if(trackcolors) trackPtr[pos] = track;
                             continue;
                         }
-                        case 0xB0:
+                        case 11:
                         { 
                             byte controller = *localPtr++;
                             byte val = *localPtr++;      
@@ -98,7 +97,7 @@ namespace SharpMIDI
                             if(trackcolors) trackPtr[pos] = track;
                             continue;
                         }
-                        case 0xC0:
+                        case 12:
                         { 
                             byte prog = *localPtr++;                            
                             long pos = Interlocked.Increment(ref writeCursors[absolutetime]) - 1; 
@@ -106,7 +105,7 @@ namespace SharpMIDI
                             if(trackcolors) trackPtr[pos] = track;
                             continue;
                         }
-                        case 0xD0:
+                        case 13:
                         { 
                             byte pres = *localPtr++;                            
                             long pos = Interlocked.Increment(ref writeCursors[absolutetime]) - 1; 
@@ -114,7 +113,7 @@ namespace SharpMIDI
                             if(trackcolors) trackPtr[pos] = track;
                             continue;
                         }
-                        case 0xE0:
+                        case 14:
                         { 
                             byte lsb = *localPtr++; 
                             byte msb = *localPtr++;      
@@ -206,13 +205,11 @@ namespace SharpMIDI
         public void ScanEvents(ref BigArray<TickGroup> tickCounts)
         {
             tickCounts = new BigArray<TickGroup>(2048);
-            TickGroup* ticks = tickCounts.Pointer;
             byte* localPtr = ptr;
             byte* localEndPtr = endPtr;
-            int absolutetime = 0;
             byte prevEvent = 0;
-            long tick_idx = 0;
-            long tick_len = tickCounts.Length;
+            int absolutetime = 0;
+            int tick_idx = 0;
             uint count = 0;
             uint notecount = 0;
 
@@ -227,7 +224,7 @@ namespace SharpMIDI
                     {
                         b = *localPtr++;
                         delta = (delta << 7) | (b & 0x7F);
-                    } 
+                    }
                     while (b >= 0x80);
                 }
 
@@ -235,13 +232,12 @@ namespace SharpMIDI
                 {
                     if (count > 0)
                     {
-                        if (tick_idx >= tick_len)
+                        tick_idx++;
+                        if (tick_idx >= tickCounts.Length)
                         {
-                            tick_len *= 2;
-                            tickCounts.Resize(tick_len);
-                            ticks = tickCounts.Pointer;
+                            tickCounts.Resize(tickCounts.Length * 2);
                         }
-                        ticks[tick_idx++] = new TickGroup 
+                        tickCounts.Pointer[tick_idx] = new TickGroup 
                         { 
                             tick = absolutetime, 
                             notecount = notecount, 
@@ -259,86 +255,90 @@ namespace SharpMIDI
                 if (readEvent >= 0x80)
                 {
                     localPtr++;
-                    if (readEvent < 0xF0) 
-                        prevEvent = readEvent;
-                }
-                else
-                    readEvent = prevEvent;
-
-                if (readEvent < 0xF0)
-                {
-                    byte status = (byte)(readEvent & 0xF0);
-                    switch (status)
+                    if (readEvent < 0xF0)
                     {
-                        case 0x90:
+                        prevEvent = readEvent;
+                        int status = readEvent & 0xF0;
+                        if (status == 0x90 && *(localPtr + 1) != 0)
+                            notecount++;
+                        int dataBytes = (status == 0xC0 || status == 0xD0) ? 1 : 2;
+                        localPtr += dataBytes;
+                        count++;
+                    }
+                    else
+                    {
+                        switch (readEvent)
                         {
-                            localPtr++;
-                            if (*localPtr++ != 0) 
-                                notecount++;
-                            count++;
-                            continue;
-                        }
-                        case 0x80: 
-                        case 0xA0: 
-                        case 0xB0:
-                        case 0xE0:
-                        {
-                            localPtr += 2;
-                            count++;
-                            continue;
-                        }
-                        case 0xC0: 
-                        case 0xD0:
-                        {
-                            localPtr++;
-                            count++;
-                            continue;
+                            case 0xF0:
+                            {
+                                int len = 0;
+                                while (true)
+                                {
+                                    byte curByte = *localPtr++;
+                                    len = (len << 7) | (curByte & 0x7F);
+                                    if ((curByte & 0x80) == 0) 
+                                        break;
+                                }
+                                localPtr += len;
+                                continue;
+                            }
+                            case 0xF1:
+                            case 0xF3:
+                            {
+                                localPtr++; 
+                                continue;
+                            }
+                            case 0xF2:
+                            { 
+                                localPtr += 2;
+                                continue;
+                            }
+                            case 0xFF:
+                            {
+                                readEvent = *localPtr++;
+                                int len2 = 0;
+                                while (true)
+                                {
+                                    byte curByte = *localPtr++;
+                                    len2 = (len2 << 7) | (curByte & 0x7F);
+                                    if ((curByte & 0x80) == 0) 
+                                        break;
+                                }
+                                if (readEvent == 0x2F)
+                                    goto finalize;
+                                else 
+                                    localPtr += len2;
+                                continue;
+                            }
                         }
                     }
                 }
                 else
                 {
-                    switch (readEvent)
+                    switch (prevEvent >> 4)
                     {
-                        case 0xF0:
+                        case 9:
                         {
-                            int len = 0;
-                            while (true)
-                            {
-                                byte curByte = *localPtr++;
-                                len = (len << 7) | (curByte & 0x7F);
-                                if ((curByte & 0x80) == 0) 
-                                    break;
-                            }
-                            localPtr += len;
+                            localPtr++;
+                            count++;
+                            if (*localPtr++ != 0) 
+                                notecount++;
                             continue;
                         }
-                        case 0xF1:
-                        case 0xF3:
+                        case 8: 
+                        case 10: 
+                        case 11:
+                        case 14:
                         {
-                            localPtr++; 
-                            continue;
-                        }
-                        case 0xF2:
-                        { 
                             localPtr += 2;
+                            count++;
                             continue;
                         }
-                        case 0xFF:
+                        case 12: 
+                        case 13:
                         {
-                            readEvent = *localPtr++;
-                            int len2 = 0;
-                            while (true)
-                            {
-                                byte curByte = *localPtr++;
-                                len2 = (len2 << 7) | (curByte & 0x7F);
-                                if ((curByte & 0x80) == 0) 
-                                    break;
-                            }
-                            if (readEvent == 0x2F)
-                                goto finalize;
-                            else 
-                                localPtr += len2;
+                            localPtr++;
+                            count++;
                             continue;
                         }
                     }
@@ -354,13 +354,11 @@ namespace SharpMIDI
                     Interlocked.Exchange(ref MIDILoader.maxTick, trackMaxTick);
                 if (count > 0)
                 {
-                    if (tick_idx >= tick_len)
+                    if (tick_idx >= tickCounts.Length)
                     {
-                        tick_len *= 2;
-                        tickCounts.Resize(tick_len);
-                        ticks = tickCounts.Pointer;
+                        tickCounts.Resize(tickCounts.Length * 2);
                     }
-                    ticks[tick_idx++] = new TickGroup 
+                    tickCounts.Pointer[tick_idx++] = new TickGroup 
                     { 
                         tick = absolutetime, 
                         notecount = notecount, 
