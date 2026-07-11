@@ -68,13 +68,13 @@ namespace SharpMIDI
                         }
                         if(trackcolors) trackPtr[pos] = track;
                     }
-                    if (status == 0x80 || status == 0xA0 || status == 0xB0 || status == 0xE0)
+                    else if ((status & 0xE0) != 0xC0)
                     {
                         long pos = Interlocked.Increment(ref writeCursors[absolutetime]) - 1;
                         msgPtr[pos] = (uint24)(readEvent | (data1 << 8) | (data2 << 16));
                         if(trackcolors) trackPtr[pos] = track;
                     }
-                    if (status == 0xC0 || status == 0xD0)
+                    else
                     {                    
                         long pos = Interlocked.Increment(ref writeCursors[absolutetime]) - 1; 
                         msgPtr[pos] = (uint24)(readEvent | (data1 << 8));
@@ -99,11 +99,11 @@ namespace SharpMIDI
                         
                         localSysEx.Add(new SysEx { tick = absolutetime, message = [.. data] });
                     }
-                    if (readEvent == 0xF1 || readEvent == 0xF3)
+                    else if (readEvent == 0xF1 || readEvent == 0xF3)
                         localPtr++;
-                    if (readEvent == 0xF2)
+                    else if (readEvent == 0xF2)
                         localPtr += 2;
-                    if (readEvent == 0xFF)
+                    else if (readEvent == 0xFF)
                     {
                         readEvent = (byte)eventPayload;
                         localPtr++;
@@ -227,11 +227,11 @@ namespace SharpMIDI
                             }
                             localPtr += len;
                         }
-                        if (readEvent == 0xF3 && readEvent == 0xF1)
+                        else if (readEvent == 0xF3 && readEvent == 0xF1)
                             localPtr++;
-                        if (readEvent == 0xF2)
+                        else if (readEvent == 0xF2)
                             localPtr += 2;
-                        if (readEvent == 0xFF)
+                        else if (readEvent == 0xFF)
                         {
                             readEvent = (byte)eventPayload;
                             localPtr++;
@@ -249,7 +249,6 @@ namespace SharpMIDI
                                 }
                                 localPtr += len2;
                             }
-                            continue;
                         }
                     }
                 }
