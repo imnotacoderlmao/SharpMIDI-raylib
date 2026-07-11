@@ -159,7 +159,7 @@ namespace SharpMIDI
             byte* localEndPtr = endPtr;
             byte prevEvent = 0;
             int absolutetime = 0;
-            int tick_idx = 0;
+            int tick_idx = -1;
             uint count = 0;
             uint notecount = 0;
 
@@ -208,7 +208,7 @@ namespace SharpMIDI
                     {
                         prevEvent = readEvent;
                         int status = readEvent & 0xF0;
-                        if (status == 0x90 && eventPayload >> 8 != 0)
+                        if (status == 0x90 && (byte)(eventPayload >> 8) != 0)
                             notecount++;
                         localPtr += ((status & 0xE0) == 0xC0) ? 1 : 2;
                         count++;
@@ -227,7 +227,7 @@ namespace SharpMIDI
                             }
                             localPtr += len;
                         }
-                        else if (readEvent == 0xF3 && readEvent == 0xF1)
+                        else if (readEvent == 0xF3 || readEvent == 0xF1)
                             localPtr++;
                         else if (readEvent == 0xF2)
                             localPtr += 2;
@@ -283,7 +283,7 @@ namespace SharpMIDI
                     eventCount += count;
                     totalNotes += notecount;
                 }
-                tickCounts.Count = tick_idx;
+                tickCounts.Count = tick_idx + 1;
         }
 
         public void Dispose()

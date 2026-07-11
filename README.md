@@ -16,7 +16,7 @@ IF you want pretty fast MIDI playback, Download [OmniMIDI](https://github.com/Ke
 
 ## Build Info
 
-This originally used .NET 6.0, but now its upgraded to .NET 8.0.
+This originally used .NET 6.0, but now its upgraded to ~~.NET 8.0.~~ .NET 10.0.
 
 i have no idea why and how to fix if you have problems building.
 
