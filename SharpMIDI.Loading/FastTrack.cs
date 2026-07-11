@@ -262,11 +262,11 @@ namespace SharpMIDI
                 }
             }
 
-            MIDILoader.Crash("does this midi not have an end of track byte? this message isnt supposed to appear otherwise");
+            MIDILoader.Crash("does this midi not have an end of track byte? this message isnt supposed to appear otherwise", choices: false);
             finalize:
                 trackMaxTick = absolutetime;
                 if (absolutetime > 1 << 28)
-                    MIDILoader.Crash($"dear lord what is wrong with your midi file's varlen. current tick = {absolutetime}");
+                    MIDILoader.Crash($"dear lord what is wrong with your midi file's varlen. current tick = {absolutetime}", choices: false);
                 if (trackMaxTick > MIDILoader.maxTick)
                     Interlocked.Exchange(ref MIDILoader.maxTick, trackMaxTick);
                 if (count > 0)

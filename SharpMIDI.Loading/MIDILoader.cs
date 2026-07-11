@@ -28,17 +28,34 @@ namespace SharpMIDI
         public static string? filename;
         public static string loadstatus = "No MIDI Loaded";
 
-        public static void Crash(string error)
+        public static int Crash(string error, bool choices = true)
         {        
-            Console.WriteLine(error);
-            Task.Run(async () =>
+            if (choices)
             {
+                Console.WriteLine($"{error}\nplease input: yes/no to proceed");
+                loadstatus = error;
+                string choice = Console.ReadLine().Trim();
+                if (Regex.IsMatch(choice, @"^(yes|y)$", RegexOptions.IgnoreCase))
+                {
+                    Console.WriteLine("will continue");
+                    return 1;
+                }
+                else
+                    return 0;
+            }
+            else
+            {
+                Console.WriteLine(error);
                 string prevstatus = loadstatus;
                 loadstatus = error;
-                await Task.Delay(1000);
-                if (loadstatus == error) 
-                    loadstatus = prevstatus;
-            });
+                Task.Run(async () =>
+                {
+                    await Task.Delay(1000);
+                    if (loadstatus == error) 
+                        loadstatus = prevstatus;
+                });
+                return 1;
+            }
         }
 
         public static unsafe void LoadMIDI(string path)
@@ -49,8 +66,8 @@ namespace SharpMIDI
             Console.WriteLine(loadstatus);
             if (!path.EndsWith(".mid"))
             { 
-                Crash("file doesn't end with 'mid'. are you even loading a midi file?");
-                return;
+                int ret = Crash("file doesn't end with 'mid'. are you even loading a midi file?");
+                if (ret == 0) return;
             }
             filePos = 0;
             double parsetime;
@@ -259,16 +276,9 @@ expected: {Starter.toMemoryText((eventCount * sizeof(uint24)) + (WindowManager.t
             }
             else if (ret == 2)
             {
-                loadstatus = "Your MIDI file might be corrupted. are you sure you want to continue parsing?";
-                Console.WriteLine(loadstatus);
-                string choice = Console.ReadLine().Trim();
-                if (Regex.IsMatch(choice, @"^(yes|y)$", RegexOptions.IgnoreCase))
-                {
-                    Console.WriteLine("will continue parsing...");
+                int ret2 = Crash("Your MIDI file might be corrupted. are you sure you want to continue parsing?");
+                if (ret2 == 1)
                     return 0;
-                }
-                else
-                    return ret;
             }
             return ret;
         }
@@ -297,7 +307,7 @@ expected: {Starter.toMemoryText((eventCount * sizeof(uint24)) + (WindowManager.t
                     return 0;
                 if (filePtr[filePos++] != text[i])
                 {
-                    Crash($"Header issue searching for {text}");
+                    Console.WriteLine($"Header issue searching for {text}");
                     return 2;
                 }
             }

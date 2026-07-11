@@ -17,12 +17,12 @@ namespace SharpMIDI
         {
             if (!MIDILoader.midiLoaded) 
             {
-                MIDILoader.Crash("no midi loaded!!!");
+                MIDILoader.Crash("no midi loaded!!!", choices: false);
                 return;
             }
             if (!Sound.issynthinitiated)
             { 
-                MIDILoader.Crash("NO synth initiated. please load a synth first!!! (press q for ui)");
+                MIDILoader.Crash("NO synth initiated. please load a synth first!!! (press q for ui)", choices: false);
                 return;
             }
             playedNotes = 0;
