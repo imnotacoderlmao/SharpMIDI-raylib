@@ -1,4 +1,3 @@
-
 using System.Runtime.InteropServices;
 namespace SharpMIDI
 {
@@ -136,6 +135,9 @@ namespace SharpMIDI
         {
             running = false;
             audthread?.Join(100);
+            NativeMemory.Clear(ringbuffer, (nuint)(bufferSize * sizeof(uint24)));
+            readptr = 0;
+            writeptr = 0;
         }
 
         public static void AllNotesOFF()

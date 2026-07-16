@@ -79,14 +79,14 @@ namespace SharpMIDI
                         {
                             while (played < offset)
                             {
-                                uint write = Sound.writeptr;
+                                uint write = (uint)(played & Sound.bufferMask);
                                 // just hoping there isnt more than 1,431,655,765.33 events in a single tick
                                 uint chunk = (uint)Math.Min(offset - played, Sound.bufferSize - write);
                                 uint bytes = chunk * (uint)sizeof(uint24);
                                 Unsafe.CopyBlockUnaligned(buffer + write, msgptr + played, bytes);
-                                Sound.writeptr = (write + chunk) & Sound.bufferMask;
                                 played += chunk;
                             }
+                            Sound.writeptr = (uint)(played & Sound.bufferMask);
                         }
                         else   
                         { 

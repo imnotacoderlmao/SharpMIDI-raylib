@@ -225,22 +225,22 @@ namespace SharpMIDI
                     ImGui.Checkbox("Force cull notes", ref GLNoteRenderer.UseForceCull);
                     if (ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled))
                     {
-                        ImGui.SetTooltip("Force cull notes if held for a long time\n(due to how notes are stored, this prevents the vbo size from balloning too much. will break visuals in some cases though)");
+                        ImGui.SetTooltip("Force cull notes if held for a long time\n(due to how notes are stored, this prevents the ssbo size from balloning too much. will break visuals in some cases though)");
                     }
-                    ImGui.Checkbox("Note Transparency", ref GLNoteRenderer.EnableTransparency);
+                    ImGui.Checkbox("Note transparency", ref GLNoteRenderer.EnableTransparency);
                     if (ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled))
                     {
-                        ImGui.SetTooltip("Note transparency linear to their velocity");
+                        ImGui.SetTooltip("note transparency linear to their velocity");
                     }
                     ImGui.Checkbox("Note glow", ref GLNoteRenderer.EnableGlow);
                     if (ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled))
                     {
-                        ImGui.SetTooltip("Brighten notes that are being played");
+                        ImGui.SetTooltip("brighten notes that are being played");
                     }
                     ImGui.Checkbox("Track colors", ref trackcolors);
                     if (ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled))
                     {
-                        ImGui.SetTooltip("Disabling track colors will save around 25%% memory at the cost of visuals being... subpar at least");
+                        ImGui.SetTooltip("disabling track colors will save around 25%% memory at the cost of visuals being... subpar at least");
                     }
                     ImGui.Checkbox("Debug stats", ref Debug);
                     if (ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled))
@@ -258,7 +258,7 @@ namespace SharpMIDI
                     ImGui.Checkbox("Single threaded playback", ref singlethreadplayback);
                     if (ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled))
                     {
-                        ImGui.SetTooltip("While this makes playback half as demanding due to the audio thread being disabled\nyou are at the mercy of whatever synth API youre sending to (way lower throughput)");
+                        ImGui.SetTooltip("while this makes playback half as demanding due to the audio thread being disabled\nyou are at the mercy of whatever synth API youre sending to (way lower throughput)");
                     }
                     ImGui.Checkbox("Limit playback FPS", ref MIDIPlayer.potato_mode);  
                     if (ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled))
@@ -276,7 +276,7 @@ namespace SharpMIDI
                     }
                     if (ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled))
                     {
-                        ImGui.SetTooltip("Toggling this will dictate wether the player will throttle or skip events when stalled.\ndisabling will make the player throttle itself to prevent stalling and go through every event in the midi.\nwhile skipping dosent throttle timing and just skips sending to synth till it dosent stall anymore");
+                        ImGui.SetTooltip("toggling this will dictate wether the player will throttle or skip events when stalled.\ndisabling will make the player throttle itself to prevent stalling and go through every event in the midi.\nwhile skipping dosent throttle timing and just skips sending to synth till it dosent stall anymore");
                     }
                     if (MIDIClock.skipevents == false)
                         ImGui.Checkbox("Throttle Playback", ref MIDIClock.throttle);

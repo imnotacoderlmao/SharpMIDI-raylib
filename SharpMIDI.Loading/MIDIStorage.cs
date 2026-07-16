@@ -1,4 +1,5 @@
 #pragma warning disable 8500, 8625
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 namespace SharpMIDI
 {
@@ -75,6 +76,14 @@ namespace SharpMIDI
             Length = newLength;
             long bytes = Length * sizeof(T);
             ptr = NativeMemory.Realloc(ptr, (nuint)bytes);
+        }
+        
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        public void Add(T element)
+        {
+            if (Count >= Length)
+                Resize(Length < 2048? 2048 : Length * 2);
+            Pointer[Count++] = element;
         }
 
         public void Dispose()

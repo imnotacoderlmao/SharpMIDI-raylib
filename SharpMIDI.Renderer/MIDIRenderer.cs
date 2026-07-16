@@ -362,7 +362,7 @@ void main() {
                         ushort count = header->ActiveCount;
                         int absid = header->ActiveAbsId;
                         
-                        if ((*synthev & 0x10) != 0)
+                        if ((*synthev & 0xF0) == 0x90)
                         {
                             if (count == 0)
                             {

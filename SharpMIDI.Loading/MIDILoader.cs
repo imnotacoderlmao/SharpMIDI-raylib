@@ -41,7 +41,11 @@ namespace SharpMIDI
                     return 1;
                 }
                 else
+                {
+                    loadstatus = "Aborted.";
+                    Console.WriteLine("Aborted.");
                     return 0;
+                }
             }
             else
             {
@@ -70,6 +74,9 @@ namespace SharpMIDI
                 if (ret == 0) return;
             }
             filePos = 0;
+            fileLength = 0;
+            string memusage = string.Empty;
+            double counttime;
             double parsetime;
             using (var mmf = MemoryMappedFile.CreateFromFile(path, FileMode.Open, null, 0, MemoryMappedFileAccess.Read))
             using (var accessor = mmf.CreateViewAccessor(0, 0, MemoryMappedFileAccess.Read))
@@ -80,6 +87,9 @@ namespace SharpMIDI
                 {
                     filePtr = basePtr;
                     fileLength = accessor.Capacity;
+
+                    if (accessor.Capacity > 34_359_738_368) // or 32 GiB somethig something
+                        Crash("this midi is a little big. your ram might get starved and loading might take a while. continue?");
 
                     loadstatus = $"verifying header";
                     VerifyHeader();
@@ -111,7 +121,7 @@ namespace SharpMIDI
                     {
                         byte* trackStartPtr = filePtr + trackProperties[i].start;
                         FastTrack t = new FastTrack(trackStartPtr, trackProperties[i].len);
-                        t.ScanEvents(ref trackHistogram[i]);
+                        trackHistogram[i] = t.ScanEvents();
                         Interlocked.Add(ref eventCount, t.eventCount);
                         Interlocked.Add(ref countednotes, t.totalNotes);
                         Interlocked.Increment(ref loadedtracks);
@@ -120,8 +130,7 @@ namespace SharpMIDI
                     });
                     
                     double parseend = Timer.Seconds();
-                    parsetime = parseend - parsestart;
-                    Console.WriteLine($"\ncounted {countednotes:N0} notes in {parsetime}s ({countednotes/parsetime:N0} notes/sec)");
+                    counttime = parseend - parsestart;
                     
                     BigArray<long> writeCursors = new BigArray<long>(maxTick + 2);
                     BigArray<TickGroup> tickgroup = new BigArray<TickGroup>(maxTick + 2);
@@ -160,7 +169,7 @@ namespace SharpMIDI
                     long* writeCursorsptr = writeCursors.Pointer;
 
                     loadstatus = $"actually parsing events now";
-                    Console.WriteLine(loadstatus);
+                    Console.WriteLine($"\n{loadstatus}");
                     loadedtracks = 0;
                     totalNotes = 0;
                     parsestart = Timer.Seconds();
@@ -186,10 +195,9 @@ namespace SharpMIDI
                 {
                     accessor.SafeMemoryMappedViewHandle.ReleasePointer();
                     filePtr = null;
-                    fileLength = 0;
                 }
             }
-
+            Console.WriteLine("\ndoing stuff to tempo and sysex array first..");
             tempMIDIstorage.temppos.Add(new Tempo { tick = int.MaxValue, tempo = 500000 });
             tempMIDIstorage.SysEx.Add(new SysEx { tick = int.MaxValue, message = [] });
             MIDIEvent.TempoEventArray = [.. tempMIDIstorage.temppos];
@@ -198,27 +206,24 @@ namespace SharpMIDI
             Array.Sort(MIDIEvent.SysExArray, (a, b) => a.tick.CompareTo(b.tick));
             tempMIDIstorage.temppos.Clear();
             tempMIDIstorage.SysEx.Clear();
-            string memusage = 
-@$"memory usage statistics below
-current usage: {Starter.toMemoryText(Process.GetCurrentProcess().WorkingSet64)}
-event array: {Starter.toMemoryText(eventCount * sizeof(uint24))} | track array: {Starter.toMemoryText(WindowManager.trackcolors? (eventCount * sizeof(byte)) : 0)}
-tempo array: {Starter.toMemoryText(MIDIEvent.TempoEventArray.Length * sizeof(Tempo))} | timing: {Starter.toMemoryText((long)(maxTick + 2) * sizeof(TickGroup))}
-expected: {Starter.toMemoryText((eventCount * sizeof(uint24)) + (WindowManager.trackcolors? (eventCount * sizeof(byte)) : 0) + ((long)(maxTick + 2) * sizeof(TickGroup)) + (MIDIEvent.TempoEventArray.Length * sizeof(Tempo)))}";
-                    
-            Console.WriteLine($"\nParsed {totalNotes:N0} notes in {parsetime}s ({totalNotes/parsetime:N0} notes/sec)");
-            Console.WriteLine(memusage);
-            
+            int tempolen = MIDIEvent.TempoEventArray.Length - 1;
+            int sysexlen = MIDIEvent.SysExArray.Length - 1;
+            Console.WriteLine(
+                ParseStatistics(fileLength, tempolen, sysexlen, counttime, parsetime, filename)
+            );
+            Console.WriteLine("parsing finished!! awaiting renderer.");            
             midiLoaded = true;
             loadstatus = filename;
             GLNoteRenderer.InitializeForMIDI();
+            Console.WriteLine("renderer initialization finished!! awaiting playback.");
         }
 
         public static void UnloadMIDI()
         {
+            if (!midiLoaded) return;
             trackAmount = 0;
             trackProperties.Clear();
             loadstatus = $"No MIDI Loaded";
-            if (!midiLoaded) return;
             Console.WriteLine($"unloading {filename}");
             midiLoaded = false;
             MIDIPlayer.stopping = true;
@@ -232,6 +237,38 @@ expected: {Starter.toMemoryText((eventCount * sizeof(uint24)) + (WindowManager.t
             MIDIEvent.SysExArray = [];
             Console.WriteLine($"succesfully unloaded {filename}");
             GC.Collect();
+        }
+
+        static unsafe string ParseStatistics(long filesize, int tempolen, int sysexlen, double counttime, double parsetime, string filename)
+        {
+            double sizemult = WindowManager.trackcolors? 1 : 0.75;
+            long eventbytes = (eventCount * sizeof(uint24)) + (WindowManager.trackcolors? (eventCount * sizeof(byte)) : 0);
+            long timingbytes = (long)(maxTick + 2) * sizeof(TickGroup);
+            string parsestatistics =
+            $"""
+            ============== PARSE STATICICS THATS ACTUALLY FANCY ==============
+              Filename:  {filename}
+              Filesize:  {Starter.toMemoryText(filesize)}
+              Took:
+                  Counting: {counttime:N12}s. which is {(double)(totalNotes / counttime):N0} notes/s.
+                  Parsing:  {parsetime:N12}s. which is {(double)(totalNotes / parsetime):N0} notes/s.
+              Counted:
+                  MIDI Ticks:              {maxTick:N0}
+                  Total Channel Events:    {eventCount:N0}
+                  Notes:                   {totalNotes:N0}
+                  Tempo Events:            {tempolen:N0}
+                  SysEx Events:            {sysexlen:N0}
+              Memory Usage:
+                  Current:        {Starter.toMemoryText(Process.GetCurrentProcess().WorkingSet64)}
+                  Expected:       {Starter.toMemoryText((long)(filesize * sizemult))}
+                  Channel Events: {Starter.toMemoryText(eventCount * sizeof(uint24))}
+                  Track Indexing: {Starter.toMemoryText((WindowManager.trackcolors? (eventCount * sizeof(byte)) : 0))}
+                  Tempo Events:   {Starter.toMemoryText(tempolen * sizeof(Tempo))}
+                  Timing:         {Starter.toMemoryText(timingbytes)}
+              MIDI to RAM ratio:  {Process.GetCurrentProcess().WorkingSet64 / (double)filesize}x
+            ==================================================================
+            """;
+            return parsestatistics;
         }
 
         static uint headersize = 0; 

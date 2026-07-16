@@ -8,13 +8,11 @@ namespace SharpMIDI
         public int trackMaxTick = 0;
         private byte* ptr = trackData;
         private byte* endPtr = trackData + len;
-
         public void ParseTrackEvents(uint24* msgPtr, byte* trackPtr, long* writeCursors, byte track)
         {
             byte* localPtr = ptr;
             byte* localEndPtr = endPtr;
             int absolutetime = 0;
-            long notecount = 0;
             byte prevEvent = 0;
             var localTempos = new List<Tempo>();
             var localSysEx = new List<SysEx>();
@@ -49,35 +47,29 @@ namespace SharpMIDI
 
                 if (readEvent < 0xF0)
                 {
-                    byte status = (byte)(readEvent & 0xF0);
-                    byte data1 = (byte)eventPayload;
-                    byte data2 = (byte)(eventPayload >> 8);
-                    localPtr += ((status & 0xE0) == 0xC0) ? 1 : 2;
-                    if (status == 0x90)
+                    ushort data = (ushort)eventPayload;
+                    localPtr += ((readEvent & 0xE0) == 0xC0) ? 1 : 2;
+                    if ((readEvent & 0xE0) != 0xC0)
                     {
                         long pos = Interlocked.Increment(ref writeCursors[absolutetime]) - 1;
-                        if (data2 != 0)
-                        { 
-                            notecount++; 
-                            msgPtr[pos] = (uint24)(readEvent | (data1 << 8) | (data2 << 16));
+                        if ((readEvent & 0xF0) == 0x90)
+                        {
+                            if (data >> 8 != 0)
+                                totalNotes++;
+                            else
+                            {
+                                msgPtr[pos] = (uint24)(0x80 | (readEvent & 0x0F) | ((byte)data << 8) | (64 << 16));
+                                if(trackcolors) trackPtr[pos] = track;
+                                continue;
+                            }
                         }
-                        else 
-                        { 
-                            byte dummynoteoff = (byte)(0x80 | readEvent & 0x0F);  
-                            msgPtr[pos] = (uint24)(dummynoteoff | (data1 << 8) | (64 << 16));
-                        }
-                        if(trackcolors) trackPtr[pos] = track;
-                    }
-                    else if ((status & 0xE0) != 0xC0)
-                    {
-                        long pos = Interlocked.Increment(ref writeCursors[absolutetime]) - 1;
-                        msgPtr[pos] = (uint24)(readEvent | (data1 << 8) | (data2 << 16));
+                        msgPtr[pos] = (uint24)(readEvent | (data << 8));
                         if(trackcolors) trackPtr[pos] = track;
                     }
                     else
                     {                    
                         long pos = Interlocked.Increment(ref writeCursors[absolutetime]) - 1; 
-                        msgPtr[pos] = (uint24)(readEvent | (data1 << 8));
+                        msgPtr[pos] = (uint24)(readEvent | ((byte)data << 8));
                         if(trackcolors) trackPtr[pos] = track;
                     }
                 }
@@ -137,29 +129,23 @@ namespace SharpMIDI
                             }
                             localPtr += len;
                         }
-                        continue;
                     }
                 }
             }
             finalize:
-                totalNotes = notecount;
                 lock(tempMIDIstorage.temppos) 
                     tempMIDIstorage.temppos.AddRange(localTempos);
                 lock(tempMIDIstorage.SysEx)   
                     tempMIDIstorage.SysEx.AddRange(localSysEx);
         }
         
-        [MethodImpl(MethodImplOptions.NoInlining)]
-        private void ResizeTickCounts(ref BigArray<TickGroup> tickCounts) => tickCounts.Resize(tickCounts.Length * 2);
-        
-        public void ScanEvents(ref BigArray<TickGroup> tickCounts)
+        public BigArray<TickGroup> ScanEvents()
         {
-            tickCounts = new BigArray<TickGroup>(2048);
+            BigArray<TickGroup> tickCounts = new BigArray<TickGroup>(2048);
             byte* localPtr = ptr;
             byte* localEndPtr = endPtr;
             byte prevEvent = 0;
             int absolutetime = 0;
-            int tick_idx = -1;
             uint count = 0;
             uint notecount = 0;
 
@@ -182,15 +168,12 @@ namespace SharpMIDI
                 {
                     if (count > 0)
                     {
-                        tick_idx++;
-                        if (tick_idx >= tickCounts.Length)
-                            ResizeTickCounts(ref tickCounts);
-                        tickCounts.Pointer[tick_idx] = new TickGroup 
+                        tickCounts.Add(new TickGroup 
                         { 
                             tick = absolutetime, 
                             notecount = notecount, 
                             offset = count 
-                        };
+                        });
                         eventCount += count;
                         totalNotes += notecount;
                         notecount = 0;
@@ -198,19 +181,18 @@ namespace SharpMIDI
                     }
                     absolutetime += delta;
                 }
+                
                 uint eventPayload = Unsafe.ReadUnaligned<uint>(localPtr);
                 byte readEvent = (byte)eventPayload;
                 if (readEvent >= 0x80)
                 {
-                    eventPayload >>= 8;
                     localPtr++;
                     if (readEvent < 0xF0)
                     {
                         prevEvent = readEvent;
-                        int status = readEvent & 0xF0;
-                        if (status == 0x90 && (byte)(eventPayload >> 8) != 0)
+                        if ((readEvent & 0xF0) == 0x90 && (byte)(eventPayload >> 16) != 0)
                             notecount++;
-                        localPtr += ((status & 0xE0) == 0xC0) ? 1 : 2;
+                        localPtr += ((readEvent & 0xE0) == 0xC0)? 1 : 2;
                         count++;
                     }
                     else
@@ -227,17 +209,15 @@ namespace SharpMIDI
                             }
                             localPtr += len;
                         }
-                        else if (readEvent == 0xF3 || readEvent == 0xF1)
-                            localPtr++;
                         else if (readEvent == 0xF2)
                             localPtr += 2;
+                        else if (readEvent == 0xF3 || readEvent == 0xF1)
+                            localPtr++;
                         else if (readEvent == 0xFF)
                         {
-                            readEvent = (byte)eventPayload;
+                            readEvent = (byte)(eventPayload >> 8);
                             localPtr++;
-                            if (readEvent == 0x2F)
-                                goto finalize;
-                            else
+                            if (readEvent != 0x2F)
                             {
                                 int len2 = 0;
                                 while (true)
@@ -249,15 +229,16 @@ namespace SharpMIDI
                                 }
                                 localPtr += len2;
                             }
+                            else
+                                goto finalize;
                         }
                     }
                 }
                 else
                 {
-                    int status = prevEvent & 0xF0;
-                    if (status == 0x90 && eventPayload >> 8 != 0)
+                    if ((prevEvent & 0xF0) == 0x90 && eventPayload >> 8 != 0)
                         notecount++;
-                    localPtr += ((status & 0xE0) == 0xC0) ? 1 : 2;
+                    localPtr += ((prevEvent & 0xE0) == 0xC0) ? 1 : 2;
                     count++;
                 }
             }
@@ -271,19 +252,16 @@ namespace SharpMIDI
                     Interlocked.Exchange(ref MIDILoader.maxTick, trackMaxTick);
                 if (count > 0)
                 {
-                    tick_idx++;
-                    if (tick_idx >= tickCounts.Length)
-                        ResizeTickCounts(ref tickCounts);
-                    tickCounts.Pointer[tick_idx] = new TickGroup 
+                    tickCounts.Add(new TickGroup 
                     { 
                         tick = absolutetime, 
                         notecount = notecount, 
                         offset = count 
-                    };
+                    });
                     eventCount += count;
                     totalNotes += notecount;
                 }
-                tickCounts.Count = tick_idx + 1;
+                return tickCounts;
         }
 
         public void Dispose()
