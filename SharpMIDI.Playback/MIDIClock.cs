@@ -59,8 +59,7 @@ namespace SharpMIDI
             bool stalled = advancetime > stall_thresh;
             if (throttle)
                 advancetime = Math.Min(stall_thresh, advancetime);
-            else if (skipevents)
-                MIDIPlayer.skipping = stalled;
+            MIDIPlayer.skipping = skipevents && stalled;
             lastnow = now;
             tick += advancetime * tickscale;
             return tick;

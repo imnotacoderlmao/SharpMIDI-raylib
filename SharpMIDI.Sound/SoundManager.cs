@@ -26,8 +26,8 @@ namespace SharpMIDI
     static unsafe class Sound
     {
         public static uint24* ringbuffer;
-        public const int bufferSize = 1 << 23; // 8 million somethuings
-        public const int bufferMask = bufferSize - 1;
+        public const uint bufferSize = 1 << 23; // 8 million somethuings
+        public const uint bufferMask = bufferSize - 1;
         public static uint readptr = 0, writeptr = 0;
         static bool running = false;
         public static bool issynthinitiated = false;

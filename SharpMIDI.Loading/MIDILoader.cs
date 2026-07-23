@@ -242,7 +242,6 @@ namespace SharpMIDI
         static unsafe string ParseStatistics(long filesize, int tempolen, int sysexlen, double counttime, double parsetime, string filename)
         {
             double sizemult = WindowManager.trackcolors? 1 : 0.75;
-            long eventbytes = (eventCount * sizeof(uint24)) + (WindowManager.trackcolors? (eventCount * sizeof(byte)) : 0);
             long timingbytes = (long)(maxTick + 2) * sizeof(TickGroup);
             string parsestatistics =
             $"""

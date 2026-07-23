@@ -360,13 +360,12 @@ void main() {
                         // its also why indexing became whatever concoction this is
                         KeyHeader* header = keyheader + (int)((channel << 11) | (colorIdx << 7) | synthev[1]);
                         ushort count = header->ActiveCount;
-                        int absid = header->ActiveAbsId;
                         
                         if ((*synthev & 0xF0) == 0x90)
                         {
                             if (count == 0)
                             {
-                                absid = headLocal;
+                                header->ActiveAbsId = headLocal;
                                 ringLocal[headLocal & maskLocal] = new RenderNote
                                 {
                                     StartTick = tick,
@@ -384,13 +383,13 @@ void main() {
                                 count--;
                                 if (count == 0)
                                 {
+                                    int absid = header->ActiveAbsId;
                                     if (absid >= headLocal - (maskLocal + 1))
                                         ringLocal[absid & maskLocal].EndTick = tick;
                                 }
                             }
                         }
                         header->ActiveCount = count;
-                        header->ActiveAbsId = absid;
                         currentOffset++;
                     }
                 }

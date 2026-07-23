@@ -47,11 +47,13 @@ namespace SharpMIDI
 
                 if (readEvent < 0xF0)
                 {
+                    // speaking of, i wonder why this works even, considering midis are big endian?
                     ushort data = (ushort)eventPayload;
                     localPtr += ((readEvent & 0xE0) == 0xC0) ? 1 : 2;
+                    long pos = Interlocked.Increment(ref writeCursors[absolutetime]) - 1;
                     if ((readEvent & 0xE0) != 0xC0)
                     {
-                        long pos = Interlocked.Increment(ref writeCursors[absolutetime]) - 1;
+                        if(trackcolors) trackPtr[pos] = track;
                         if ((readEvent & 0xF0) == 0x90)
                         {
                             if (data >> 8 != 0)
@@ -59,16 +61,13 @@ namespace SharpMIDI
                             else
                             {
                                 msgPtr[pos] = (uint24)(0x80 | (readEvent & 0x0F) | ((byte)data << 8) | (64 << 16));
-                                if(trackcolors) trackPtr[pos] = track;
                                 continue;
                             }
                         }
                         msgPtr[pos] = (uint24)(readEvent | (data << 8));
-                        if(trackcolors) trackPtr[pos] = track;
                     }
                     else
                     {                    
-                        long pos = Interlocked.Increment(ref writeCursors[absolutetime]) - 1; 
                         msgPtr[pos] = (uint24)(readEvent | ((byte)data << 8));
                         if(trackcolors) trackPtr[pos] = track;
                     }
