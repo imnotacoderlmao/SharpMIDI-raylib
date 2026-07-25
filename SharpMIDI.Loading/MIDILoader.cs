@@ -78,6 +78,7 @@ namespace SharpMIDI
             string memusage = string.Empty;
             double counttime;
             double parsetime;
+            double sizemult = WindowManager.trackcolors? 1.01 : 0.76; // +0.01 cause of timing overhead
             using (var mmf = MemoryMappedFile.CreateFromFile(path, FileMode.Open, null, 0, MemoryMappedFileAccess.Read))
             using (var accessor = mmf.CreateViewAccessor(0, 0, MemoryMappedFileAccess.Read))
             {
@@ -87,10 +88,18 @@ namespace SharpMIDI
                 {
                     filePtr = basePtr;
                     fileLength = accessor.Capacity;
-
-                    if (accessor.Capacity > 34_359_738_368) // or 32 GiB somethig something
-                        Crash("this midi is a little big. your ram might get starved and loading might take a while. continue?");
-
+                    ulong ram_capacity = RamReader.GetTotalMemoryInBytes();
+                    if ((accessor.Capacity * sizemult) > (ram_capacity * 0.75))
+                    {
+                        string crashstr = 
+                        $"""
+                        this midi is a little big. its expected usage is {Starter.toMemoryText((long)(accessor.Capacity * sizemult))}
+                        you have {Starter.toMemoryText((long)ram_capacity)} of ram.
+                        your ram as a result will get starved and loading might take a while. continue?
+                        """;
+                        int ret = Crash(crashstr); 
+                        if (ret == 0) return;
+                    }
                     loadstatus = $"verifying header";
                     VerifyHeader();
                     MIDIClock.ppq = ppq;
@@ -209,7 +218,7 @@ namespace SharpMIDI
             int tempolen = MIDIEvent.TempoEventArray.Length - 1;
             int sysexlen = MIDIEvent.SysExArray.Length - 1;
             Console.WriteLine(
-                ParseStatistics(fileLength, tempolen, sysexlen, counttime, parsetime, filename)
+                ParseStatistics(fileLength, tempolen, sysexlen, counttime, parsetime, sizemult, filename)
             );
             Console.WriteLine("parsing finished!! awaiting renderer.");            
             midiLoaded = true;
@@ -239,9 +248,8 @@ namespace SharpMIDI
             GC.Collect();
         }
 
-        static unsafe string ParseStatistics(long filesize, int tempolen, int sysexlen, double counttime, double parsetime, string filename)
+        static unsafe string ParseStatistics(long filesize, int tempolen, int sysexlen, double counttime, double parsetime, double sizemult, string filename)
         {
-            double sizemult = WindowManager.trackcolors? 1 : 0.75;
             long timingbytes = (long)(maxTick + 2) * sizeof(TickGroup);
             string parsestatistics =
             $"""

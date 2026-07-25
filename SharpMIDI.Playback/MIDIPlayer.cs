@@ -60,9 +60,9 @@ namespace SharpMIDI
                     while (currtg->tick > clock)
                     {
                         currtg--;
-                        played = currtg->offset;
                         playedNotes -= currtg->notecount;
                     }
+                    played = currtg->offset;
                     while (tevs[tempoidx].tick > clock && tempoidx > 0) 
                         tempoidx--;
                     while (sysExes[sysexidx].tick > clock && sysexidx > 0) 

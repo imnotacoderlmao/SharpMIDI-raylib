@@ -71,6 +71,7 @@ namespace SharpMIDI
             ptr = NativeMemory.AllocZeroed((nuint)bytes);
         }
         
+        [MethodImpl(MethodImplOptions.NoInlining)]
         public void Resize(long newLength)
         {
             Length = newLength;

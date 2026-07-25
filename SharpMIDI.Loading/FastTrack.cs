@@ -8,6 +8,25 @@ namespace SharpMIDI
         public int trackMaxTick = 0;
         private byte* ptr = trackData;
         private byte* endPtr = trackData + len;
+
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        public int VarlenDecode_noinline(ref byte* fileptr)
+        {
+            int len = *fileptr++;
+            if (len >= 0x80)
+            {
+                len &= 0x7F;
+                byte b;
+                do 
+                {
+                    b = *fileptr++;
+                    len = (len << 7) | (b & 0x7F);
+                } 
+                while (b >= 0x80);
+            }
+            return len;
+        }
+
         public void ParseTrackEvents(uint24* msgPtr, byte* trackPtr, long* writeCursors, byte track)
         {
             byte* localPtr = ptr;
@@ -29,7 +48,7 @@ namespace SharpMIDI
                     {
                         b = *localPtr++;
                         delta = (delta << 7) | (b & 0x7F);
-                    } 
+                    }
                     while (b >= 0x80);
                 }
                 absolutetime += delta;
@@ -40,94 +59,100 @@ namespace SharpMIDI
                     localPtr++;
                     eventPayload >>= 8;
                     if (readEvent < 0xF0)
+                    {
                         prevEvent = readEvent;
+                        // speaking of, i wonder why this works even, considering midis are big endian?
+                        ushort data = (ushort)eventPayload;
+                        long pos = Interlocked.Increment(ref writeCursors[absolutetime]) - 1;
+                        if ((readEvent & 0xE0) != 0xC0)
+                        {
+                            localPtr += 2;
+                            if(trackcolors) trackPtr[pos] = track;
+                            if ((readEvent & 0xF0) == 0x90)
+                            {
+                                if (data >> 8 != 0)
+                                    totalNotes++;
+                                else
+                                {
+                                    msgPtr[pos] = (uint24)(0x80 | (readEvent & 0x0F) | ((byte)data << 8) | (64 << 16));
+                                    continue;
+                                }
+                                //msgPtr[pos] = (uint24)(readEvent | (data << 8) | (127 << 16));
+                                //continue;
+                            }
+                            msgPtr[pos] = (uint24)(readEvent | (data << 8));
+                        }
+                        else
+                        {                    
+                            localPtr += 1;
+                            msgPtr[pos] = (uint24)(readEvent | ((byte)data << 8));
+                            if(trackcolors) trackPtr[pos] = track;
+                        }
+                    }
+                    else
+                    {
+                        if (readEvent == 0xFF)
+                        {
+                            readEvent = (byte)eventPayload;
+                            localPtr++;
+                            if (readEvent == 0x51)
+                            {
+                                int len = VarlenDecode_noinline(ref localPtr);
+                                int tempo = 0;
+                                for (int i = 0; i < len; i++) 
+                                    tempo = (tempo << 8) | *localPtr++;
+
+                                localTempos.Add(new Tempo { tick = absolutetime, tempo = (uint24)tempo });
+                            }
+                            else if (readEvent == 0x2F)
+                                goto finalize;
+                            else 
+                            {
+                                int len = VarlenDecode_noinline(ref localPtr);
+                                localPtr += len;
+                            }
+                        }
+                        else if (readEvent == 0xF1 || readEvent == 0xF3)
+                            localPtr++;
+                        else if (readEvent == 0xF2)
+                            localPtr += 2;
+                        else if (readEvent == 0xF0)
+                        {
+                            List<byte> data = [ readEvent ];
+                            int size = VarlenDecode_noinline(ref localPtr);
+                            for(uint i = 0; i < size; i++)
+                                data.Add(*localPtr++);
+
+                            localSysEx.Add(new SysEx { tick = absolutetime, message = [.. data] });
+                        }
+                    }
                 }
                 else
-                    readEvent = prevEvent;
-
-                if (readEvent < 0xF0)
                 {
                     // speaking of, i wonder why this works even, considering midis are big endian?
                     ushort data = (ushort)eventPayload;
-                    localPtr += ((readEvent & 0xE0) == 0xC0) ? 1 : 2;
                     long pos = Interlocked.Increment(ref writeCursors[absolutetime]) - 1;
-                    if ((readEvent & 0xE0) != 0xC0)
+                    if ((prevEvent & 0xE0) != 0xC0)
                     {
+                        localPtr += 2;
                         if(trackcolors) trackPtr[pos] = track;
-                        if ((readEvent & 0xF0) == 0x90)
+                        if ((prevEvent & 0xF0) == 0x90)
                         {
                             if (data >> 8 != 0)
                                 totalNotes++;
                             else
                             {
-                                msgPtr[pos] = (uint24)(0x80 | (readEvent & 0x0F) | ((byte)data << 8) | (64 << 16));
+                                msgPtr[pos] = (uint24)(0x80 | (prevEvent & 0x0F) | ((byte)data << 8) | (64 << 16));
                                 continue;
                             }
                         }
-                        msgPtr[pos] = (uint24)(readEvent | (data << 8));
+                        msgPtr[pos] = (uint24)(prevEvent | (data << 8));
                     }
                     else
                     {                    
-                        msgPtr[pos] = (uint24)(readEvent | ((byte)data << 8));
+                        localPtr += 1;
+                        msgPtr[pos] = (uint24)(prevEvent | ((byte)data << 8));
                         if(trackcolors) trackPtr[pos] = track;
-                    }
-                }
-                else
-                {
-                    if (readEvent == 0xF0)
-                    {
-                        List<byte> data = [ readEvent ];
-                        int size = 0;
-                        while (true)
-                        {
-                            byte curByte = *localPtr++;
-                            size = (size << 7) | (curByte & 0x7F);
-                            if ((curByte & 0x80) == 0) 
-                                break;
-                        }
-                        for(uint i = 0; i < size; i++)
-                            data.Add(*localPtr++);
-                        
-                        localSysEx.Add(new SysEx { tick = absolutetime, message = [.. data] });
-                    }
-                    else if (readEvent == 0xF1 || readEvent == 0xF3)
-                        localPtr++;
-                    else if (readEvent == 0xF2)
-                        localPtr += 2;
-                    else if (readEvent == 0xFF)
-                    {
-                        readEvent = (byte)eventPayload;
-                        localPtr++;
-                        if (readEvent == 0x51)
-                        {
-                            int len = 0;
-                            while (true)
-                            {
-                                byte curByte = *localPtr++;
-                                len = (len << 7) | (curByte & 0x7F);
-                                if ((curByte & 0x80) == 0) 
-                                    break;
-                            }
-                            int tempo = 0;
-                            for (int i = 0; i < len; i++) 
-                                tempo = (tempo << 8) | *localPtr++;
-                            
-                            localTempos.Add(new Tempo { tick = absolutetime, tempo = (uint24)tempo });
-                        }
-                        else if (readEvent == 0x2F)
-                            goto finalize;
-                        else 
-                        {
-                            int len = 0;
-                            while (true)
-                            {
-                                byte curByte = *localPtr++;
-                                len = (len << 7) | (curByte & 0x7F);
-                                if ((curByte & 0x80) == 0) 
-                                    break;
-                            }
-                            localPtr += len;
-                        }
                     }
                 }
             }
@@ -196,40 +221,26 @@ namespace SharpMIDI
                     }
                     else
                     {
-                        if (readEvent == 0xF0)
-                        {
-                            int len = 0;
-                            while (true)
-                            {
-                                byte curByte = *localPtr++;
-                                len = (len << 7) | (curByte & 0x7F);
-                                if ((curByte & 0x80) == 0) 
-                                    break;
-                            }
-                            localPtr += len;
-                        }
-                        else if (readEvent == 0xF2)
-                            localPtr += 2;
-                        else if (readEvent == 0xF3 || readEvent == 0xF1)
-                            localPtr++;
-                        else if (readEvent == 0xFF)
+                        if (readEvent == 0xFF)
                         {
                             readEvent = (byte)(eventPayload >> 8);
                             localPtr++;
                             if (readEvent != 0x2F)
                             {
-                                int len2 = 0;
-                                while (true)
-                                {
-                                    byte curByte = *localPtr++;
-                                    len2 = (len2 << 7) | (curByte & 0x7F);
-                                    if ((curByte & 0x80) == 0) 
-                                        break;
-                                }
-                                localPtr += len2;
+                                int len = VarlenDecode_noinline(ref localPtr);
+                                localPtr += len;
                             }
                             else
                                 goto finalize;
+                        }
+                        else if (readEvent == 0xF2)
+                            localPtr += 2;
+                        else if (readEvent == 0xF3 || readEvent == 0xF1)
+                            localPtr++;
+                        else if (readEvent == 0xF0)
+                        {
+                            int len = VarlenDecode_noinline(ref localPtr);
+                            localPtr += len;
                         }
                     }
                 }
@@ -246,7 +257,7 @@ namespace SharpMIDI
             finalize:
                 trackMaxTick = absolutetime;
                 if (absolutetime > 1 << 28)
-                    MIDILoader.Crash($"dear lord what is wrong with your midi file's varlen. current tick = {absolutetime}", choices: false);
+                    MIDILoader.Crash($"dear lord what is wrong with your midi file's timing. current tick = {absolutetime}", choices: false);
                 if (trackMaxTick > MIDILoader.maxTick)
                     Interlocked.Exchange(ref MIDILoader.maxTick, trackMaxTick);
                 if (count > 0)

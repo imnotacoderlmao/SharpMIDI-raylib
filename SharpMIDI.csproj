@@ -9,7 +9,7 @@
         <PublishAOT>true</PublishAOT>
         <OptimizationPreference>Speed</OptimizationPreference>
         <Optimize>true</Optimize>
-        <DebugType>none</DebugType>
+        <DebugType>full</DebugType>
         <RunAotCompilation>true</RunAotCompilation>
         <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
         <InvariantGlobalization>true</InvariantGlobalization>
