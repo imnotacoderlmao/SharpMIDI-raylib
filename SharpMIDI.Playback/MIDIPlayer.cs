@@ -7,8 +7,9 @@ namespace SharpMIDI
         private static byte[] gmreset = [0xF0, 0x7E, 0x7F, 0x09, 0x01, 0xF7];
         private static byte[] rolandreset = [0xF0, 0x41, 0x10, 0x42, 0x12, 0x40, 0x00, 0x7F, 0x00, 0x41, 0xF7];
         private static long totalFrames = 0, playedNotes, playedNotes2;
+        private static double notespersec = 0;
         public static int curr_tick = 0;
-        public static double MIDIFps = 0, notespersec = 0;
+        public static double MIDIFps = 0;
         public static bool stopping = true;
         public static bool skipping = false;
         public static bool potato_mode = false;
@@ -80,7 +81,6 @@ namespace SharpMIDI
                             while (played < offset)
                             {
                                 uint write = (uint)(played & Sound.bufferMask);
-                                // just hoping there isnt more than 1,431,655,765.33 events in a single tick
                                 uint chunk = (uint)Math.Min(offset - played, Sound.bufferSize - write);
                                 uint bytes = chunk * (uint)sizeof(uint24);
                                 Unsafe.CopyBlockUnaligned(buffer + write, msgptr + played, bytes);

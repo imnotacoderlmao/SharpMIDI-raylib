@@ -187,7 +187,8 @@ namespace SharpMIDI
                     {
                         byte* trackStartPtr = filePtr + trackProperties[i].start;
                         FastTrack t = new FastTrack(trackStartPtr, trackProperties[i].len);
-                        t.ParseTrackEvents(msgPtr, trackPtr, writeCursorsptr, (byte)i);
+                        // shift track left by 4 so keyheader access can be track | channel directly (please speed i need this for 1 less clock cycle needed)
+                        t.ParseTrackEvents(msgPtr, trackPtr, writeCursorsptr, (byte)(i << 4));
                         Interlocked.Add(ref totalNotes, t.totalNotes);
                         Interlocked.Increment(ref loadedtracks);
                         Console.Write($"\rparsed {loadedtracks} tracks | ({totalNotes:N0} notes parsed)");
