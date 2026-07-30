@@ -19,6 +19,7 @@ namespace SharpMIDI
         public static double bpm = 120;
         public static double ppq = 480;
         public static double tickscale;
+        public static double delta = 0;
         static double lastnow;
         const double stall_thresh = 1.0d/60.0d;
         public static bool skipevents = true;
@@ -56,6 +57,7 @@ namespace SharpMIDI
                 return tick;
             double now = Timer.Seconds();
             double advancetime = now - lastnow;
+            delta = advancetime;
             bool stalled = advancetime > stall_thresh;
             if (throttle)
                 advancetime = Math.Min(stall_thresh, advancetime);

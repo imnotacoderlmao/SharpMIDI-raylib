@@ -223,6 +223,9 @@ void main() {
         [MethodImpl(MethodImplOptions.AggressiveOptimization)]
         public static void Render(int screenWidth, int screenHeight, int tick, int pad)
         {
+            if (!MIDILoader.midiLoaded || !_isInitialized) 
+                return;
+            
             if (_paletteUploadPending)
             {
                 for (int i = 0; i < 256; i++)
@@ -245,9 +248,6 @@ void main() {
                 ResizeRing(_deferred_ringCap); 
                 _deferred_ringCap = -1; 
             }
-
-            if (!MIDILoader.midiLoaded) 
-                return;
 
             int maxtick = MIDILoader.maxTick - 1;
             int half = WindowTicks >> 1;

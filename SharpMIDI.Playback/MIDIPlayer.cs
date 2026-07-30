@@ -6,7 +6,7 @@ namespace SharpMIDI
     {
         private static byte[] gmreset = [0xF0, 0x7E, 0x7F, 0x09, 0x01, 0xF7];
         private static byte[] rolandreset = [0xF0, 0x41, 0x10, 0x42, 0x12, 0x40, 0x00, 0x7F, 0x00, 0x41, 0xF7];
-        private static long totalFrames = 0, playedNotes, playedNotes2;
+        private static long playedNotes, playedNotes2;
         private static double notespersec = 0;
         public static int curr_tick = 0;
         public static double MIDIFps = 0;
@@ -53,7 +53,6 @@ namespace SharpMIDI
             while (!stopping)
             {
                 int clock = (int)MIDIClock.Update();
-                totalFrames++;
                 if(MIDIClock.paused || potato_mode) 
                     Thread.Sleep(1);
                 if (curr_tick > clock)
@@ -155,21 +154,23 @@ namespace SharpMIDI
 
         public static void UpdatePlaybackStats()
         {
-            const double updateperiod = 0.1d;
-            double last = 0d;
+            long[] npshistory = new long[60];
+            long average = 0;
+            int npsidx = 0;
             bool kdmapi_hasvoice = Sound.currsynth == "KDMAPI" && KDMAPI.hasvoice;
             while(!stopping)
             {
-                double delta = Timer.Seconds() - last;
-                if (curr_tick >= MIDILoader.maxTick) stopping = true;
-                if (delta > updateperiod)
-                {
-                    MIDIFps = totalFrames / delta;
-                    notespersec = (playedNotes - playedNotes2) / delta;
-                    playedNotes2 = playedNotes;
-                    totalFrames = 0;
-                    last = Timer.Seconds();
-                }
+                if (curr_tick >= MIDILoader.maxTick) 
+                    stopping = true;
+                MIDIFps = 1.0d / MIDIClock.delta;
+                
+                npsidx = (npsidx + 1) % 60;
+                average -= npshistory[npsidx];
+                npshistory[npsidx] = playedNotes - playedNotes2;
+                average += npshistory[npsidx];
+                notespersec = average;
+                playedNotes2 = playedNotes;
+                
                 if (kdmapi_hasvoice)
                     Console.Write($"\rTick: {curr_tick:N0} / {MIDILoader.maxTick:N0} | Played Notes: {playedNotes:N0} / {MIDILoader.totalNotes:N0} ({notespersec:N0}/s) | MIDI Thread: @{MIDIFps:N0} fps | {KDMAPI._getActiveVoices()} voices         ");
                 else
