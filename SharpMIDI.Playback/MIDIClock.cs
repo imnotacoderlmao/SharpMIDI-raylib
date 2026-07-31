@@ -28,8 +28,7 @@ namespace SharpMIDI
 
         public static void Start()
         {
-            double now = Timer.Seconds();
-            lastnow = now;
+            lastnow = Timer.Seconds();
             bpm = 120;
             tick = 0.0;
             tickscale = (bpm * ppq) / 60.0;
@@ -51,19 +50,16 @@ namespace SharpMIDI
             tick = targetTick; 
         }
 
+        // have you ever just,,, ternary abuse.. for 2 less clock cycles from branching.....
         public static double Update()
         {
-            if (paused || MIDIPlayer.stopping) 
-                return tick;
             double now = Timer.Seconds();
-            double advancetime = now - lastnow;
-            delta = advancetime;
-            bool stalled = advancetime > stall_thresh;
-            if (throttle)
-                advancetime = Math.Min(stall_thresh, advancetime);
+            delta = now - lastnow;
+            bool stalled = delta > stall_thresh;
+            double advancetime = throttle? Math.Min(stall_thresh, delta) : delta;
             MIDIPlayer.skipping = skipevents && stalled;
             lastnow = now;
-            tick += advancetime * tickscale;
+            tick += paused? 0 : advancetime * tickscale;
             return tick;
         }
 
