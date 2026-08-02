@@ -156,6 +156,7 @@ namespace SharpMIDI
         {
             long[] npshistory = new long[60];
             int histidx = 0;
+            notespersec = 0;
             bool kdmapi_hasvoice = Sound.currsynth == "KDMAPI" && KDMAPI.hasvoice;
             while(!stopping)
             {
