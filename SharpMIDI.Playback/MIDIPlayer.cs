@@ -62,7 +62,7 @@ namespace SharpMIDI
                         currtg--;
                         playedNotes -= currtg->notecount;
                     }
-                    played = currtg->offset; 
+                    played = currtg->offset;
                     while (tevs[tempoidx].tick > clock && tempoidx > 0) 
                         tempoidx--;
                     while (sysExes[sysexidx].tick > clock && sysexidx > 0) 
@@ -72,16 +72,6 @@ namespace SharpMIDI
                 {
                     // accessing a field shouldnt be slow as hell mane js why
                     curr_tick = currtg->tick;
-                    if (tevs[tempoidx].tick <= curr_tick)
-                    {
-                        MIDIClock.SubmitBPM(tevs[tempoidx].tempo);
-                        tempoidx++;
-                    }
-                    if (sysExes[sysexidx].tick <= curr_tick)
-                    {
-                        SubmitSysEx(sysExes[sysexidx].message);
-                        sysexidx++;
-                    }
                     if (!skipping)
                     {
                         long offset = currtg->offset;
@@ -115,6 +105,16 @@ namespace SharpMIDI
                         played = currtg->offset;
                     playedNotes += currtg->notecount;
                     currtg++;
+                }
+                while (tevs[tempoidx].tick <= clock)
+                {
+                    MIDIClock.SubmitBPM(tevs[tempoidx].tempo);
+                    tempoidx++;
+                }
+                while (sysExes[sysexidx].tick <= clock)
+                {
+                    SubmitSysEx(sysExes[sysexidx].message);
+                    sysexidx++;
                 }
             }
             //SubmitSysEx(gmreset);
