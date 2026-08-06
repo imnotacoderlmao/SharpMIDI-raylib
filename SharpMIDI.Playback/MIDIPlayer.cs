@@ -70,11 +70,11 @@ namespace SharpMIDI
                 }
                 while (curr_tick <= clock)
                 {
+                    TickIndex currtick = currtg[curr_tick];
                     // accessing a field shouldnt be slow as hell mane js why
-                    curr_tick++;
                     if (!skipping)
                     {
-                        long offset = currtg[curr_tick].offset;
+                        long offset = currtick.offset;
                         if (!singlethread)
                         {
                             while (played < offset)
@@ -102,8 +102,9 @@ namespace SharpMIDI
                         }
                     }
                     else
-                        played = currtg->offset;
-                    playedNotes += currtg->notecount;
+                        played = currtick.offset;
+                    playedNotes += currtick.notecount;
+                    curr_tick++;
                 }
                 while (tevs[tempoidx].tick <= clock)
                 {

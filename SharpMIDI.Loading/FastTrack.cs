@@ -27,7 +27,7 @@ namespace SharpMIDI
             return len;
         }
 
-        public void ParseTrackEvents(BigArray<TickGroup> groups, uint24* msgPtr, byte* trackPtr, byte track)
+        public void ParseTrackEvents(BigArray<long> bases, uint24* msgPtr, byte* trackPtr, byte track)
         {
             byte* localPtr = ptr;
             byte* localEndPtr = endPtr;
@@ -35,7 +35,7 @@ namespace SharpMIDI
             byte prevEvent = 0;
             bool trackcolors = trackPtr != null;
             
-            long baseoffset = groups.Count > 0 ? groups.Pointer[0].destBase : 0;
+            long baseoffset = bases.Count > 0 ? bases.Pointer[0] : 0;
             long groupidx = 0;
             long ingroup = 0;
 
@@ -59,8 +59,8 @@ namespace SharpMIDI
                     {
                         groupidx++;
                         ingroup = 0;
-                        if (groupidx < groups.Count)
-                            baseoffset = groups.Pointer[groupidx].destBase;
+                        if (groupidx < bases.Count)
+                            baseoffset = bases.Pointer[groupidx];
                     }
                     absolutetime += delta;
                 }

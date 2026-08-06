@@ -168,12 +168,17 @@ namespace SharpMIDI
                         event_offset += tickEventCount;
                     }
 
+                    BigArray<long>[] trackBases = new BigArray<long>[trackAmount];
                     Parallel.For(0, trackAmount, i =>
                     {
                         BigArray<TickGroup> list = trackHistogram[i];
                         if (list == null) return;
+                        var bases = new BigArray<long>(list.Count);
                         for (int j = 0; j < list.Count; j++)
-                            list.Pointer[j].destBase += tickgroup.Pointer[list.Pointer[j].tick].offset;
+                            bases.Pointer[j] = list.Pointer[j].destBase + tickgroup.Pointer[list.Pointer[j].tick].offset;
+                        bases.Count = list.Count;
+                        trackBases[i] = bases;
+                        list.Dispose();
                     });
 
                     SynthEvent.Alloc(eventCount, WindowManager.trackcolors);
@@ -189,7 +194,7 @@ namespace SharpMIDI
                         byte* trackStartPtr = filePtr + trackProperties[i].start;
                         FastTrack t = new FastTrack(trackStartPtr, trackProperties[i].len);
                         // shift track left by 4 so keyheader access can be track | channel directly (please speed i need this for 1 less clock cycle needed)
-                        t.ParseTrackEvents(trackHistogram[i], msgPtr, trackPtr, (byte)(i << 4));
+                        t.ParseTrackEvents(trackBases[i], msgPtr, trackPtr, (byte)(i << 4));
                         Interlocked.Add(ref loadedNotes, t.totalNotes);
                         Interlocked.Increment(ref loadedtracks);
                         trackHistogram[i]?.Dispose();
