@@ -335,7 +335,7 @@ void main() {
             ushort* activeCount = _activeKeyCount;
 	        int* activekeyid = _activeKeyID;
 
-            TickGroup* group = MIDIEvent.TickGroupArray.Pointer;
+            TickIndex* group = MIDIEvent.TickIndexArray.Pointer;
             byte* messages = (byte*)SynthEvent.messages.Pointer;
             byte* tracks = SynthEvent.track != null? SynthEvent.track.Pointer : null;
         

@@ -102,7 +102,7 @@ namespace SharpMIDI
                             filepaths[files] = Marshal.PtrToStringUTF8((nint)droppedFiles.Paths[files]);
                         if (!Sound.issynthinitiated)
                         {
-                            MIDILoader.loadstatus = "initialize a synth first to continue with playlist playback";
+                            MIDILoader.loadstr = "initialize a synth first to continue with playlist playback";
                         }
                         else
                         {
@@ -181,10 +181,10 @@ namespace SharpMIDI
             {
                 GetMemoryUsage();
                 Raylib.DrawText($"Active notes: {GLNoteRenderer.NotesDrawnLastFrame} / {GLNoteRenderer.RingCap} | Memory: {Starter.toMemoryText(GetMemoryUsage())}", 13, 23, 16, Raylib_cs.Color.SkyBlue);
-                Raylib.DrawText($"{MIDILoader.loadstatus} | MIDI thread: @{MIDIPlayer.MIDIFps:N0} fps", 12, currentHeight - 19, 16, Raylib_cs.Color.SkyBlue);
+                Raylib.DrawText($"{MIDILoader.loadstr} | MIDI thread: @{MIDIPlayer.MIDIFps:N0} fps", 12, currentHeight - 19, 16, Raylib_cs.Color.SkyBlue);
             }
             else 
-                Raylib.DrawText($"{MIDILoader.loadstatus}", 12, currentHeight - 19, 16, Raylib_cs.Color.SkyBlue);
+                Raylib.DrawText($"{MIDILoader.loadstr}", 12, currentHeight - 19, 16, Raylib_cs.Color.SkyBlue);
         }
         
         public static void DrawUI()

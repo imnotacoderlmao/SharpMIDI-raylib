@@ -31,7 +31,7 @@ namespace SharpMIDI
             stopping = false;
             uint24* msgptr = SynthEvent.messages.Pointer;
             uint24* buffer = Sound.ringbuffer;
-            TickGroup* currtg = MIDIEvent.TickGroupArray.Pointer;
+            TickIndex* currtg = MIDIEvent.TickIndexArray.Pointer;
             Tempo[] tevs = MIDIEvent.TempoEventArray;
             SysEx[] sysExes = MIDIEvent.SysExArray;
             long played = 0;
@@ -57,24 +57,24 @@ namespace SharpMIDI
                     Thread.Sleep(1);
                 if (curr_tick > clock)
                 {
-                    while (currtg->tick > clock)
+                    while (curr_tick > clock)
                     {
-                        currtg--;
-                        playedNotes -= currtg->notecount;
+                        curr_tick--;
+                        playedNotes -= currtg[curr_tick].notecount;
                     }
-                    played = currtg->offset;
+                    played = currtg[curr_tick].offset;
                     while (tevs[tempoidx].tick > clock && tempoidx > 0) 
                         tempoidx--;
                     while (sysExes[sysexidx].tick > clock && sysexidx > 0) 
                         sysexidx--;
                 }
-                while (currtg->tick <= clock)
+                while (curr_tick <= clock)
                 {
                     // accessing a field shouldnt be slow as hell mane js why
-                    curr_tick = currtg->tick;
+                    curr_tick++;
                     if (!skipping)
                     {
-                        long offset = currtg->offset;
+                        long offset = currtg[curr_tick].offset;
                         if (!singlethread)
                         {
                             while (played < offset)
@@ -104,7 +104,6 @@ namespace SharpMIDI
                     else
                         played = currtg->offset;
                     playedNotes += currtg->notecount;
-                    currtg++;
                 }
                 while (tevs[tempoidx].tick <= clock)
                 {

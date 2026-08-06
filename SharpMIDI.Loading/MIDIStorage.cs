@@ -42,11 +42,19 @@ namespace SharpMIDI
         public int tick;
         public uint notecount;
         public long offset;
+        public long destBase; // per-track scan use only, never touches the global array
+    }
+    
+    [StructLayout(LayoutKind.Sequential, Pack = 1)]
+    public struct TickIndex
+    {
+        public uint notecount;
+        public long offset;
     }
     
     static class MIDIEvent
     {
-        public static BigArray<TickGroup> TickGroupArray = null;
+        public static BigArray<TickIndex> TickIndexArray = null;
         public static Tempo[] TempoEventArray = [];
         public static SysEx[] SysExArray = [];
     }

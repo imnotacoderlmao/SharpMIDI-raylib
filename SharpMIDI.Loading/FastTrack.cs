@@ -27,15 +27,17 @@ namespace SharpMIDI
             return len;
         }
 
-        public void ParseTrackEvents(uint24* msgPtr, byte* trackPtr, long* writeCursors, byte track)
+        public void ParseTrackEvents(BigArray<TickGroup> groups, uint24* msgPtr, byte* trackPtr, byte track)
         {
             byte* localPtr = ptr;
             byte* localEndPtr = endPtr;
             int absolutetime = 0;
             byte prevEvent = 0;
-            var localTempos = new List<Tempo>();
-            var localSysEx = new List<SysEx>();
             bool trackcolors = trackPtr != null;
+            
+            long baseoffset = groups.Count > 0 ? groups.Pointer[0].destBase : 0;
+            long groupidx = 0;
+            long ingroup = 0;
 
             while (localPtr < localEndPtr)
             {
@@ -51,7 +53,18 @@ namespace SharpMIDI
                     }
                     while (b >= 0x80);
                 }
-                absolutetime += delta;
+                if (delta > 0)
+                {
+                    if (ingroup > 0)
+                    {
+                        groupidx++;
+                        ingroup = 0;
+                        if (groupidx < groups.Count)
+                            baseoffset = groups.Pointer[groupidx].destBase;
+                    }
+                    absolutetime += delta;
+                }
+
                 uint eventPayload = Unsafe.ReadUnaligned<uint>(localPtr);
                 byte readEvent = (byte)eventPayload;
                 if (readEvent >= 0x80)
@@ -63,7 +76,7 @@ namespace SharpMIDI
                         prevEvent = readEvent;
                         // speaking of, i wonder why this works even, considering midis are big endian?
                         ushort data = (ushort)eventPayload;
-                        long pos = Interlocked.Increment(ref writeCursors[absolutetime]) - 1;
+                        long pos = baseoffset + ingroup++;
                         if ((readEvent & 0xE0) != 0xC0)
                         {
                             localPtr += 2;
@@ -102,10 +115,11 @@ namespace SharpMIDI
                                 for (int i = 0; i < len; i++) 
                                     tempo = (tempo << 8) | *localPtr++;
 
-                                localTempos.Add(new Tempo { tick = absolutetime, tempo = (uint24)tempo });
+                                lock(tempMIDIstorage.temppos) 
+                                    tempMIDIstorage.temppos.Add(new Tempo { tick = absolutetime, tempo = (uint24)tempo });
                             }
                             else if (readEvent == 0x2F)
-                                goto finalize;
+                                return;
                             else 
                             {
                                 int len = VarlenDecode_noinline(ref localPtr);
@@ -123,7 +137,8 @@ namespace SharpMIDI
                             for(uint i = 0; i < size; i++)
                                 data.Add(*localPtr++);
 
-                            localSysEx.Add(new SysEx { tick = absolutetime, message = [.. data] });
+                            lock(tempMIDIstorage.SysEx)   
+                                tempMIDIstorage.SysEx.Add(new SysEx { tick = absolutetime, message = [.. data] });
                         }
                     }
                 }
@@ -131,7 +146,7 @@ namespace SharpMIDI
                 {
                     // speaking of, i wonder why this works even, considering midis are big endian?
                     ushort data = (ushort)eventPayload;
-                    long pos = Interlocked.Increment(ref writeCursors[absolutetime]) - 1;
+                    long pos = baseoffset + ingroup++;
                     if ((prevEvent & 0xE0) != 0xC0)
                     {
                         localPtr += 2;
@@ -156,11 +171,6 @@ namespace SharpMIDI
                     }
                 }
             }
-            finalize:
-                lock(tempMIDIstorage.temppos) 
-                    tempMIDIstorage.temppos.AddRange(localTempos);
-                lock(tempMIDIstorage.SysEx)   
-                    tempMIDIstorage.SysEx.AddRange(localSysEx);
         }
         
         public BigArray<TickGroup> ScanEvents()

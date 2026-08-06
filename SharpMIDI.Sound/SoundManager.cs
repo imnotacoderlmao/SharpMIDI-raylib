@@ -54,7 +54,7 @@ namespace SharpMIDI
                     } catch (DllNotFoundException) 
                     { 
                         Console.WriteLine($"{synth} is not available.");
-                        MIDILoader.loadstatus = $"{synth} is not available."; 
+                        MIDILoader.loadstr = $"{synth} is not available."; 
                         issynthinitiated = false;
                         return issynthinitiated;
                     }
