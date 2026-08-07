@@ -161,7 +161,7 @@ namespace SharpMIDI
                     long event_offset = 0;
                     for (int t = 0; t <= maxTick; t++)
                     {
-                        writeCursors.Pointer[t] = event_offset;
+                        writeCursors.Pointer[t] = event_offset - 1;
                         long tickEventCount = tickgroup.Pointer[t].offset;
                         tickgroup.Pointer[t] = new TickGroup 
                         { 

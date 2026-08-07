@@ -33,8 +33,6 @@ namespace SharpMIDI
             byte* localEndPtr = endPtr;
             int absolutetime = 0;
             byte prevEvent = 0;
-            var localTempos = new List<Tempo>();
-            var localSysEx = new List<SysEx>();
             bool trackcolors = trackPtr != null;
 
             while (localPtr < localEndPtr)
@@ -63,11 +61,10 @@ namespace SharpMIDI
                         prevEvent = readEvent;
                         // speaking of, i wonder why this works even, considering midis are big endian?
                         ushort data = (ushort)eventPayload;
-                        long pos = Interlocked.Increment(ref writeCursors[absolutetime]) - 1;
+                        long pos = Interlocked.Increment(ref writeCursors[absolutetime]);
                         if ((readEvent & 0xE0) != 0xC0)
                         {
                             localPtr += 2;
-                            if(trackcolors) trackPtr[pos] = track;
                             if ((readEvent & 0xF0) == 0x90)
                             {
                                 if (data >> 8 != 0)
@@ -86,11 +83,13 @@ namespace SharpMIDI
                         {                    
                             localPtr += 1;
                             msgPtr[pos] = (uint24)(readEvent | ((byte)data << 8));
-                            if(trackcolors) trackPtr[pos] = track;
                         }
+                        if (trackcolors) trackPtr[pos] = track;
                     }
                     else
                     {
+                        // im removing the locks and locals for both tempo and sysex considering it isnt as frequent as events
+                        // unless if youre playing a super gm midi thats also a nut midi or something
                         if (readEvent == 0xFF)
                         {
                             readEvent = (byte)eventPayload;
@@ -102,10 +101,10 @@ namespace SharpMIDI
                                 for (int i = 0; i < len; i++) 
                                     tempo = (tempo << 8) | *localPtr++;
 
-                                localTempos.Add(new Tempo { tick = absolutetime, tempo = (uint24)tempo });
+                                tempMIDIstorage.temppos.Add(new Tempo { tick = absolutetime, tempo = (uint24)tempo });
                             }
                             else if (readEvent == 0x2F)
-                                goto finalize;
+                                break;
                             else 
                             {
                                 int len = VarlenDecode_noinline(ref localPtr);
@@ -123,7 +122,7 @@ namespace SharpMIDI
                             for(uint i = 0; i < size; i++)
                                 data.Add(*localPtr++);
 
-                            localSysEx.Add(new SysEx { tick = absolutetime, message = [.. data] });
+                            tempMIDIstorage.SysEx.Add(new SysEx { tick = absolutetime, message = [.. data] });
                         }
                     }
                 }
@@ -131,11 +130,10 @@ namespace SharpMIDI
                 {
                     // speaking of, i wonder why this works even, considering midis are big endian?
                     ushort data = (ushort)eventPayload;
-                    long pos = Interlocked.Increment(ref writeCursors[absolutetime]) - 1;
+                    long pos = Interlocked.Increment(ref writeCursors[absolutetime]);
                     if ((prevEvent & 0xE0) != 0xC0)
                     {
                         localPtr += 2;
-                        if(trackcolors) trackPtr[pos] = track;
                         if ((prevEvent & 0xF0) == 0x90)
                         {
                             if (data >> 8 != 0)
@@ -152,15 +150,10 @@ namespace SharpMIDI
                     {                    
                         localPtr += 1;
                         msgPtr[pos] = (uint24)(prevEvent | ((byte)data << 8));
-                        if(trackcolors) trackPtr[pos] = track;
                     }
+                    if (trackcolors) trackPtr[pos] = track;
                 }
             }
-            finalize:
-                lock(tempMIDIstorage.temppos) 
-                    tempMIDIstorage.temppos.AddRange(localTempos);
-                lock(tempMIDIstorage.SysEx)   
-                    tempMIDIstorage.SysEx.AddRange(localSysEx);
         }
         
         public BigArray<TickGroup> ScanEvents()
@@ -231,7 +224,10 @@ namespace SharpMIDI
                                 localPtr += len;
                             }
                             else
-                                goto finalize;
+                            {
+                                prevEvent = readEvent;
+                                break;
+                            }
                         }
                         else if (readEvent == 0xF2)
                             localPtr += 2;
@@ -252,26 +248,26 @@ namespace SharpMIDI
                     count++;
                 }
             }
-
-            MIDILoader.Crash("does this midi not have an end of track byte? this message isnt supposed to appear otherwise", choices: false);
-            finalize:
-                trackMaxTick = absolutetime;
-                if (absolutetime > 1 << 28)
-                    MIDILoader.Crash($"dear lord what is wrong with your midi file's timing. current tick = {absolutetime}", choices: false);
-                if (trackMaxTick > MIDILoader.maxTick)
-                    Interlocked.Exchange(ref MIDILoader.maxTick, trackMaxTick);
-                if (count > 0)
-                {
-                    tickCounts.Add(new TickGroup 
-                    { 
-                        tick = absolutetime, 
-                        notecount = notecount, 
-                        offset = count 
-                    });
-                    eventCount += count;
-                    totalNotes += notecount;
-                }
-                return tickCounts;
+            
+            trackMaxTick = absolutetime;
+            if (prevEvent != 0x2F)
+                MIDILoader.Crash("does this midi not have an end of track byte? this message isnt supposed to appear otherwise", choices: false);
+            if (absolutetime > 1 << 28)
+                MIDILoader.Crash($"dear lord what is wrong with your midi file's timing. current tick = {absolutetime}", choices: false);
+            if (trackMaxTick > MIDILoader.maxTick)
+                Interlocked.Exchange(ref MIDILoader.maxTick, trackMaxTick);
+            if (count > 0)
+            {
+                tickCounts.Add(new TickGroup 
+                { 
+                    tick = absolutetime, 
+                    notecount = notecount, 
+                    offset = count 
+                });
+                eventCount += count;
+                totalNotes += notecount;
+            }
+            return tickCounts;
         }
 
         public void Dispose()
