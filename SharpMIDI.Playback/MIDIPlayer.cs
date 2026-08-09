@@ -67,6 +67,7 @@ namespace SharpMIDI
                         tempoidx--;
                     while (sysExes[sysexidx].tick > clock && sysexidx > 0) 
                         sysexidx--;
+                    Sound.readptr = (uint)(played & Sound.bufferMask);
                 }
                 while (currtg->tick <= clock)
                 {
@@ -172,9 +173,9 @@ namespace SharpMIDI
 
                 // fps too volatile, idk what the word is for rapidly changing but you have to pad to make the stats string actually readable
                 if (kdmapi_hasvoice)
-                    Console.Write($"\rTick: {curr_tick:N0} / {MIDILoader.maxTick:N0} | Played Notes: {playedNotes:N0} / {MIDILoader.totalNotes:N0} ({notespersec:N0}/s) | MIDI Thread: @{MIDIFps,10:N0} fps | {KDMAPI._getActiveVoices()} voices         ");
+                    Console.Write($"\rTick: {curr_tick:N0} / {MIDILoader.maxTick:N0} | Played Notes: {playedNotes:N0} / {MIDILoader.totalNotes:N0} ({notespersec:N0}/s) | MIDI Thread: @{MIDIFps,10:N0} fps | {KDMAPI._getActiveVoices()} voices");
                 else
-                    Console.Write($"\rTick: {curr_tick:N0} / {MIDILoader.maxTick:N0} | Played Notes: {playedNotes:N0} / {MIDILoader.totalNotes:N0} ({notespersec:N0}/s) | MIDI Thread: @{MIDIFps,10:N0} fps         ");
+                    Console.Write($"\rTick: {curr_tick:N0} / {MIDILoader.maxTick:N0} | Played Notes: {playedNotes:N0} / {MIDILoader.totalNotes:N0} ({notespersec:N0}/s) | MIDI Thread: @{MIDIFps,10:N0} fps");
                 Thread.Sleep(1000/60);
             }
         }

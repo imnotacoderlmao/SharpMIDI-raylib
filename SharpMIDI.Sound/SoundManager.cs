@@ -32,6 +32,7 @@ namespace SharpMIDI
         static bool running = false;
         public static bool issynthinitiated = false;
         public static string currsynth = "";
+        public static int velocitythreshold = 0;
         static Thread? audthread; 
         public static string[] synths = ["Empty", "KDMAPI", "WinMM"];
         public static delegate* unmanaged[SuppressGCTransition]<uint, void> sendTo;
@@ -113,7 +114,8 @@ namespace SharpMIDI
                     while(readptr != writeptr)
                     {
                         uint val = (uint)buffer[readptr].Value;
-                        sendfn2(handle, val);
+                        if ((val & 0xF0) == 0x90 && (val >> 16) <= velocitythreshold)
+                            sendfn2(handle, val);
                         readptr = (readptr + 1) & bufferMask;
                     }
                 }
@@ -125,8 +127,10 @@ namespace SharpMIDI
                 while(readptr != writeptr)
                 {
                     uint val = (uint)buffer[readptr].Value;
-                    sendfn(val);
                     readptr = (readptr + 1) & bufferMask;
+                    if ((val & 0xF0) == 0x90 && (val >> 16) < velocitythreshold)
+                        continue;
+                    sendfn(val);
                 }
             }
         }

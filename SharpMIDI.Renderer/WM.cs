@@ -30,6 +30,8 @@ namespace SharpMIDI
         public static bool Debug = false;
         public static bool singlethreadplayback = false;
         public static int currsynth = 0;
+        static int memusagecallcount = 0;
+        static long memusagebytes = 0;
 
         public static void StartRenderer()
         {
@@ -255,6 +257,14 @@ namespace SharpMIDI
                     {
                         MIDIClock.Skip(tick, true);
                     }
+                    if(!singlethreadplayback)
+                    {
+                        ImGui.SliderInt("Velocity threshold", ref Sound.velocitythreshold, 0, 128);
+                        if (ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled))
+                        {
+                            ImGui.SetTooltip("ignore notes below a certain velocity. NOTES WILL STILL BE SENT TO THE BUFFER\njust that it goes through an if check before being sent to synth");
+                        }
+                    }
                     ImGui.Checkbox("Single threaded playback", ref singlethreadplayback);
                     if (ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled))
                     {
@@ -324,6 +334,12 @@ namespace SharpMIDI
             rlImGui.End();
         }
 
-        public static long GetMemoryUsage() => Process.GetCurrentProcess().WorkingSet64;
+        public static long GetMemoryUsage()
+        {
+            if ((memusagecallcount & 7) == 0)
+                memusagebytes = Process.GetCurrentProcess().WorkingSet64;
+            memusagecallcount++;
+            return memusagebytes;
+        }
     }
 }
