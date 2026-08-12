@@ -9,7 +9,7 @@ namespace SharpMIDI
         private static long playedNotes, playedNotes2;
         private static double notespersec = 0;
         public static int curr_tick = 0;
-        public static double MIDIFps = 0;
+        public static string fpsStr = string.Empty;
         public static bool stopping = true;
         public static bool skipping = false;
         public static bool potato_mode = false;
@@ -163,19 +163,24 @@ namespace SharpMIDI
             {
                 if (curr_tick >= MIDILoader.maxTick) 
                     stopping = true;
-                MIDIFps = 1.0d / MIDIClock.delta;
+                double MIDIFps = 1.0d / MIDIClock.delta;
                 
                 histidx = (histidx + 1) % 60;
                 notespersec -= npshistory[histidx];
                 npshistory[histidx] = playedNotes - playedNotes2;
                 notespersec += npshistory[histidx];
                 playedNotes2 = playedNotes;
+                #if WINDOWS
+                    fpsStr = (MIDIFps > Double.MaxValue)? ">10,000,000" : $"{MIDIFps,10}:N0";
+                #elif LINUX
+                    fpsStr = $"{MIDIFps,10:N0}";
+                #endif
 
                 // fps too volatile, idk what the word is for rapidly changing but you have to pad to make the stats string actually readable
                 if (kdmapi_hasvoice)
-                    Console.Write($"\rTick: {curr_tick:N0} / {MIDILoader.maxTick:N0} | Played Notes: {playedNotes:N0} / {MIDILoader.totalNotes:N0} ({notespersec:N0}/s) | MIDI Thread: @{MIDIFps,10:N0} fps | {KDMAPI._getActiveVoices()} voices");
+                    Console.Write($"\rTick: {curr_tick:N0} / {MIDILoader.maxTick:N0} | Played Notes: {playedNotes:N0} / {MIDILoader.totalNotes:N0} ({notespersec:N0}/s) | MIDI Thread: @{fpsStr} fps | {KDMAPI._getActiveVoices()} voices    ");
                 else
-                    Console.Write($"\rTick: {curr_tick:N0} / {MIDILoader.maxTick:N0} | Played Notes: {playedNotes:N0} / {MIDILoader.totalNotes:N0} ({notespersec:N0}/s) | MIDI Thread: @{MIDIFps,10:N0} fps");
+                    Console.Write($"\rTick: {curr_tick:N0} / {MIDILoader.maxTick:N0} | Played Notes: {playedNotes:N0} / {MIDILoader.totalNotes:N0} ({notespersec:N0}/s) | MIDI Thread: @{fpsStr} fps    ");
                 Thread.Sleep(1000/60);
             }
         }

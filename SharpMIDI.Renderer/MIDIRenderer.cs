@@ -385,7 +385,7 @@ void main() {
                 uint noteIdx = tracks[currentOffset] | (*synthev & 0x0Fu);
                 // "key" is now used to merge notes instead of tracking oldest/newest for the linked list. which sadly means duration based layering kinda goes bye bye.
                 // its also why indexing became whatever concoction this is
-                int headerIdx = (int)((*synthev & 0x0Fu) << 7 | synthev[1]);
+                int headerIdx = (int)((noteIdx & 0x0Fu) << 7 | synthev[1]);
                 ushort count = activecount[headerIdx];
                 byte activecolor = activekeycolor[headerIdx];
                 

@@ -34,7 +34,7 @@ namespace SharpMIDI
             {
                 Console.WriteLine($"{error}\nplease input: yes/no to proceed");
                 loadstatus = error;
-                string choice = Console.ReadLine().Trim();
+                string choice = Console.ReadLine() ?? string.Empty;
                 if (Regex.IsMatch(choice, @"^(yes|y)$", RegexOptions.IgnoreCase))
                 {
                     Console.WriteLine("will continue");
