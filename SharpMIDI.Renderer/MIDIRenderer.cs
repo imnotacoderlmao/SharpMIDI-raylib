@@ -369,7 +369,7 @@ void main() {
                 if (tracks != null)
                     currentOffset = ProcessTickEvents(messages, tracks, _activeKeyColor, _activeKeyCount, _activeKeyID, _ring, _mask, currentOffset, nextOffset, tick, ref headLocal);
                 else 
-                    currentOffset = ProcessTickEvents_notrack(messages, _activeKeyCount, _activeKeyID, _ring, _mask, currentOffset, nextOffset, tick, ref headLocal);
+                    currentOffset = ProcessTickEvents_notrack(messages, _activeKeyCount, _activeKeyColor, _activeKeyID, _ring, _mask, currentOffset, nextOffset, tick, ref headLocal);
             }
             _head = headLocal;
         }
@@ -431,7 +431,7 @@ void main() {
             return currentOffset;
         }
 
-        private static long ProcessTickEvents_notrack(byte* messages, ushort* activecount, int* activeKeyid, RenderNote* ringLocal, 
+        private static long ProcessTickEvents_notrack(byte* messages, ushort* activecount, byte* activekeycolor, int* activekeyid, RenderNote* ringLocal, 
         int maskLocal, long currentOffset, long nextOffset,int tick, ref int headLocal)
         {
             while (currentOffset < nextOffset)
@@ -441,11 +441,19 @@ void main() {
                 uint channel = *synthev & 0xFu;
                 int headerIdx = (int)((channel << 7) | synthev[1]);
                 ushort count = activecount[headerIdx];
+                byte activecolor = activekeycolor[headerIdx];
                 if (status == 0x90)
                 {
+                    if (count != 0 && activecolor != channel)
+                    {
+                        int oldAbsid = activekeyid[headerIdx];
+                        if (oldAbsid >= headLocal - (maskLocal + 1))
+                            ringLocal[oldAbsid & maskLocal].EndTick = tick;
+                        count = 0;
+                    }
                     if (count == 0)
                     {
-                        activeKeyid[headerIdx] = headLocal;
+                        activekeyid[headerIdx] = headLocal;
                         ringLocal[headLocal & maskLocal] = new RenderNote
                         {
                             StartTick = tick,
@@ -463,7 +471,7 @@ void main() {
                         count--;
                         if (count == 0)
                         {
-                            int absid = activeKeyid[headerIdx];
+                            int absid = activekeyid[headerIdx];
                             if (absid >= headLocal - (maskLocal + 1))
                                 ringLocal[absid & maskLocal].EndTick = tick;
                         }

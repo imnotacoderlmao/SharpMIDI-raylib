@@ -60,7 +60,6 @@ namespace SharpMIDI
         #if WINDOWS
         private static ulong GetWindowsMemory()
         {
-            // Alternately use native P/Invoke to MEMORYSTATUSEX
             var output = RunCommand("wmic", "ComputerSystem get TotalPhysicalMemory");
             var lines = output.Split(Environment.NewLine, StringSplitOptions.RemoveEmptyEntries);
             if (lines.Length > 1 && ulong.TryParse(lines[1].Trim(), out ulong bytes))
