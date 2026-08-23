@@ -19,13 +19,13 @@ namespace SharpMIDI
         private static int tick;
 
         private static bool vsync = true;
-        private static bool dynascroll = false; 
-        private static bool looping = false; 
+        private static bool dynascroll = false;
+        private static bool looping = false;
         private static bool uivisible = false;
         private static bool isborderless = false;
-        #if WINDOWS
+#if WINDOWS
         private static string selectedwinmmout = "";
-        #endif
+#endif
         public static bool trackcolors = true;
         public static bool Debug = false;
         public static bool singlethreadplayback = false;
@@ -39,7 +39,7 @@ namespace SharpMIDI
             Raylib.InitWindow(currentWidth, currentHeight, "SharpMIDI");
             GLNoteRenderer.Initialize();
             Raylib.SetTargetFPS(Raylib.GetMonitorRefreshRate(Raylib.GetCurrentMonitor()));
-            
+
             rlImGui.Setup(true);
             while (!Raylib.WindowShouldClose())
             {
@@ -51,12 +51,12 @@ namespace SharpMIDI
                     GLNoteRenderer.WindowTicks = (int)(MIDIClock.tickscale * scrollfactor);
 
                 Raylib.BeginDrawing();
-                
+
                 Raylib.ClearBackground(Raylib_cs.Color.Black);
                 GLNoteRenderer.Render(currentWidth, currentHeight, tick, PAD);
-                DrawText(); 
+                DrawText();
                 DrawUI();
-                
+
                 Raylib.EndDrawing();
             }
             MIDILoader.UnloadMIDI();
@@ -125,9 +125,9 @@ namespace SharpMIDI
             {
                 if (dynascroll)
                 {
-                    if (scrollfactor <= 1) 
+                    if (scrollfactor <= 1)
                         scrollfactor /= 2;
-                    else 
+                    else
                         scrollfactor -= 0.5f;
                 }
                 else
@@ -137,9 +137,9 @@ namespace SharpMIDI
             {
                 if (dynascroll)
                 {
-                    if (scrollfactor <= 1) 
+                    if (scrollfactor <= 1)
                         scrollfactor *= 2;
-                    else 
+                    else
                         scrollfactor += 0.5f;
                 }
                 else
@@ -148,12 +148,12 @@ namespace SharpMIDI
 
             if (Raylib.IsKeyPressed(KeyboardKey.Left) || Raylib.IsKeyPressedRepeat(KeyboardKey.Left))
             {
-                if(!MIDIPlayer.stopping)
+                if (!MIDIPlayer.stopping)
                     MIDIClock.Skip(-MIDIClock.tickscale, false);
             }
             if (Raylib.IsKeyPressed(KeyboardKey.Right) || Raylib.IsKeyPressedRepeat(KeyboardKey.Right))
             {
-                if(!MIDIPlayer.stopping) 
+                if (!MIDIPlayer.stopping)
                     MIDIClock.Skip(MIDIClock.tickscale, false);
             }
 
@@ -163,7 +163,7 @@ namespace SharpMIDI
                     Task.Run(() => MIDIPlayer.StartPlayback(singlethreadplayback));
                 if (!MIDIClock.paused)
                     MIDIClock.Stop();
-                else 
+                else
                     MIDIClock.Resume();
             }
             if (Raylib.IsKeyPressed(KeyboardKey.R))
@@ -171,7 +171,7 @@ namespace SharpMIDI
 
             if (Raylib.IsKeyPressed(KeyboardKey.U))
                 MIDILoader.UnloadMIDI();
-            
+
             if (Raylib.IsKeyPressed(KeyboardKey.Q))
                 uivisible = !uivisible;
         }
@@ -185,10 +185,10 @@ namespace SharpMIDI
                 Raylib.DrawText($"Active notes: {GLNoteRenderer.NotesDrawnLastFrame} / {GLNoteRenderer.RingCap} | Memory: {Starter.toMemoryText(GetMemoryUsage())}", 13, 23, 16, Raylib_cs.Color.SkyBlue);
                 Raylib.DrawText($"{MIDILoader.loadstatus} | MIDI thread: @{MIDIPlayer.fpsStr} fps", 12, currentHeight - 19, 16, Raylib_cs.Color.SkyBlue);
             }
-            else 
+            else
                 Raylib.DrawText($"{MIDILoader.loadstatus}", 12, currentHeight - 19, 16, Raylib_cs.Color.SkyBlue);
         }
-        
+
         public static void DrawUI()
         {
             if (!uivisible) return;
@@ -254,42 +254,33 @@ namespace SharpMIDI
                 if (ImGui.BeginTabItem("Playback"))
                 {
                     if (ImGui.SliderInt("time", ref tick, 0, MIDILoader.maxTick))
-                    {
                         MIDIClock.Skip(tick, true);
-                    }
-                    if(!singlethreadplayback)
-                    {
-                        ImGui.SliderInt("Velocity threshold", ref Sound.velocitythreshold, 0, 128);
-                        if (ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled))
-                        {
-                            ImGui.SetTooltip("ignore notes below a certain velocity. NOTES WILL STILL BE SENT TO THE BUFFER\njust that it goes through an if check before being sent to synth");
-                        }
-                    }
+
+                    ImGui.SliderInt("Velocity threshold", ref Sound.velocitythreshold, 0, 128);
+                    if (ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled))
+                        ImGui.SetTooltip("ignore notes below a certain velocity. NOTES WILL STILL BE SENT TO THE BUFFER\njust that it goes through an if check before being sent to synth");
+
                     ImGui.Checkbox("Single threaded playback", ref singlethreadplayback);
                     if (ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled))
-                    {
                         ImGui.SetTooltip("while this makes playback half as demanding due to the audio thread being disabled\nyou are at the mercy of whatever synth API youre sending to (way lower throughput)");
-                    }
-                    ImGui.Checkbox("Limit playback FPS", ref MIDIPlayer.potato_mode);  
+
+                    ImGui.Checkbox("Limit playback FPS", ref MIDIPlayer.potato_mode);
                     if (ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled))
-                    {
                         ImGui.SetTooltip("if you dont think disabling the audio thread is enough to save you from 100%% cpu usage");
-                    }
+
                     ImGui.Checkbox("Playlist looping", ref looping);
                     if (ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled))
-                    {
                         ImGui.SetTooltip("if you want your midi playlist to keep going instead of stopping");
-                    }
+
                     if (ImGui.Checkbox("Event skipping", ref MIDIClock.skipevents))
-                    {
                         MIDIClock.throttle = !MIDIClock.skipevents;
-                    }
+
                     if (ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled))
-                    {
                         ImGui.SetTooltip("toggling this will dictate wether the player will throttle or skip events when stalled.\ndisabling will make the player throttle itself to prevent stalling and go through every event in the midi.\nwhile skipping dosent throttle timing and just skips sending to synth till it dosent stall anymore");
-                    }
+
                     if (MIDIClock.skipevents == false)
                         ImGui.Checkbox("Throttle Playback", ref MIDIClock.throttle);
+
                     ImGui.EndTabItem();
                 }
                 if (ImGui.BeginTabItem("Synthesizer"))
@@ -299,7 +290,7 @@ namespace SharpMIDI
                         Sound.Close();
                     if (ImGui.RadioButton("KDMAPI", ref currsynth, 1))
                         Sound.InitSynth("KDMAPI", "");
-                    #if WINDOWS
+#if WINDOWS
                     ImGui.RadioButton("WinMM", ref currsynth, 2);
                     if (currsynth == 2 && ImGui.BeginCombo("WinMM Device", selectedwinmmout))
                     {
@@ -316,7 +307,7 @@ namespace SharpMIDI
                         }
                         ImGui.EndCombo();
                     }
-                    #endif
+#endif
                     ImGui.EndTabItem();
                 }
                 if (ImGui.BeginTabItem("Controls"))

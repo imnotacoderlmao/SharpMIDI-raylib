@@ -16,13 +16,13 @@ namespace SharpMIDI
         [MethodImpl(MethodImplOptions.AggressiveOptimization)]
         public static void StartPlayback(bool singlethread)
         {
-            if (!MIDILoader.midiLoaded) 
+            if (!MIDILoader.midiLoaded)
             {
                 MIDILoader.Crash("no midi loaded!!!", choices: false);
                 return;
             }
             if (!Sound.issynthinitiated)
-            { 
+            {
                 MIDILoader.Crash("NO synth initiated. please load a synth first!!! (press q for ui)", choices: false);
                 return;
             }
@@ -40,20 +40,20 @@ namespace SharpMIDI
             var sendfn = Sound.sendTo;
             delegate* unmanaged[SuppressGCTransition]<IntPtr, uint, uint> sendfn2 = null;
             IntPtr handle = IntPtr.Zero;
-            #if WINDOWS
+#if WINDOWS
             if(Sound.currsynth == "WinMM")
             {
                 sendfn2 = WinMM._midiOutShortMsg;
                 handle = (IntPtr)WinMM.handle;
             }
-            #endif
-            if(!singlethread) 
+#endif
+            if (!singlethread)
                 Sound.StartAudioThread();
             MIDIClock.Start();
             while (!stopping)
             {
                 int clock = (int)MIDIClock.Update();
-                if(MIDIClock.paused || potato_mode) 
+                if (MIDIClock.paused || potato_mode)
                     Thread.Sleep(1);
                 if (curr_tick > clock)
                 {
@@ -63,9 +63,9 @@ namespace SharpMIDI
                         playedNotes -= currtg->notecount;
                     }
                     played = currtg->offset;
-                    while (tevs[tempoidx].tick > clock && tempoidx > 0) 
+                    while (tevs[tempoidx].tick > clock && tempoidx > 0)
                         tempoidx--;
-                    while (sysExes[sysexidx].tick > clock && sysexidx > 0) 
+                    while (sysExes[sysexidx].tick > clock && sysexidx > 0)
                         sysexidx--;
                     Sound.readptr = (uint)(played & Sound.bufferMask);
                 }
@@ -88,17 +88,29 @@ namespace SharpMIDI
                             }
                             Sound.writeptr = (uint)(played & Sound.bufferMask);
                         }
-                        else   
-                        { 
+                        else
+                        {
+                            int velthreshlocal = Sound.velocitythreshold;
+                            uint msg;
                             if (sendfn2 != null)
                             {
                                 while (played < offset)
-                                    sendfn2(handle, (uint)msgptr[played++].Value);
+                                {
+                                    msg = (uint)msgptr[played].Value;
+                                    played++;
+                                    if ((msg & 0xF0) == 0x90 && (msg >> 16) >= velthreshlocal)
+                                        sendfn2(handle, (uint)msgptr[played++].Value);
+                                }
                             }
                             else
                             {
                                 while (played < offset)
-                                    sendfn((uint)msgptr[played++].Value);
+                                {
+                                    msg = (uint)msgptr[played].Value;
+                                    played++;
+                                    if ((msg & 0xF0) == 0x90 && (msg >> 16) >= velthreshlocal)
+                                        sendfn(msg);
+                                }
                             }
                         }
                     }
@@ -132,11 +144,11 @@ namespace SharpMIDI
             fixed (byte* messageptr = message)
             {
                 Console.WriteLine($"\nSending SysEx message: {BitConverter.ToString(message)}");
-                #if LINUX
+#if LINUX
                     uint send = KDMAPI._sendDirectLongDataLinux(messageptr, (uint)(sizeof(byte) * message.Length));
                     if (send != 0)
                         Console.WriteLine($"sysex send returned ({send})");
-                #elif WINDOWS 
+#elif WINDOWS
                     MIDIHDR header = new MIDIHDR 
                     {
                         lpData = messageptr,
@@ -149,7 +161,7 @@ namespace SharpMIDI
                         KDMAPI.KDMAPI_SendSysEx_win(&header, size);
                     if (Sound.currsynth == "WinMM") 
                         WinMM.WinMM_SendSysEx(&header, size);
-                #endif
+#endif
             }
         }
 
@@ -159,29 +171,29 @@ namespace SharpMIDI
             int histidx = 0;
             notespersec = 0;
             bool kdmapi_hasvoice = Sound.currsynth == "KDMAPI" && KDMAPI.hasvoice;
-            while(!stopping)
+            while (!stopping)
             {
-                if (curr_tick >= MIDILoader.maxTick) 
+                if (curr_tick >= MIDILoader.maxTick)
                     stopping = true;
                 double MIDIFps = 1.0d / MIDIClock.delta;
-                
+
                 histidx = (histidx + 1) % 60;
                 notespersec -= npshistory[histidx];
                 npshistory[histidx] = playedNotes - playedNotes2;
                 notespersec += npshistory[histidx];
                 playedNotes2 = playedNotes;
-                #if WINDOWS
+#if WINDOWS
                     fpsStr = (MIDIFps > Double.MaxValue)? ">10,000,000" : $"{MIDIFps,10}:N0";
-                #elif LINUX
+#elif LINUX
                     fpsStr = $"{MIDIFps,10:N0}";
-                #endif
+#endif
 
                 // fps too volatile, idk what the word is for rapidly changing but you have to pad to make the stats string actually readable
                 if (kdmapi_hasvoice)
                     Console.Write($"\rTick: {curr_tick:N0} / {MIDILoader.maxTick:N0} | Played Notes: {playedNotes:N0} / {MIDILoader.totalNotes:N0} ({notespersec:N0}/s) | MIDI Thread: @{fpsStr} fps | {KDMAPI._getActiveVoices()} voices    ");
                 else
                     Console.Write($"\rTick: {curr_tick:N0} / {MIDILoader.maxTick:N0} | Played Notes: {playedNotes:N0} / {MIDILoader.totalNotes:N0} ({notespersec:N0}/s) | MIDI Thread: @{fpsStr} fps    ");
-                Thread.Sleep(1000/60);
+                Thread.Sleep(1000 / 60);
             }
         }
     }

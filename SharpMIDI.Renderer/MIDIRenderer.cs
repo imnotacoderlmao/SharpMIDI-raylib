@@ -2,6 +2,8 @@
 using System;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
+using System.Runtime.Intrinsics;
+using System.Runtime.Intrinsics.X86;
 using Silk.NET.OpenGL;
 
 namespace SharpMIDI
@@ -23,8 +25,8 @@ namespace SharpMIDI
             public ushort ActiveCount;
         }*/
 
-private const string LineVertSrc =
-@"#version 420 core
+        private const string LineVertSrc =
+        @"#version 420 core
 in int aStartTick;
 in int aEndTick;
 in uint aPackedData;
@@ -86,19 +88,19 @@ void main() {
         private static int _ringCap = 1 << 23;
         private static int _deferred_ringCap = -1;
         private static int _mask;
-        
+
         private static int _head = 1;
         private static int _tail = 1;
-        
+
         private readonly static byte[] paletteData = new byte[256 * 3];
         private static bool _paletteUploadPending = false;
-        
-        //private static KeyHeader* _keyHeaders;
-       	private static ushort* _activeKeyCount;
-        private static byte* _activeKeyColor;
-	    private static int* _activeKeyID;
 
-       	private const int TOTAL_KEYS = 128 * 16;
+        //private static KeyHeader* _keyHeaders;
+        private static ushort* _activeKeyCount;
+        private static byte* _activeKeyColor;
+        private static int* _activeKeyID;
+
+        private const int TOTAL_KEYS = 128 * 16;
 
         private static int _lookaheadTicks = 4000;
         private static float _pixelsPerTick;
@@ -113,19 +115,24 @@ void main() {
         public static bool EnableGlow = true;
         public static bool EnableTransparency = false;
 
+        private static readonly Vector128<byte> StatusShuffleMask = Vector128.Create(
+            (byte)0, 3, 6, 9, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80);
+        private static readonly Vector128<byte> KeyShuffleMask = Vector128.Create(
+            (byte)1, 4, 7, 10, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80);
+
         public static void Initialize()
         {
             if (_isInitialized) return;
             Gl = GL.GetApi(NativeGLBindingsContext.GetProcAddress);
 
-            _lineShader             = BuildShader(LineVertSrc, LineFragSrc);
-            _uMetrics               = Gl.GetUniformLocation(_lineShader, "uMetrics");
-            _uViewStart             = Gl.GetUniformLocation(_lineShader, "uViewStart");
-            _uViewEnd               = Gl.GetUniformLocation(_lineShader, "uViewEnd");
-            _uPalette               = Gl.GetUniformLocation(_lineShader, "uPalette");
-            _uGlowEnabled           = Gl.GetUniformLocation(_lineShader, "uGlowEnabled");
-            _uTransparencyEnabled   = Gl.GetUniformLocation(_lineShader, "uTransparencyEnabled");
-            _uCurrentTick           = Gl.GetUniformLocation(_lineShader, "uCurrentTick");
+            _lineShader = BuildShader(LineVertSrc, LineFragSrc);
+            _uMetrics = Gl.GetUniformLocation(_lineShader, "uMetrics");
+            _uViewStart = Gl.GetUniformLocation(_lineShader, "uViewStart");
+            _uViewEnd = Gl.GetUniformLocation(_lineShader, "uViewEnd");
+            _uPalette = Gl.GetUniformLocation(_lineShader, "uPalette");
+            _uGlowEnabled = Gl.GetUniformLocation(_lineShader, "uGlowEnabled");
+            _uTransparencyEnabled = Gl.GetUniformLocation(_lineShader, "uTransparencyEnabled");
+            _uCurrentTick = Gl.GetUniformLocation(_lineShader, "uCurrentTick");
 
             Gl.UseProgram(_lineShader);
             Gl.Uniform1(_uPalette, 0);
@@ -134,15 +141,15 @@ void main() {
             //_keyHeaders = (KeyHeader*)NativeMemory.AllocZeroed(TOTAL_KEYS * (nuint)sizeof(KeyHeader));
             _activeKeyCount = (ushort*)NativeMemory.AllocZeroed(TOTAL_KEYS * (nuint)sizeof(ushort));
             _activeKeyColor = (byte*)NativeMemory.AllocZeroed(TOTAL_KEYS * (nuint)sizeof(byte));
-	        _activeKeyID = (int*)NativeMemory.AllocZeroed(TOTAL_KEYS * (nuint)sizeof(int));
+            _activeKeyID = (int*)NativeMemory.AllocZeroed(TOTAL_KEYS * (nuint)sizeof(int));
 
             _vao = Gl.GenVertexArray();
             _paletteTex = Gl.GenTexture();
-                        
+
             AllocRing(_ringCap);
             _isInitialized = true;
         }
-        
+
         private static void AllocRing(int cap)
         {
             _mask = cap - 1;
@@ -189,8 +196,8 @@ void main() {
             //NativeMemory.Clear(_keyHeaders, TOTAL_KEYS * (nuint)sizeof(KeyHeader));
             NativeMemory.Clear(_activeKeyCount, TOTAL_KEYS * (nuint)sizeof(ushort));
             NativeMemory.Clear(_activeKeyColor, TOTAL_KEYS * (nuint)sizeof(byte));
-	        NativeMemory.Clear(_activeKeyID, TOTAL_KEYS * (nuint)sizeof(int));    
-	        _head = 1;
+            NativeMemory.Clear(_activeKeyID, TOTAL_KEYS * (nuint)sizeof(int));
+            _head = 1;
             _tail = 1;
             _lastSweepEnd = -1;
             _lastWindowTicks = -1;
@@ -205,7 +212,7 @@ void main() {
             _tail = 1;
             _lastSweepEnd = -1;
             _lastWindowTicks = -1;
-            if (_ringCap != 1 << 23) 
+            if (_ringCap != 1 << 23)
                 _deferred_ringCap = 1 << 23;
         }
 
@@ -214,7 +221,7 @@ void main() {
             _isInitialized = false;
             //if (_keyHeaders != null) { NativeMemory.Free(_keyHeaders); _keyHeaders = null; }
             if (_activeKeyCount != null) { NativeMemory.Free(_activeKeyCount); _activeKeyCount = null; }
-	        if (_activeKeyColor != null) { NativeMemory.Free(_activeKeyColor); _activeKeyColor = null; }
+            if (_activeKeyColor != null) { NativeMemory.Free(_activeKeyColor); _activeKeyColor = null; }
             if (_activeKeyID != null) { NativeMemory.Free(_activeKeyID); _activeKeyID = null; }
             if (_vboBuffer != 0)
             {
@@ -232,17 +239,17 @@ void main() {
         [MethodImpl(MethodImplOptions.AggressiveOptimization)]
         public static void Render(int screenWidth, int screenHeight, int tick, int pad)
         {
-            if (!MIDILoader.midiLoaded || !_isInitialized) 
+            if (!MIDILoader.midiLoaded || !_isInitialized)
                 return;
-            
+
             if (_paletteUploadPending)
             {
                 for (int i = 0; i < 256; i++)
                 {
                     uint c = (uint)Random.Shared.Next(0x808080, 0x1000000);
                     paletteData[i * 3 + 0] = (byte)((c >> 16) & 0xFF);
-                    paletteData[i * 3 + 1] = (byte)((c >>  8) & 0xFF);
-                    paletteData[i * 3 + 2] = (byte)( c        & 0xFF);
+                    paletteData[i * 3 + 1] = (byte)((c >> 8) & 0xFF);
+                    paletteData[i * 3 + 2] = (byte)(c & 0xFF);
                 }
                 Gl.BindTexture(TextureTarget.Texture1D, _paletteTex);
                 fixed (byte* ptr = paletteData)
@@ -252,10 +259,10 @@ void main() {
                 _paletteUploadPending = false;
             }
 
-            if (_deferred_ringCap > 0) 
-            { 
-                ResizeRing(_deferred_ringCap); 
-                _deferred_ringCap = -1; 
+            if (_deferred_ringCap > 0)
+            {
+                ResizeRing(_deferred_ringCap);
+                _deferred_ringCap = -1;
             }
 
             int maxtick = MIDILoader.maxTick - 1;
@@ -279,7 +286,7 @@ void main() {
                 _tail = 1;
                 NativeMemory.Clear(_activeKeyCount, TOTAL_KEYS * (nuint)sizeof(ushort));
                 NativeMemory.Clear(_activeKeyColor, TOTAL_KEYS * (nuint)sizeof(byte));
-		        NativeMemory.Clear(_activeKeyID, TOTAL_KEYS * (nuint)sizeof(int));
+                NativeMemory.Clear(_activeKeyID, TOTAL_KEYS * (nuint)sizeof(int));
                 SweepRange(Math.Max(0, viewStart - WindowTicks), sweepEnd);
             }
             else
@@ -292,7 +299,7 @@ void main() {
             // i dont know why the renderer in general became way faster. im assuming its probably due to the bulk copy overhead
             // that got removed since it pretty much copies every visible note instead of newly appended ones.
             // oh well! 2x memory saves yet again!!! yay!!!!!!!!!
-            
+
             Raylib_cs.Rlgl.DrawRenderBatchActive();
 
             NotesDrawnLastFrame = _head - _tail;
@@ -312,8 +319,8 @@ void main() {
                 Gl.Uniform3(_uMetrics, _pixelsPerTick, yBottom, yStep);
                 Gl.Uniform1(_uViewStart, viewStart);
                 Gl.Uniform1(_uViewEnd, viewEnd);
-                Gl.Uniform1(_uGlowEnabled, EnableGlow? 1 : 0);
-                Gl.Uniform1(_uTransparencyEnabled, EnableTransparency? 1 : 0);
+                Gl.Uniform1(_uGlowEnabled, EnableGlow ? 1 : 0);
+                Gl.Uniform1(_uTransparencyEnabled, EnableTransparency ? 1 : 0);
                 Gl.Uniform1(_uCurrentTick, tick);
 
                 Gl.ActiveTexture(TextureUnit.Texture0);
@@ -352,11 +359,11 @@ void main() {
         {
             TickGroup* group = MIDIEvent.TickGroupArray.Pointer;
             byte* messages = (byte*)SynthEvent.messages.Pointer;
-            byte* tracks = SynthEvent.track != null? SynthEvent.track.Pointer : null;
-        
+            byte* tracks = SynthEvent.track != null ? SynthEvent.track.Pointer : null;
+
             int limit = Math.Min(toTick, MIDILoader.maxTick);
             int headLocal = _head;
-        
+
             long currentOffset = group[fromTick].offset;
             for (int tick = fromTick; tick <= limit; tick++)
             {
@@ -366,134 +373,118 @@ void main() {
                     _head = headLocal;
                     ResizeRing((_mask + 1) * 2);
                 }
-                if (tracks != null)
-                    currentOffset = ProcessTickEvents(messages, tracks, _activeKeyColor, _activeKeyCount, _activeKeyID, _ring, _mask, currentOffset, nextOffset, tick, ref headLocal);
-                else 
-                    currentOffset = ProcessTickEvents_notrack(messages, _activeKeyCount, _activeKeyColor, _activeKeyID, _ring, _mask, currentOffset, nextOffset, tick, ref headLocal);
+                currentOffset = ProcessTickEvents(messages, tracks, _activeKeyColor, _activeKeyCount, _activeKeyID, _ring, _mask, currentOffset, nextOffset, tick, ref headLocal);
             }
             _head = headLocal;
         }
 
         [MethodImpl(MethodImplOptions.AggressiveOptimization | MethodImplOptions.NoInlining)]
-        private static long ProcessTickEvents(byte* messages, byte* tracks, byte* activekeycolor, ushort* activecount, int* activekeyid, RenderNote* ringLocal, 
-        int maskLocal, long currentOffset, long nextOffset,int tick, ref int headLocal)
+        private static long ProcessTickEvents(byte* messages, byte* tracks, byte* activekeycolor, ushort* activecount,
+            int* activekeyid, RenderNote* ringLocal, int maskLocal, long currentOffset, long nextOffset, int tick, ref int headLocal)
         {
+            if (Ssse3.IsSupported)
+            {
+                // process 4 events at a time while enough remain in this tick
+                while (nextOffset - currentOffset >= 4)
+                {
+                    byte* synthev = messages + (currentOffset * 3);
+                    Vector128<byte> raw = Sse3.LoadVector128(synthev);
+
+                    Vector128<byte> statusVec = Ssse3.Shuffle(raw, StatusShuffleMask);
+                    Vector128<byte> keyVec = Ssse3.Shuffle(raw, KeyShuffleMask);
+
+                    uint statusPacked = statusVec.AsUInt32().ToScalar(); // byte0=status0, byte1=status1, etc
+                    uint keyPacked = keyVec.AsUInt32().ToScalar();
+
+                    // tracks is 1 byte/event so no deinterleave is needed
+                    uint trackPacked = tracks != null ? *(uint*)(tracks + currentOffset) : 0;
+
+                    for (int lane = 0; lane < 4; lane++)
+                    {
+                        byte status = (byte)((statusPacked >> (lane * 8)) & 0xFF);
+                        byte key = (byte)((keyPacked >> (lane * 8)) & 0xFF);
+                        byte track = (byte)((trackPacked >> (lane * 8)) & 0xFF);
+
+                        ProcessOneEvent(messages, currentOffset + lane, status, key, track,
+                            activekeycolor, activecount, activekeyid, ringLocal, maskLocal, tick, ref headLocal);
+                    }
+                    currentOffset += 4;
+                }
+            }
+
+            // normal loop for remainder, also non-ssse3 fallback
             while (currentOffset < nextOffset)
             {
                 byte* synthev = messages + (currentOffset * 3);
-                uint status = *synthev & 0xF0u;
-                uint noteIdx = tracks[currentOffset] | (*synthev & 0x0Fu);
-                // "key" is now used to merge notes instead of tracking oldest/newest for the linked list. which sadly means duration based layering kinda goes bye bye.
-                // its also why indexing became whatever concoction this is
-                int headerIdx = (int)((noteIdx & 0x0Fu) << 7 | synthev[1]);
-                ushort count = activecount[headerIdx];
-                byte activecolor = activekeycolor[headerIdx];
-                
-                if (status == 0x90)
-                {
-                    if (count != 0 && activecolor != noteIdx)
-                    {
-                        int oldAbsid = activekeyid[headerIdx];
-                        if (oldAbsid >= headLocal - (maskLocal + 1))
-                            ringLocal[oldAbsid & maskLocal].EndTick = tick;
-                        count = 0;
-                    }
-                    if (count == 0)
-                    {
-                        activekeyid[headerIdx] = headLocal;
-                        ringLocal[headLocal & maskLocal] = new RenderNote
-                        {
-                            StartTick = tick,
-                            EndTick = 0,
-                            PackedData = (noteIdx << 16) | ((uint)synthev[1] << 8) | synthev[2]
-                        };
-                        headLocal++;
-                        activekeycolor[headerIdx] = (byte)noteIdx;
-                    }
-                    count++;
-                }
-                else if (status == 0x80)
-                {
-                    if (count > 0 && activecolor == noteIdx)
-                    {
-                        count--;
-                        if (count == 0)
-                        {
-                            int absid = activekeyid[headerIdx];
-                            if (absid >= headLocal - (maskLocal + 1))
-                                ringLocal[absid & maskLocal].EndTick = tick;
-                        }
-                    }
-                }
-                activecount[headerIdx] = count;
+                ProcessOneEvent(messages, currentOffset, *synthev, synthev[1], tracks != null ? tracks[currentOffset] : (byte)0,
+                    activekeycolor, activecount, activekeyid, ringLocal, maskLocal, tick, ref headLocal);
                 currentOffset++;
             }
             return currentOffset;
         }
 
-        private static long ProcessTickEvents_notrack(byte* messages, ushort* activecount, byte* activekeycolor, int* activekeyid, RenderNote* ringLocal, 
-        int maskLocal, long currentOffset, long nextOffset,int tick, ref int headLocal)
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private static void ProcessOneEvent(byte* messages, long offset, byte status, byte key, byte track,
+            byte* activekeycolor, ushort* activecount, int* activekeyid, RenderNote* ringLocal,
+            int maskLocal, int tick, ref int headLocal)
         {
-            while (currentOffset < nextOffset)
+            uint noteIdx = (uint)track | (uint)(status & 0x0F);
+            int headerIdx = (int)((noteIdx & 0x0Fu) << 7 | key);
+            ushort count = activecount[headerIdx];
+            byte activecolor = activekeycolor[headerIdx];
+            uint statusHigh = (uint)status & 0xF0u;
+
+            if (statusHigh == 0x90)
             {
-                byte* synthev = messages + (currentOffset * 3);
-                uint status = *synthev & 0xF0u;
-                uint channel = *synthev & 0xFu;
-                int headerIdx = (int)((channel << 7) | synthev[1]);
-                ushort count = activecount[headerIdx];
-                byte activecolor = activekeycolor[headerIdx];
-                if (status == 0x90)
+                if (count != 0 && activecolor != noteIdx)
                 {
-                    if (count != 0 && activecolor != channel)
+                    int oldAbsid = activekeyid[headerIdx];
+                    if (oldAbsid >= headLocal - (maskLocal + 1))
+                        ringLocal[oldAbsid & maskLocal].EndTick = tick;
+                    count = 0;
+                }
+                if (count == 0)
+                {
+                    activekeyid[headerIdx] = headLocal;
+                    byte velocity = messages[offset * 3 + 2]; // only touched on open, stays scalar
+                    ringLocal[headLocal & maskLocal] = new RenderNote
                     {
-                        int oldAbsid = activekeyid[headerIdx];
-                        if (oldAbsid >= headLocal - (maskLocal + 1))
-                            ringLocal[oldAbsid & maskLocal].EndTick = tick;
-                        count = 0;
-                    }
+                        StartTick = tick,
+                        EndTick = 0,
+                        PackedData = (noteIdx << 16) | ((uint)key << 8) | velocity
+                    };
+                    headLocal++;
+                    activekeycolor[headerIdx] = (byte)noteIdx;
+                }
+                count++;
+            }
+            else if (statusHigh == 0x80)
+            {
+                if (count > 0 && activecolor == noteIdx)
+                {
+                    count--;
                     if (count == 0)
                     {
-                        activekeyid[headerIdx] = headLocal;
-                        ringLocal[headLocal & maskLocal] = new RenderNote
-                        {
-                            StartTick = tick,
-                            EndTick = 0,
-                            PackedData = (channel << 16) | ((uint)synthev[1] << 8) | synthev[2]
-                        };
-                        headLocal++;
-                    }
-                    count++;
-                }
-                else if (status == 0x80)
-                {
-                    if (count > 0)
-                    {
-                        count--;
-                        if (count == 0)
-                        {
-                            int absid = activekeyid[headerIdx];
-                            if (absid >= headLocal - (maskLocal + 1))
-                                ringLocal[absid & maskLocal].EndTick = tick;
-                        }
+                        int absid = activekeyid[headerIdx];
+                        if (absid >= headLocal - (maskLocal + 1))
+                            ringLocal[absid & maskLocal].EndTick = tick;
                     }
                 }
-                activecount[headerIdx] = count;
-                currentOffset++;
             }
-            return currentOffset;
+            activecount[headerIdx] = count;
         }
 
         [MethodImpl(MethodImplOptions.AggressiveOptimization)]
         private static void AdvanceTail(int viewStart)
         {
             int safeTail = _head - _ringCap;
-            if (_tail < safeTail) 
+            if (_tail < safeTail)
                 _tail = safeTail;
 
             int forcecullthresh = Math.Min(_lookaheadTicks * 2, ushort.MaxValue);
             bool forceCull = UseForceCull && NotesDrawnLastFrame > 262144;
             int forceCullBefore = viewStart - forcecullthresh;
-            
+
             RenderNote* ring = _ring;
             int maskLocal = _mask;
             int headLocal = _head;
@@ -505,7 +496,7 @@ void main() {
                 RenderNote note = ring[physIdx];
                 bool isopen = note.EndTick == 0;
                 int startTick = note.StartTick;
-                
+
                 if ((!isopen && note.EndTick < viewStart) || (forceCull && startTick < forceCullBefore))
                     tailLocal++;
                 else
@@ -572,7 +563,7 @@ void main() {
             Gl.AttachShader(program, fragment);
             Gl.LinkProgram(program);
             Gl.GetProgram(program, GLEnum.LinkStatus, out int ok);
-            if (ok == 0) 
+            if (ok == 0)
                 throw new Exception("Shader link:\n" + Gl.GetProgramInfoLog(program));
             Gl.DeleteShader(vertex);
             Gl.DeleteShader(fragment);
@@ -585,7 +576,7 @@ void main() {
             Gl.ShaderSource(shader, src);
             Gl.CompileShader(shader);
             Gl.GetShader(shader, GLEnum.CompileStatus, out int ok);
-            if (ok == 0) 
+            if (ok == 0)
                 throw new Exception($"{type}:\n" + Gl.GetShaderInfoLog(shader));
             return shader;
         }
@@ -595,7 +586,7 @@ void main() {
             private static readonly nint s_glLibrary = LoadGL();
             private static nint LoadGL()
             {
-                if (OperatingSystem.IsWindows()) 
+                if (OperatingSystem.IsWindows())
                     return NativeLibrary.Load("opengl32.dll");
                 if (OperatingSystem.IsLinux())
                     return NativeLibrary.TryLoad("libGL.so.1", out nint h) ? h : NativeLibrary.Load("libGL.so");

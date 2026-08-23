@@ -22,7 +22,7 @@ namespace SharpMIDI
         public IntPtr dwReserved6;
         public IntPtr dwReserved7;
     }
-    
+
     static unsafe class Sound
     {
         public static uint24* ringbuffer;
@@ -33,7 +33,7 @@ namespace SharpMIDI
         public static bool issynthinitiated = false;
         public static string currsynth = "";
         public static int velocitythreshold = 0;
-        static Thread? audthread; 
+        static Thread? audthread;
         public static string[] synths = ["Empty", "KDMAPI", "WinMM"];
         public static delegate* unmanaged[SuppressGCTransition]<uint, void> sendTo;
         //public static bool InitSynth(int synth)
@@ -44,22 +44,23 @@ namespace SharpMIDI
             switch (synth)
             {
                 case "KDMAPI":
-                    try 
-                    { 
+                    try
+                    {
                         KDMAPI.Load();
                         KDMAPI._initializeKDMAPIStream();
                         sendTo = KDMAPI._sendDirectData;
                         currsynth = synth;
-                        issynthinitiated = true; 
+                        issynthinitiated = true;
                         return issynthinitiated;
-                    } catch (DllNotFoundException) 
-                    { 
+                    }
+                    catch (DllNotFoundException)
+                    {
                         Console.WriteLine($"{synth} is not available.");
-                        MIDILoader.loadstatus = $"{synth} is not available."; 
+                        MIDILoader.loadstatus = $"{synth} is not available.";
                         issynthinitiated = false;
                         return issynthinitiated;
                     }
-                #if WINDOWS
+#if WINDOWS
                 case "WinMM":
                     WinMM.InitializeFunctionPointer();
                     currsynth = synth;
@@ -78,14 +79,14 @@ namespace SharpMIDI
                         issynthinitiated = true;
                         return issynthinitiated;
                     }
-                    #endif
+#endif
                 default:
                     Close();
                     return issynthinitiated;
             }
         }
 
-        static void AllocateEvBuffer() 
+        static void AllocateEvBuffer()
         {
             ringbuffer = (uint24*)NativeMemory.AllocZeroed((nuint)(bufferSize * sizeof(uint24)));
         }
@@ -104,7 +105,7 @@ namespace SharpMIDI
         {
             uint24* buffer = ringbuffer;
             var sendfn = sendTo;
-            #if WINDOWS
+#if WINDOWS
             if (currsynth == "WinMM")
             {
                 var sendfn2 = WinMM._midiOutShortMsg;
@@ -114,27 +115,26 @@ namespace SharpMIDI
                     while(readptr != writeptr)
                     {
                         uint val = (uint)buffer[readptr].Value;
-                        if ((val & 0xF0) == 0x90 && (val >> 16) <= velocitythreshold)
+                        if ((val & 0xF0) == 0x90 && (val >> 16) >= velocitythreshold)
                             sendfn2(handle, val);
                         readptr = (readptr + 1) & bufferMask;
                     }
                 }
                 return;
             }
-            #endif
+#endif
             while (running)
             {
-                while(readptr != writeptr)
+                while (readptr != writeptr)
                 {
                     uint val = (uint)buffer[readptr].Value;
                     readptr = (readptr + 1) & bufferMask;
-                    if ((val & 0xF0) == 0x90 && (val >> 16) < velocitythreshold)
-                        continue;
-                    sendfn(val);
+                    if ((val & 0xF0) == 0x90 && (val >> 16) >= velocitythreshold)
+                        sendfn(val);
                 }
             }
         }
-        
+
         public static void KillAudioThread()
         {
             running = false;
@@ -147,16 +147,16 @@ namespace SharpMIDI
         public static void AllNotesOFF()
         {
             if (!issynthinitiated) return;
-        
-            #if WINDOWS
+
+#if WINDOWS
             if (currsynth == "WinMM")
             {
                 for (int channel = 0; channel < 16; channel++)
                     WinMM._midiOutShortMsg((IntPtr)WinMM.handle, (uint)(0xB0 | channel) | (0x7B << 8));
                 return;
             }
-            #endif
-        
+#endif
+
             for (int channel = 0; channel < 16; channel++)
                 sendTo((uint)(0xB0 | channel) | (0x7B << 8));
         }
@@ -166,16 +166,17 @@ namespace SharpMIDI
         {
             if (issynthinitiated)
             {
-                issynthinitiated = false; 
-                switch(currsynth){
+                issynthinitiated = false;
+                switch (currsynth)
+                {
                     case "KDMAPI":
                         KDMAPI._terminateKDMAPIStream();
                         break;
-                    #if WINDOWS
+#if WINDOWS
                     case "WinMM":
                         WinMM.midiOutClose((IntPtr)WinMM.handle);
                         break;
-                    #endif
+#endif
                 }
                 currsynth = "Empty";
             }
