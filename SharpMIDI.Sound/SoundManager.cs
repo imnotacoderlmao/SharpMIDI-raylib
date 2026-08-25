@@ -115,9 +115,10 @@ namespace SharpMIDI
                     while(readptr != writeptr)
                     {
                         uint val = (uint)buffer[readptr].Value;
-                        if ((val & 0xF0) == 0x90 && (val >> 16) >= velocitythreshold)
-                            sendfn2(handle, val);
                         readptr = (readptr + 1) & bufferMask;
+                        if ((msg & 0xF0) <= 0x90 && (msg >> 16) < velthreshlocal)
+                            continue;
+                        sendfn2(handle, val);
                     }
                 }
                 return;
@@ -125,12 +126,14 @@ namespace SharpMIDI
 #endif
             while (running)
             {
+                int velthreshlocal = velocitythreshold;
                 while (readptr != writeptr)
                 {
-                    uint val = (uint)buffer[readptr].Value;
+                    uint msg = (uint)buffer[readptr].Value;
                     readptr = (readptr + 1) & bufferMask;
-                    if ((val & 0xF0) == 0x90 && (val >> 16) >= velocitythreshold)
-                        sendfn(val);
+                    if ((msg & 0xF0) == 0x90 && (msg >> 16) < velthreshlocal)
+                        continue;
+                    sendfn(msg);
                 }
             }
         }

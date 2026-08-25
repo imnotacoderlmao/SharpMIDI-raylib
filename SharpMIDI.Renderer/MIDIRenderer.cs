@@ -313,7 +313,7 @@ void main() {
 
                 Gl.Viewport(0, 0, (uint)screenWidth, (uint)screenHeight);
                 Gl.Enable(EnableCap.DepthTest);
-                Gl.DepthFunc(DepthFunction.Less);
+                Gl.DepthFunc(DepthFunction.Lequal);
                 Gl.UseProgram(_lineShader);
 
                 Gl.Uniform3(_uMetrics, _pixelsPerTick, yBottom, yStep);

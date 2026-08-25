@@ -96,20 +96,20 @@ namespace SharpMIDI
                             {
                                 while (played < offset)
                                 {
-                                    msg = (uint)msgptr[played].Value;
-                                    played++;
-                                    if ((msg & 0xF0) == 0x90 && (msg >> 16) >= velthreshlocal)
-                                        sendfn2(handle, (uint)msgptr[played++].Value);
+                                    msg = (uint)msgptr[played++].Value;
+                                    if ((msg & 0xF0) == 0x90 && (msg >> 16) < velthreshlocal)
+                                        continue;
+                                    sendfn2(handle, msg);
                                 }
                             }
                             else
                             {
                                 while (played < offset)
                                 {
-                                    msg = (uint)msgptr[played].Value;
-                                    played++;
-                                    if ((msg & 0xF0) == 0x90 && (msg >> 16) >= velthreshlocal)
-                                        sendfn(msg);
+                                    msg = (uint)msgptr[played++].Value;
+                                    if ((msg & 0xF0) == 0x90 && (msg >> 16) < velthreshlocal)
+                                        continue;
+                                    sendfn(msg);
                                 }
                             }
                         }
