@@ -11,7 +11,7 @@ namespace SharpMIDI
             return Stopwatch.GetTimestamp() * tickToSeconds;
         }
     }
-    
+
     static class MIDIClock
     {
         // MIDI state
@@ -21,7 +21,7 @@ namespace SharpMIDI
         public static double tickscale;
         public static double delta = 0;
         static double lastnow;
-        const double stall_thresh = 1.0d/60.0d;
+        const double stall_thresh = 1.0d / 60.0d;
         public static bool skipevents = true;
         public static bool throttle = !skipevents;
         public static bool paused;
@@ -40,14 +40,14 @@ namespace SharpMIDI
         public static void Skip(double SkipTick, bool skipTo = false)
         {
             double targetTick = tick + SkipTick;
-            
+
             if (skipTo)
                 targetTick = SkipTick;
-            
-            if (targetTick < 0) 
+
+            if (targetTick < 0)
                 targetTick = 0;
-            
-            tick = targetTick; 
+
+            tick = targetTick;
         }
 
         // have you ever just,,, ternary abuse.. for 2 less clock cycles from branching.....
@@ -56,10 +56,10 @@ namespace SharpMIDI
             double now = Timer.Seconds();
             delta = now - lastnow;
             bool stalled = delta > stall_thresh;
-            double advancetime = throttle? Math.Min(stall_thresh, delta) : delta;
+            double advancetime = throttle ? Math.Min(stall_thresh, delta) : delta;
             MIDIPlayer.skipping = skipevents && stalled;
             lastnow = now;
-            tick += paused? 0 : advancetime * tickscale;
+            tick += paused ? 0 : advancetime * tickscale;
             return tick;
         }
 

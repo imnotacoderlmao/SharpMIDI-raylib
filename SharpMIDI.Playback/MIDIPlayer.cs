@@ -7,12 +7,11 @@ namespace SharpMIDI
         private static byte[] gmreset = [0xF0, 0x7E, 0x7F, 0x09, 0x01, 0xF7];
         private static byte[] rolandreset = [0xF0, 0x41, 0x10, 0x42, 0x12, 0x40, 0x00, 0x7F, 0x00, 0x41, 0xF7];
         private static long playedNotes, playedNotes2;
-        private static double notespersec = 0;
-        public static int curr_tick = 0;
+        private readonly static long[] npshistory = new long[60];
+        private static double notespersec = 0, laststatsupdate = 0;
+        public static int curr_tick = 0, npshistoryidx = 0;
         public static string fpsStr = string.Empty;
-        public static bool stopping = true;
-        public static bool skipping = false;
-        public static bool potato_mode = false;
+        public static bool stopping = true, skipping = false, potato_mode = false, kdmapiHasVoice = false;
         [MethodImpl(MethodImplOptions.AggressiveOptimization)]
         public static void StartPlayback(bool singlethread)
         {
@@ -26,9 +25,10 @@ namespace SharpMIDI
                 MIDILoader.Crash("NO synth initiated. please load a synth first!!! (press q for ui)", choices: false);
                 return;
             }
+            stopping = false;
+            kdmapiHasVoice = Sound.currsynth == "KDMAPI" && KDMAPI.hasvoice;
             playedNotes = 0;
             playedNotes2 = 0;
-            stopping = false;
             uint24* msgptr = SynthEvent.messages.Pointer;
             uint24* buffer = Sound.ringbuffer;
             TickGroup* currtg = MIDIEvent.TickGroupArray.Pointer;
@@ -36,7 +36,6 @@ namespace SharpMIDI
             SysEx[] sysExes = MIDIEvent.SysExArray;
             long played = 0;
             uint sysexidx = 0, tempoidx = 0;
-            Task.Run(UpdatePlaybackStats);
             var sendfn = Sound.sendTo;
             delegate* unmanaged[SuppressGCTransition]<IntPtr, uint, uint> sendfn2 = null;
             IntPtr handle = IntPtr.Zero;
@@ -117,6 +116,7 @@ namespace SharpMIDI
                     else
                         played = currtg->offset;
                     playedNotes += currtg->notecount;
+                    UpdatePlaybackStats();
                     currtg++;
                 }
                 while (tevs[tempoidx].tick <= clock)
@@ -134,6 +134,7 @@ namespace SharpMIDI
             SubmitSysEx(rolandreset);
             MIDIClock.Reset();
             curr_tick = 0;
+            laststatsupdate = Timer.Seconds();
             Sound.AllNotesOFF();
             Sound.KillAudioThread();
             Console.WriteLine("Playback finished...");
@@ -165,36 +166,34 @@ namespace SharpMIDI
             }
         }
 
+        // going from a loop to a frequently called function hopefully fishes out a bit more clock cycles for the synth since the async task stuff is gone 
+        // call overhead should be minimal unless youre running super nut midis or something. this is literally just printing to console 60x per sec
+        [MethodImpl(MethodImplOptions.NoInlining)]
         public static void UpdatePlaybackStats()
         {
-            long[] npshistory = new long[60];
-            int histidx = 0;
-            notespersec = 0;
-            bool kdmapi_hasvoice = Sound.currsynth == "KDMAPI" && KDMAPI.hasvoice;
-            while (!stopping)
-            {
-                if (curr_tick >= MIDILoader.maxTick)
-                    stopping = true;
-                double MIDIFps = 1.0d / MIDIClock.delta;
+            if (curr_tick >= MIDILoader.maxTick)
+                stopping = true;
 
-                histidx = (histidx + 1) % 60;
-                notespersec -= npshistory[histidx];
-                npshistory[histidx] = playedNotes - playedNotes2;
-                notespersec += npshistory[histidx];
-                playedNotes2 = playedNotes;
+            if ((Timer.Seconds() - laststatsupdate) < 0.01666666d)
+                return;
+
+            double MIDIFps = 1.0d / MIDIClock.delta;
+            npshistoryidx = (npshistoryidx + 1) % 60;
+            notespersec -= npshistory[npshistoryidx];
+            npshistory[npshistoryidx] = playedNotes - playedNotes2;
+            notespersec += npshistory[npshistoryidx];
+            playedNotes2 = playedNotes;
 #if WINDOWS
-                    fpsStr = (MIDIFps > Double.MaxValue)? ">10,000,000" : $"{MIDIFps,10}:N0";
+                fpsStr = (MIDIFps > Double.MaxValue)? ">10,000,000" : $"{MIDIFps,10}:N0";
 #elif LINUX
-                    fpsStr = $"{MIDIFps,10:N0}";
+                fpsStr = $"{MIDIFps,10:N0}";
 #endif
-
-                // fps too volatile, idk what the word is for rapidly changing but you have to pad to make the stats string actually readable
-                if (kdmapi_hasvoice)
-                    Console.Write($"\rTick: {curr_tick:N0} / {MIDILoader.maxTick:N0} | Played Notes: {playedNotes:N0} / {MIDILoader.totalNotes:N0} ({notespersec:N0}/s) | MIDI Thread: @{fpsStr} fps | {KDMAPI._getActiveVoices()} voices    ");
-                else
-                    Console.Write($"\rTick: {curr_tick:N0} / {MIDILoader.maxTick:N0} | Played Notes: {playedNotes:N0} / {MIDILoader.totalNotes:N0} ({notespersec:N0}/s) | MIDI Thread: @{fpsStr} fps    ");
-                Thread.Sleep(1000 / 60);
-            }
+            // fps too volatile, idk what the word is for rapidly changing but you have to pad to make the stats string actually readable
+            if (kdmapiHasVoice)
+                Console.Write($"\rTick: {curr_tick:N0} / {MIDILoader.maxTick:N0} | Played Notes: {playedNotes:N0} / {MIDILoader.totalNotes:N0} ({notespersec:N0}/s) | MIDI Thread: @{fpsStr} fps | {KDMAPI._getActiveVoices()} voices    ");
+            else
+                Console.Write($"\rTick: {curr_tick:N0} / {MIDILoader.maxTick:N0} | Played Notes: {playedNotes:N0} / {MIDILoader.totalNotes:N0} ({notespersec:N0}/s) | MIDI Thread: @{fpsStr} fps    ");
+            laststatsupdate = Timer.Seconds();
         }
     }
 }
