@@ -20,18 +20,18 @@ namespace SharpMIDI
                 _ => $"{bytes / 1048576:N0} MiB",
             };
         }
-        
+
     }
     public static class RamReader
     {
         public static ulong GetTotalMemoryInBytes()
         {
-            #if WINDOWS
+#if WINDOWS
             if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
             {
-                return GetWindowsMemory();
+                return 0; // no idea how to get them for now, wmic seems to be outdated
             }
-            #endif
+#endif
             if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
             {
                 return GetLinuxMemory();
@@ -57,31 +57,9 @@ namespace SharpMIDI
             }
             return 0;
         }
-        #if WINDOWS
-        private static ulong GetWindowsMemory()
-        {
-            var output = RunCommand("wmic", "ComputerSystem get TotalPhysicalMemory");
-            var lines = output.Split(Environment.NewLine, StringSplitOptions.RemoveEmptyEntries);
-            if (lines.Length > 1 && ulong.TryParse(lines[1].Trim(), out ulong bytes))
-            {
-                return bytes;
-            }
-            return 0;
-        }
-        private static string RunCommand(string filename, string arguments)
-        {
-            using var process = new Process();
-            process.StartInfo.FileName = filename;
-            process.StartInfo.Arguments = arguments;
-            process.StartInfo.RedirectStandardOutput = true;
-            process.StartInfo.UseShellExecute = false;
-            process.StartInfo.CreateNoWindow = true;
-            process.Start();
-            string result = process.StandardOutput.ReadToEnd();
-            process.WaitForExit();
-            return result;
-        }
-        #endif
+#if WINDOWS
+        // just pretend something is here
+#endif
     }
 }
 

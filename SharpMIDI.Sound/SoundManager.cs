@@ -25,13 +25,13 @@ namespace SharpMIDI
 
     static unsafe class Sound
     {
-        public static uint24* ringbuffer;
         public const uint bufferSize = 1 << 23; // 8 million somethuings
         public const uint bufferMask = bufferSize - 1;
+        public static uint24* ringbuffer;
         public static uint readptr = 0, writeptr = 0;
         static bool running = false;
         public static bool issynthinitiated = false;
-        public static string currsynth = "";
+        public static string currsynth = "Empty";
         public static int velocitythreshold = 0;
         static Thread? audthread;
         public static string[] synths = ["Empty", "KDMAPI", "WinMM"];
@@ -40,7 +40,6 @@ namespace SharpMIDI
         public static bool InitSynth(string synth, string WinMMDevice)
         {
             Close();
-            AllocateEvBuffer();
             switch (synth)
             {
                 case "KDMAPI":
@@ -86,13 +85,10 @@ namespace SharpMIDI
             }
         }
 
-        static void AllocateEvBuffer()
-        {
-            ringbuffer = (uint24*)NativeMemory.AllocZeroed((nuint)(bufferSize * sizeof(uint24)));
-        }
         public static void StartAudioThread()
         {
             if (running) return;
+            ringbuffer = (uint24*)NativeMemory.AllocZeroed((nuint)(bufferSize * sizeof(uint24)));
             running = true;
             audthread = new Thread(AudioThread)
             {
@@ -112,13 +108,14 @@ namespace SharpMIDI
                 IntPtr handle = (IntPtr)WinMM.handle;
                 while (running)
                 {
+                    int velthreshlocal = velocitythreshold;
                     while(readptr != writeptr)
                     {
-                        uint val = (uint)buffer[readptr].Value;
+                        uint msg = (uint)buffer[readptr].Value;
                         readptr = (readptr + 1) & bufferMask;
                         if ((msg & 0xF0) <= 0x90 && (msg >> 16) < velthreshlocal)
                             continue;
-                        sendfn2(handle, val);
+                        sendfn2(handle, msg);
                     }
                 }
                 return;
@@ -142,7 +139,8 @@ namespace SharpMIDI
         {
             running = false;
             audthread?.Join(100);
-            NativeMemory.Clear(ringbuffer, (nuint)(bufferSize * sizeof(uint24)));
+            NativeMemory.Free(ringbuffer);
+            ringbuffer = null;
             readptr = 0;
             writeptr = 0;
         }
@@ -174,6 +172,7 @@ namespace SharpMIDI
                 {
                     case "KDMAPI":
                         KDMAPI._terminateKDMAPIStream();
+                        KDMAPI.hasvoice = false;
                         break;
 #if WINDOWS
                     case "WinMM":

@@ -11,7 +11,7 @@ namespace SharpMIDI
         private static double notespersec = 0, laststatsupdate = 0;
         public static int curr_tick = 0, npshistoryidx = 0;
         public static string fpsStr = string.Empty;
-        public static bool stopping = true, skipping = false, potato_mode = false, kdmapiHasVoice = false;
+        public static bool stopping = true, skipping = false, potato_mode = false;
         [MethodImpl(MethodImplOptions.AggressiveOptimization)]
         public static void StartPlayback(bool singlethread)
         {
@@ -20,15 +20,14 @@ namespace SharpMIDI
                 MIDILoader.Crash("no midi loaded!!!", choices: false);
                 return;
             }
-            if (!Sound.issynthinitiated)
-            {
-                MIDILoader.Crash("NO synth initiated. please load a synth first!!! (press q for ui)", choices: false);
+            if (!Sound.issynthinitiated && MIDILoader.Crash("NO synth initiated. please load a synth first for audio!!! (press q for ui)", choices: true) == 0)
                 return;
-            }
             stopping = false;
-            kdmapiHasVoice = Sound.currsynth == "KDMAPI" && KDMAPI.hasvoice;
             playedNotes = 0;
             playedNotes2 = 0;
+            bool synthExists = Sound.currsynth != "Empty";
+            if (!singlethread && synthExists)
+                Sound.StartAudioThread();
             uint24* msgptr = SynthEvent.messages.Pointer;
             uint24* buffer = Sound.ringbuffer;
             TickGroup* currtg = MIDIEvent.TickGroupArray.Pointer;
@@ -37,17 +36,15 @@ namespace SharpMIDI
             long played = 0;
             uint sysexidx = 0, tempoidx = 0;
             var sendfn = Sound.sendTo;
-            delegate* unmanaged[SuppressGCTransition]<IntPtr, uint, uint> sendfn2 = null;
-            IntPtr handle = IntPtr.Zero;
 #if WINDOWS
+            var sendfn2 = WinMM._midiOutShortMsg;
+            IntPtr handle = IntPtr.Zero;
             if(Sound.currsynth == "WinMM")
             {
                 sendfn2 = WinMM._midiOutShortMsg;
                 handle = (IntPtr)WinMM.handle;
             }
 #endif
-            if (!singlethread)
-                Sound.StartAudioThread();
             MIDIClock.Start();
             while (!stopping)
             {
@@ -75,7 +72,7 @@ namespace SharpMIDI
                     if (!skipping)
                     {
                         long offset = currtg->offset;
-                        if (!singlethread)
+                        if (!singlethread && synthExists)
                         {
                             while (played < offset)
                             {
@@ -91,17 +88,7 @@ namespace SharpMIDI
                         {
                             int velthreshlocal = Sound.velocitythreshold;
                             uint msg;
-                            if (sendfn2 != null)
-                            {
-                                while (played < offset)
-                                {
-                                    msg = (uint)msgptr[played++].Value;
-                                    if ((msg & 0xF0) == 0x90 && (msg >> 16) < velthreshlocal)
-                                        continue;
-                                    sendfn2(handle, msg);
-                                }
-                            }
-                            else
+                            if (sendfn != null)
                             {
                                 while (played < offset)
                                 {
@@ -111,6 +98,18 @@ namespace SharpMIDI
                                     sendfn(msg);
                                 }
                             }
+#if WINDOWS
+                            else if (sendfn2 != null)
+                            {
+                                while (played < offset)
+                                {
+                                    msg = (uint)msgptr[played++].Value;
+                                    if ((msg & 0xF0) == 0x90 && (msg >> 16) < velthreshlocal)
+                                        continue;
+                                    sendfn2(handle, msg);
+                                }
+                            }
+#endif
                         }
                     }
                     else
@@ -142,6 +141,7 @@ namespace SharpMIDI
 
         public static void SubmitSysEx(byte[] message)
         {
+            if (Sound.currsynth == "Empty") return;
             fixed (byte* messageptr = message)
             {
                 Console.WriteLine($"\nSending SysEx message: {BitConverter.ToString(message)}");
@@ -189,7 +189,7 @@ namespace SharpMIDI
                 fpsStr = $"{MIDIFps,10:N0}";
 #endif
             // fps too volatile, idk what the word is for rapidly changing but you have to pad to make the stats string actually readable
-            if (kdmapiHasVoice)
+            if (KDMAPI.hasvoice)
                 Console.Write($"\rTick: {curr_tick:N0} / {MIDILoader.maxTick:N0} | Played Notes: {playedNotes:N0} / {MIDILoader.totalNotes:N0} ({notespersec:N0}/s) | MIDI Thread: @{fpsStr} fps | {KDMAPI._getActiveVoices()} voices    ");
             else
                 Console.Write($"\rTick: {curr_tick:N0} / {MIDILoader.maxTick:N0} | Played Notes: {playedNotes:N0} / {MIDILoader.totalNotes:N0} ({notespersec:N0}/s) | MIDI Thread: @{fpsStr} fps    ");

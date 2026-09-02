@@ -96,7 +96,7 @@ void main() {
         private static bool _paletteUploadPending = false;
 
         //private static KeyHeader* _keyHeaders;
-        private static ushort* _activeKeyCount;
+        private static int* _activeKeyCount;
         private static byte* _activeKeyColor;
         private static int* _activeKeyID;
 
@@ -139,7 +139,7 @@ void main() {
             Gl.UseProgram(0);
 
             //_keyHeaders = (KeyHeader*)NativeMemory.AllocZeroed(TOTAL_KEYS * (nuint)sizeof(KeyHeader));
-            _activeKeyCount = (ushort*)NativeMemory.AllocZeroed(TOTAL_KEYS * (nuint)sizeof(ushort));
+            _activeKeyCount = (int*)NativeMemory.AllocZeroed(TOTAL_KEYS * (nuint)sizeof(int));
             _activeKeyColor = (byte*)NativeMemory.AllocZeroed(TOTAL_KEYS * (nuint)sizeof(byte));
             _activeKeyID = (int*)NativeMemory.AllocZeroed(TOTAL_KEYS * (nuint)sizeof(int));
 
@@ -194,7 +194,7 @@ void main() {
         {
             _isInitialized = false;
             //NativeMemory.Clear(_keyHeaders, TOTAL_KEYS * (nuint)sizeof(KeyHeader));
-            NativeMemory.Clear(_activeKeyCount, TOTAL_KEYS * (nuint)sizeof(ushort));
+            NativeMemory.Clear(_activeKeyCount, TOTAL_KEYS * (nuint)sizeof(int));
             NativeMemory.Clear(_activeKeyColor, TOTAL_KEYS * (nuint)sizeof(byte));
             NativeMemory.Clear(_activeKeyID, TOTAL_KEYS * (nuint)sizeof(int));
             _head = 1;
@@ -284,7 +284,7 @@ void main() {
             {
                 _head = 1;
                 _tail = 1;
-                NativeMemory.Clear(_activeKeyCount, TOTAL_KEYS * (nuint)sizeof(ushort));
+                NativeMemory.Clear(_activeKeyCount, TOTAL_KEYS * (nuint)sizeof(int));
                 NativeMemory.Clear(_activeKeyColor, TOTAL_KEYS * (nuint)sizeof(byte));
                 NativeMemory.Clear(_activeKeyID, TOTAL_KEYS * (nuint)sizeof(int));
                 SweepRange(Math.Max(0, viewStart - WindowTicks), sweepEnd);
@@ -379,7 +379,7 @@ void main() {
         }
 
         [MethodImpl(MethodImplOptions.AggressiveOptimization | MethodImplOptions.NoInlining)]
-        private static long ProcessTickEvents(byte* messages, byte* tracks, byte* activekeycolor, ushort* activecount,
+        private static long ProcessTickEvents(byte* messages, byte* tracks, byte* activekeycolor, int* activecount,
             int* activekeyid, RenderNote* ringLocal, int maskLocal, long currentOffset, long nextOffset, int tick, ref int headLocal)
         {
             if (Ssse3.IsSupported)
@@ -425,12 +425,12 @@ void main() {
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private static void ProcessOneEvent(byte* messages, long offset, byte status, byte key, byte track,
-            byte* activekeycolor, ushort* activecount, int* activekeyid, RenderNote* ringLocal,
+            byte* activekeycolor, int* activecount, int* activekeyid, RenderNote* ringLocal,
             int maskLocal, int tick, ref int headLocal)
         {
             uint noteIdx = (uint)track | (uint)(status & 0x0F);
             int headerIdx = (int)((noteIdx & 0x0Fu) << 7 | key);
-            ushort count = activecount[headerIdx];
+            int count = activecount[headerIdx];
             byte activecolor = activekeycolor[headerIdx];
             uint statusHigh = (uint)status & 0xF0u;
 

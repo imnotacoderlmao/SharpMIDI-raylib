@@ -7,7 +7,7 @@ using System.Text.RegularExpressions;
 namespace SharpMIDI
 {
     static class MIDILoader
-    {   
+    {
         private struct TrackProperties
         {
             public long start;
@@ -17,7 +17,7 @@ namespace SharpMIDI
         private static readonly List<TrackProperties> trackProperties = [];
         private static unsafe byte* filePtr = null;
         private static long fileLength = 0;
-        private static long filePos = 0; 
+        private static long filePos = 0;
 
         public static long totalNotes = 0;
         public static long eventCount = 0;
@@ -29,7 +29,7 @@ namespace SharpMIDI
         public static string loadstatus = "No MIDI Loaded";
 
         public static int Crash(string error, bool choices = true)
-        {        
+        {
             if (choices)
             {
                 Console.WriteLine($"{error}\nplease input: yes/no to proceed");
@@ -55,7 +55,7 @@ namespace SharpMIDI
                 Task.Run(async () =>
                 {
                     await Task.Delay(1000);
-                    if (loadstatus == error) 
+                    if (loadstatus == error)
                         loadstatus = prevstatus;
                 });
                 return 1;
@@ -69,7 +69,7 @@ namespace SharpMIDI
             loadstatus = $"Loading MIDI file: {filename}";
             Console.WriteLine(loadstatus);
             if (!path.EndsWith(".mid"))
-            { 
+            {
                 int ret = Crash("file doesn't end with 'mid'. are you even loading a midi file?");
                 if (ret == 0) return;
             }
@@ -78,7 +78,7 @@ namespace SharpMIDI
             string memusage = string.Empty;
             double counttime;
             double parsetime;
-            double sizemult = WindowManager.trackcolors? 1.01 : 0.76; // +0.01 cause of timing overhead
+            double sizemult = WindowManager.trackcolors ? 1.01 : 0.76; // +0.01 cause of timing overhead
             using (var mmf = MemoryMappedFile.CreateFromFile(path, FileMode.Open, null, 0, MemoryMappedFileAccess.Read))
             using (var accessor = mmf.CreateViewAccessor(0, 0, MemoryMappedFileAccess.Read))
             {
@@ -91,20 +91,20 @@ namespace SharpMIDI
                     ulong ram_capacity = RamReader.GetTotalMemoryInBytes();
                     if ((accessor.Capacity * sizemult) > (ram_capacity * 0.75))
                     {
-                        string crashstr = 
+                        string crashstr =
                         $"""
                         this midi is a little big. its expected usage is {Starter.toMemoryText((long)(accessor.Capacity * sizemult))}
                         you have {Starter.toMemoryText((long)ram_capacity)} of ram.
                         your ram as a result will get starved and loading might take a while. continue?
                         """;
-                        int ret = Crash(crashstr); 
+                        int ret = Crash(crashstr);
                         if (ret == 0) return;
                     }
                     loadstatus = $"verifying header";
                     Console.WriteLine(loadstatus);
                     VerifyHeader();
                     MIDIClock.ppq = ppq;
-                    trackAmount = 0; 
+                    trackAmount = 0;
                     loadedtracks = 0;
                     totalNotes = 0;
                     loadstatus = $"Indexing MIDI tracks...";
@@ -113,7 +113,7 @@ namespace SharpMIDI
                     while (filePos < fileLength)
                     {
                         int ret = IndexTrack();
-                        if (ret == 0) 
+                        if (ret == 0)
                             break;
                         else if (ret == 2)
                         {
@@ -142,15 +142,15 @@ namespace SharpMIDI
                         Console.Write($"\r{loadstatus}");
                         t.Dispose();
                     });
-                    
+
                     double parseend = Timer.Seconds();
                     counttime = parseend - parsestart;
-                    
+
                     loadstatus = "flattening timing array";
                     Console.WriteLine($"\n{loadstatus}");
                     BigArray<long> writeCursors = new BigArray<long>(maxTick + 2);
                     BigArray<TickGroup> tickgroup = new BigArray<TickGroup>(maxTick + 2);
-                    
+
                     for (int i = 0; i < trackAmount; i++)
                     {
                         BigArray<TickGroup> list = trackHistogram[i];
@@ -164,16 +164,16 @@ namespace SharpMIDI
                         list.Dispose();
                     }
                     trackHistogram = null;
-                    
+
                     long event_offset = 0;
                     for (int t = 0; t <= maxTick; t++)
                     {
                         writeCursors.Pointer[t] = event_offset - 1;
                         long tickEventCount = tickgroup.Pointer[t].offset;
-                        tickgroup.Pointer[t] = new TickGroup 
-                        { 
-                            tick = t, 
-                            notecount = tickgroup.Pointer[t].notecount, 
+                        tickgroup.Pointer[t] = new TickGroup
+                        {
+                            tick = t,
+                            notecount = tickgroup.Pointer[t].notecount,
                             offset = event_offset
                         };
                         event_offset += tickEventCount;
@@ -230,7 +230,7 @@ namespace SharpMIDI
             Console.WriteLine(
                 ParseStatistics(fileLength, tempolen, sysexlen, counttime, parsetime, sizemult, filename)
             );
-            Console.WriteLine("parsing finished!! awaiting renderer.");            
+            Console.WriteLine("parsing finished!! awaiting renderer.");
             midiLoaded = true;
             loadstatus = filename;
             GLNoteRenderer.InitializeForMIDI();
@@ -279,7 +279,7 @@ namespace SharpMIDI
                   Current:        {Starter.toMemoryText(Process.GetCurrentProcess().WorkingSet64)}
                   Expected:       {Starter.toMemoryText((long)(filesize * sizemult))}
                   Channel Events: {Starter.toMemoryText(eventCount * sizeof(uint24))}
-                  Track Indexing: {Starter.toMemoryText((WindowManager.trackcolors? (eventCount * sizeof(byte)) : 0))}
+                  Track Indexing: {Starter.toMemoryText((WindowManager.trackcolors ? (eventCount * sizeof(byte)) : 0))}
                   Tempo Events:   {Starter.toMemoryText(tempolen * sizeof(Tempo))}
                   Timing:         {Starter.toMemoryText(timingbytes)}
               MIDI to RAM ratio:  {Process.GetCurrentProcess().WorkingSet64 / (double)filesize}x
@@ -288,7 +288,7 @@ namespace SharpMIDI
             return parsestatistics;
         }
 
-        static uint headersize = 0; 
+        static uint headersize = 0;
         static uint fmt = 0;
         static uint ppq = 0;
 
@@ -300,11 +300,11 @@ namespace SharpMIDI
                 fmt = ReadUInt16();
                 filePos += 2;
                 ppq = ReadUInt16();
-                if (fmt == 2) 
+                if (fmt == 2)
                     Crash("MIDI format 2 unsupported");
-                if (ppq < 0)  
+                if (ppq < 0)
                     Crash("PPQ is negative");
-                if (headersize != 6) 
+                if (headersize != 6)
                     Crash($"Incorrect header size of {headersize}");
             }
             else
